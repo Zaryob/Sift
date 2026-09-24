@@ -15,7 +15,9 @@ struct WebView: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {
         if nsView.url != url {
             let request = URLRequest(url: url)
-            nsView.load(request)
+            DispatchQueue.main.async {
+                nsView.load(request)
+            }
         }
     }
 }
