@@ -14,14 +14,22 @@ public final class WindowCloseHandler: NSObject, NSWindowDelegate {
     public func showMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
         if let window = mainWindow {
-            window.makeKeyAndOrderFront(nil)
+            if !window.isVisible {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                window.makeKey()
+            }
             return
         }
         for window in NSApp.windows where window.canBecomeMain {
             mainWindow = window
             window.delegate = self
             window.tabbingMode = .disallowed
-            window.makeKeyAndOrderFront(nil)
+            if !window.isVisible {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                window.makeKey()
+            }
             return
         }
     }

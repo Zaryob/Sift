@@ -27,9 +27,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         WindowCloseHandler.shared.showMainWindow()
-        if let url = urls.first {
-            NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
-        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -57,9 +54,7 @@ struct SiftApp: App {
     var body: some Scene {
         Window("Sift", id: "main") {
             ContentView()
-                .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
         }
-        .handlesExternalEvents(matching: Set(["*"]))
         .modelContainer(PersistenceController.shared.container)
         
         #if os(macOS)
