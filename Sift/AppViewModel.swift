@@ -74,6 +74,13 @@ public final class AppViewModel {
         }
     }
 
+    public func markAllAsRead(in articles: [FeedItem], context: ModelContext) {
+        for article in articles {
+            article.isRead = true
+        }
+        try? context.save()
+    }
+
     public func refreshAllFeeds() {
         guard !isRefreshing else { return }
         isRefreshing = true
@@ -100,7 +107,6 @@ public final class AppViewModel {
         defer { isAddingFeedLoading = false }
 
         do {
-            // 1. Try Auto-Discovery first if web page URL passed
             let discovered = (try? await discoveryService.discoverFeeds(from: url)) ?? []
             let targetURL = discovered.first?.url ?? url
 
@@ -129,6 +135,8 @@ public final class AppViewModel {
             context.insert(newFeed)
 
             // Insert initial articles
+            var addedCount = 0
+            var latestTitle: String?
             for parsedItem in parsedFeed.items {
                 let newItem = FeedItem(
                     guid: parsedItem.guid,
@@ -144,10 +152,22 @@ public final class AppViewModel {
                     feed: newFeed
                 )
                 context.insert(newItem)
+                addedCount += 1
+                if latestTitle == nil {
+                    latestTitle = parsedItem.title
+                }
             }
 
             try context.save()
             
+            if addedCount > 0, let title = latestTitle {
+                NotificationManager.shared.sendNewArticlesNotification(
+                    count: addedCount,
+                    feedTitle: newFeed.title,
+                    latestArticleTitle: title
+                )
+            }
+
             // Reset state
             addFeedURLString = ""
             addFeedCategoryString = ""

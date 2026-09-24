@@ -24,6 +24,21 @@ enum ReaderFontDesign: String, CaseIterable, Identifiable {
     }
 }
 
+struct ShareButton: View {
+    let items: [Any]
+
+    var body: some View {
+        Button {
+            let picker = NSSharingServicePicker(items: items)
+            if let window = NSApp.keyWindow {
+                picker.show(relativeTo: .zero, of: window.contentView ?? NSView(), preferredEdge: .minY)
+            }
+        } label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+    }
+}
+
 struct ArticleDetailView: View {
     @Bindable var viewModel: AppViewModel
     let article: FeedItem?
@@ -94,6 +109,10 @@ struct ArticleDetailView: View {
                             } label: {
                                 Label("Print / PDF", systemImage: "printer")
                             }
+                        }
+
+                        if let linkStr = article.link, let url = URL(string: linkStr) {
+                            ShareButton(items: [url, article.title])
                         }
 
                         Button {

@@ -8,6 +8,9 @@ struct SiftApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear {
+                    NotificationManager.shared.requestAuthorization()
+                }
         }
         .modelContainer(PersistenceController.shared.container)
         

@@ -49,11 +49,13 @@ struct ArticleListView: View {
         VStack(spacing: 0) {
             // Feed Details Header when a specific feed is selected
             if let feed = selectedFeed {
-                FeedDetailsHeaderView(feed: feed) {
+                FeedDetailsHeaderView(feed: feed, onRefresh: {
                     Task {
                         try? await FeedRefreshService().refreshFeed(id: feed.id)
                     }
-                }
+                }, onMarkAllAsRead: {
+                    viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
+                })
                 Divider()
             }
 
@@ -99,6 +101,17 @@ struct ArticleListView: View {
                 }
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
+                } label: {
+                    Label("Mark All as Read", systemImage: "checkmark.circle")
+                }
+                .disabled(filteredArticles.isEmpty || !filteredArticles.contains(where: { !$0.isRead }))
+                .help("Mark All as Read")
+            }
+        }
         .background {
             Group {
                 Button("") { viewModel.selectNextArticle(in: filteredArticles) }
@@ -129,6 +142,10 @@ struct ArticleListView: View {
                     viewModel.refreshAllFeeds()
                 }
                 .keyboardShortcut("r", modifiers: [.command])
+                Button("") {
+                    viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
             }
             .opacity(0)
             .allowsHitTesting(false)
@@ -155,6 +172,7 @@ struct ArticleListView: View {
 struct FeedDetailsHeaderView: View {
     let feed: Feed
     let onRefresh: () -> Void
+    let onMarkAllAsRead: () -> Void
 
     private var faviconURL: URL? {
         FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
@@ -193,6 +211,13 @@ struct FeedDetailsHeaderView: View {
                             .fontWeight(.bold)
 
                         Spacer()
+
+                        Button(action: onMarkAllAsRead) {
+                            Label("Mark All Read", systemImage: "checkmark.circle")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
 
                         Button(action: onRefresh) {
                             Label("Refresh", systemImage: "arrow.clockwise")

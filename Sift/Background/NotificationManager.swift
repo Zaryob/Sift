@@ -1,10 +1,13 @@
 import Foundation
 import UserNotifications
 
-public final class NotificationManager {
+public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     public static let shared = NotificationManager()
     
-    private init() {}
+    override private init() {
+        super.init()
+        UNUserNotificationCenter.current().delegate = self
+    }
 
     public func requestAuthorization() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
@@ -14,6 +17,15 @@ public final class NotificationManager {
                 print("Notification permission granted: \(granted)")
             }
         }
+    }
+
+    // Foreground notification display callback
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .badge])
     }
 
     public func sendNewArticlesNotification(count: Int, feedTitle: String, latestArticleTitle: String) {
@@ -38,6 +50,8 @@ public final class NotificationManager {
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
                 print("Failed to schedule notification: \(error)")
+            } else {
+                print("Successfully posted notification for \(feedTitle)")
             }
         }
     }

@@ -55,7 +55,7 @@ Detailed architectural documentation is available in the [`docs/`](docs/) direct
 ### Setup Instructions
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/Sift.git
+   git clone https://github.com/Zaryob/Sift.git
    cd Sift
    ```
 2. Open the Xcode project:
