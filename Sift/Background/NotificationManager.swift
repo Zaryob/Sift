@@ -23,13 +23,17 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         }
     }
 
-    // Foreground notification display callback
+    // Foreground notification display callback - allow banner, list, sound, and badge
     public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .badge])
+        if #available(macOS 11.0, *) {
+            completionHandler([.banner, .list, .sound, .badge])
+        } else {
+            completionHandler([.alert, .sound, .badge])
+        }
     }
 
     // Notification click response callback -> activate existing window & navigate to article
@@ -73,7 +77,11 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         if let faviconURL = faviconURL {
             Task {
                 var attachment: UNNotificationAttachment? = nil
-                if let (data, response) = try? await URLSession.shared.data(from: faviconURL),
+                let sessionConfig = URLSessionConfiguration.ephemeral
+                sessionConfig.timeoutIntervalForRequest = 2.0
+                let session = URLSession(configuration: sessionConfig)
+
+                if let (data, response) = try? await session.data(from: faviconURL),
                    let httpResp = response as? HTTPURLResponse,
                    httpResp.statusCode == 200,
                    !data.isEmpty {
@@ -90,7 +98,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                         try? data.write(to: fileURL)
                     }
 
-                    attachment = try? UNNotificationAttachment(identifier: "favicon", url: fileURL, options: nil)
+                    attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil)
                 }
 
                 if let attachment = attachment {
@@ -103,7 +111,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         }
     }
 
-    /// Legacy collective notification helper (deprecated in favor of individual sendArticleNotification)
+    /// Legacy collective notification helper
     public func sendNewArticlesNotification(
         count: Int,
         feedTitle: String,
@@ -136,7 +144,11 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         if let faviconURL = faviconURL {
             Task {
                 var attachment: UNNotificationAttachment? = nil
-                if let (data, response) = try? await URLSession.shared.data(from: faviconURL),
+                let sessionConfig = URLSessionConfiguration.ephemeral
+                sessionConfig.timeoutIntervalForRequest = 2.0
+                let session = URLSession(configuration: sessionConfig)
+
+                if let (data, response) = try? await session.data(from: faviconURL),
                    let httpResp = response as? HTTPURLResponse,
                    httpResp.statusCode == 200,
                    !data.isEmpty {
@@ -153,7 +165,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                         try? data.write(to: fileURL)
                     }
 
-                    attachment = try? UNNotificationAttachment(identifier: "favicon", url: fileURL, options: nil)
+                    attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil)
                 }
 
                 if let attachment = attachment {

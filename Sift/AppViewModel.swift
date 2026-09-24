@@ -149,7 +149,9 @@ public final class AppViewModel {
             )
             context.insert(newFeed)
 
-            // Insert initial articles (silently without sending notifications)
+            // Insert initial articles
+            var latestTitle: String?
+            var latestID: UUID?
             for parsedItem in parsedFeed.items {
                 let newItem = FeedItem(
                     guid: parsedItem.guid,
@@ -165,6 +167,10 @@ public final class AppViewModel {
                     feed: newFeed
                 )
                 context.insert(newItem)
+                if latestTitle == nil {
+                    latestTitle = parsedItem.title
+                    latestID = newItem.id
+                }
             }
 
             try context.save()
@@ -172,6 +178,19 @@ public final class AppViewModel {
             // Update widget snapshot & timelines
             WidgetSnapshotManager.shared.updateSnapshot(context: context)
             WidgetCenter.shared.reloadAllTimelines()
+
+            // Post an individual notification for the latest article of the newly added feed
+            // (Old articles do not trigger separate notifications, and no batched "(X new articles)" banner)
+            if let title = latestTitle, let articleID = latestID {
+                let faviconURL = FaviconFetcher.faviconURL(for: newFeed.siteURL, feedURLString: newFeed.url, iconURLString: newFeed.iconURL)
+                NotificationManager.shared.sendArticleNotification(
+                    articleTitle: title,
+                    feedTitle: newFeed.title,
+                    articleID: articleID,
+                    feedID: newFeed.id,
+                    faviconURL: faviconURL
+                )
+            }
 
             // Reset state
             addFeedURLString = ""
