@@ -95,11 +95,12 @@ public actor FeedRefreshService {
                         feedID: feed.id
                     )
                 }
-
-                // Update Widget snapshot and notify WidgetKit
-                WidgetSnapshotManager.shared.updateSnapshot(context: context)
-                WidgetCenter.shared.reloadAllTimelines()
             }
+
+            // Update Widget snapshot and notify WidgetKit for every feed check
+            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            WidgetCenter.shared.reloadAllTimelines()
+
         } catch {
             feed.refreshError = error.localizedDescription
             try context.save()
@@ -137,6 +138,10 @@ public actor FeedRefreshService {
                 }
             }
         }
+
+        // Final snapshot update after all feeds finish refreshing
+        WidgetSnapshotManager.shared.updateSnapshot(context: context)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// Merge parsed items into existing feed using deduplication logic

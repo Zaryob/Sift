@@ -6,10 +6,14 @@ public final class WidgetSnapshotManager {
     
     private let appGroupID = PersistenceController.appGroupID
     private let userDefaultsKey = "sift_recent_articles_json"
+    public static let sharedFileURL = URL(fileURLWithPath: "/Users/Shared/sift_recent_articles.json")
 
     public func updateSnapshot(context: ModelContext) {
         let descriptor = FetchDescriptor<FeedItem>(
-            sortBy: [SortDescriptor(\.publicationDate, order: .reverse)]
+            sortBy: [
+                SortDescriptor(\.publicationDate, order: .reverse),
+                SortDescriptor(\.discoveredDate, order: .reverse)
+            ]
         )
         
         do {
@@ -22,6 +26,7 @@ public final class WidgetSnapshotManager {
                     date: item.publicationDate
                 )
             }
+            print("[WidgetSnapshotManager] Updating widget snapshot with \(snapshots.count) articles.")
             saveSnapshots(Array(snapshots))
         } catch {
             print("Failed to generate widget snapshot: \(error)")
@@ -29,7 +34,8 @@ public final class WidgetSnapshotManager {
     }
 
     private func getSnapshotURLs() -> [URL] {
-        var urls: [URL] = []
+        var urls: [URL] = [Self.sharedFileURL]
+        
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             urls.append(groupURL.appendingPathComponent("recent_articles.json"))
         }
@@ -65,7 +71,24 @@ public final class WidgetSnapshotManager {
         let appGroupID = PersistenceController.appGroupID
         let userDefaultsKey = "sift_recent_articles_json"
 
-        // 1. Check UserDefaults suite & standard
+        // 1. Check Shared User File
+        if let data = try? Data(contentsOf: sharedFileURL),
+           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+           !snapshots.isEmpty {
+            return snapshots
+        }
+
+        // 2. Check App Group Container JSON File
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            let fileURL = groupURL.appendingPathComponent("recent_articles.json")
+            if let data = try? Data(contentsOf: fileURL),
+               let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+               !snapshots.isEmpty {
+                return snapshots
+            }
+        }
+
+        // 3. Check UserDefaults suite & standard
         if let groupDefaults = UserDefaults(suiteName: appGroupID),
            let jsonStr = groupDefaults.string(forKey: userDefaultsKey),
            let data = jsonStr.data(using: .utf8),
@@ -81,16 +104,15 @@ public final class WidgetSnapshotManager {
             return snapshots
         }
 
-        // 2. Check File candidates
-        var candidates: [URL] = []
-        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
-            candidates.append(groupURL.appendingPathComponent("recent_articles.json"))
-        }
+        // 4. Check File candidates
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let siftAppSupport = appSupport.appendingPathComponent("Sift", isDirectory: true)
-        candidates.append(siftAppSupport.appendingPathComponent("recent_articles.json"))
-        candidates.append(URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"))
-        candidates.append(URL(fileURLWithPath: "/tmp/sift_recent_articles.json"))
+        let candidates = [
+            siftAppSupport.appendingPathComponent("recent_articles.json"),
+            appSupport.appendingPathComponent("recent_articles.json"),
+            URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"),
+            URL(fileURLWithPath: "/tmp/sift_recent_articles.json")
+        ]
 
         for fileURL in candidates {
             if let data = try? Data(contentsOf: fileURL),

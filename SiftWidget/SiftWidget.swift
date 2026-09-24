@@ -42,8 +42,16 @@ public struct ArticleWidgetProvider: TimelineProvider {
     private func loadSnapshots() -> [ArticleSnapshot] {
         let appGroupID = "group.com.sift.app"
         let userDefaultsKey = "sift_recent_articles_json"
+        let sharedFileURL = URL(fileURLWithPath: "/Users/Shared/sift_recent_articles.json")
 
-        // 1. App Group Container JSON File
+        // 1. Check Shared User File
+        if let data = try? Data(contentsOf: sharedFileURL),
+           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+           !snapshots.isEmpty {
+            return snapshots
+        }
+
+        // 2. App Group Container JSON File
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             let fileURL = groupURL.appendingPathComponent("recent_articles.json")
             if let data = try? Data(contentsOf: fileURL),
@@ -53,7 +61,7 @@ public struct ArticleWidgetProvider: TimelineProvider {
             }
         }
 
-        // 2. UserDefaults Suite
+        // 3. UserDefaults Suite
         if let groupDefaults = UserDefaults(suiteName: appGroupID),
            let jsonStr = groupDefaults.string(forKey: userDefaultsKey),
            let data = jsonStr.data(using: .utf8),
@@ -62,12 +70,14 @@ public struct ArticleWidgetProvider: TimelineProvider {
             return snapshots
         }
 
-        // 3. Check Application Support candidates
+        // 4. Check Application Support candidates
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let siftAppSupport = appSupport.appendingPathComponent("Sift", isDirectory: true)
         let candidates = [
             siftAppSupport.appendingPathComponent("recent_articles.json"),
-            appSupport.appendingPathComponent("recent_articles.json")
+            appSupport.appendingPathComponent("recent_articles.json"),
+            URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"),
+            URL(fileURLWithPath: "/tmp/sift_recent_articles.json")
         ]
 
         for fileURL in candidates {
