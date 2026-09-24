@@ -1,9 +1,35 @@
 import SwiftUI
 import SwiftData
 import WidgetKit
+import AppKit
+
+extension Notification.Name {
+    public static let siftHandleDeepLink = Notification.Name("siftHandleDeepLink")
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            WindowCloseHandler.shared.showMainWindow()
+        }
+        return true
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        WindowCloseHandler.shared.showMainWindow()
+        if let url = urls.first {
+            NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
+        }
+    }
+}
 
 @main
 struct SiftApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var backgroundScheduler = BackgroundFeedScheduler.shared
 
     init() {
@@ -19,7 +45,7 @@ struct SiftApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView()
                 .onAppear {
                     NotificationManager.shared.requestAuthorization()

@@ -1,27 +1,9 @@
 import Foundation
 import SwiftData
-import Darwin
 
 public final class PersistenceController {
     public static let appGroupID = "group.com.sift.app"
     
-    /// Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
-    public static var siftAppDataDirectory: URL {
-        let realHome: URL
-        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
-            let path = FileManager.default.string(withFileSystemRepresentation: dir, length: Int(strlen(dir)))
-            realHome = URL(fileURLWithPath: path)
-        } else {
-            realHome = URL(fileURLWithPath: "/Users/\(NSUserName())")
-        }
-        let appSupport = realHome
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Sift", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        return appSupport
-    }
-
     public static let shared: PersistenceController = {
         PersistenceController()
     }()
@@ -41,14 +23,16 @@ public final class PersistenceController {
             let storeURL = appGroupURL.appendingPathComponent("SiftData.sqlite")
             modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
         } else {
-            let storeURL = Self.siftAppDataDirectory.appendingPathComponent("SiftData.sqlite")
-            modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
+            // Standard sandboxed Application Support store.
+            // Guaranteed read/write persistence across restarts without sandboxing locking issues.
+            modelConfiguration = ModelConfiguration(schema: schema)
         }
 
         do {
             container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            print("[PersistenceController] Successfully initialized persistent SwiftData container.")
         } catch {
-            print("Failed to initialize ModelContainer: \(error). Falling back to in-memory store.")
+            print("[PersistenceController] Failed to initialize ModelContainer: \(error). Falling back to in-memory store.")
             do {
                 let fallbackConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
                 container = try ModelContainer(for: schema, configurations: [fallbackConfig])

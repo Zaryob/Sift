@@ -14,6 +14,7 @@ struct ContentView: View {
         } detail: {
             ArticleDetailView(viewModel: viewModel, article: viewModel.selectedArticle)
         }
+        .background(WindowAccessor())
         .sheet(isPresented: $viewModel.isAddingFeed) {
             AddFeedSheet(viewModel: viewModel)
         }
@@ -24,11 +25,21 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             DispatchQueue.main.async {
+                WindowCloseHandler.shared.showMainWindow()
                 viewModel.handleDeepLink(url, context: modelContext)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .siftHandleDeepLink)) { notification in
+            if let url = notification.object as? URL {
+                DispatchQueue.main.async {
+                    WindowCloseHandler.shared.showMainWindow()
+                    viewModel.handleDeepLink(url, context: modelContext)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NotificationManager.openArticleNotification)) { notification in
             DispatchQueue.main.async {
+                WindowCloseHandler.shared.showMainWindow()
                 if let articleID = notification.object as? UUID {
                     let descriptor = FetchDescriptor<FeedItem>(predicate: #Predicate { $0.id == articleID })
                     if let item = try? modelContext.fetch(descriptor).first {
@@ -44,6 +55,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NotificationManager.openFeedNotification)) { notification in
             DispatchQueue.main.async {
+                WindowCloseHandler.shared.showMainWindow()
                 if let feedID = notification.object as? UUID {
                     viewModel.selectedSidebarItem = .feed(feedID)
                 }

@@ -4,7 +4,6 @@ import SwiftData
 struct MenuBarExtraView: View {
     @Query(sort: \FeedItem.publicationDate, order: .reverse) private var articles: [FeedItem]
     private let refreshService = FeedRefreshService()
-    @Environment(\.openWindow) private var openWindow
 
     private var unreadArticles: [FeedItem] {
         articles.filter { !$0.isRead }
@@ -62,12 +61,7 @@ struct MenuBarExtraView: View {
             }
 
             Button("Open Reader Window") {
-                NSApp.activate(ignoringOtherApps: true)
-                for window in NSApp.windows {
-                    if window.canBecomeMain {
-                        window.makeKeyAndOrderFront(nil)
-                    }
-                }
+                WindowCloseHandler.shared.showMainWindow()
             }
 
             Divider()
