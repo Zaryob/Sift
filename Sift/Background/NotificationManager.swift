@@ -40,17 +40,14 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     ) {
         let userInfo = response.notification.request.content.userInfo
         DispatchQueue.main.async {
-            NSApp.activate(ignoringOtherApps: true)
-            if let keyWindow = NSApp.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
-                keyWindow.makeKeyAndOrderFront(nil)
-            } else if let mainWin = NSApp.windows.first(where: { $0.canBecomeMain }) {
-                mainWin.makeKeyAndOrderFront(nil)
-            }
+            WindowCloseHandler.shared.showMainWindow()
             
-            if let articleIDStr = userInfo["articleID"] as? String, let uuid = UUID(uuidString: articleIDStr) {
-                NotificationCenter.default.post(name: NotificationManager.openArticleNotification, object: uuid)
-            } else if let feedIDStr = userInfo["feedID"] as? String, let uuid = UUID(uuidString: feedIDStr) {
-                NotificationCenter.default.post(name: NotificationManager.openFeedNotification, object: uuid)
+            if let articleIDStr = userInfo["articleID"] as? String,
+               let url = URL(string: "rssreader://article/\(articleIDStr)") {
+                NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
+            } else if let feedIDStr = userInfo["feedID"] as? String,
+                      let url = URL(string: "rssreader://feed/\(feedIDStr)") {
+                NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
             }
         }
         completionHandler()

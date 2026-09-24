@@ -10,12 +10,18 @@ extension Notification.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        // Register notification delegate immediately at app startup
+        _ = NotificationManager.shared
+        NotificationManager.shared.requestAuthorization()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // Keep running in the background when the window is closed
+        return false
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            WindowCloseHandler.shared.showMainWindow()
-        }
+        WindowCloseHandler.shared.showMainWindow()
         return true
     }
 
@@ -45,11 +51,8 @@ struct SiftApp: App {
     }
 
     var body: some Scene {
-        WindowGroup(id: "main") {
+        Window("Sift", id: "main") {
             ContentView()
-                .onAppear {
-                    NotificationManager.shared.requestAuthorization()
-                }
                 .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
         }
         .handlesExternalEvents(matching: Set(["*"]))

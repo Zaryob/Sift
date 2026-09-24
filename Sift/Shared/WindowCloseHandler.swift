@@ -6,8 +6,9 @@ public final class WindowCloseHandler: NSObject, NSWindowDelegate {
     public weak var mainWindow: NSWindow?
 
     public func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Prevent window destruction; simply hide it so background operation continues
         sender.orderOut(nil)
-        return false // Hide the window instead of destroying it
+        return false
     }
 
     public func showMainWindow() {
@@ -19,6 +20,7 @@ public final class WindowCloseHandler: NSObject, NSWindowDelegate {
         for window in NSApp.windows where window.canBecomeMain {
             mainWindow = window
             window.delegate = self
+            window.tabbingMode = .disallowed
             window.makeKeyAndOrderFront(nil)
             return
         }
@@ -33,6 +35,7 @@ public struct WindowAccessor: NSViewRepresentable {
         DispatchQueue.main.async {
             if let window = view.window {
                 window.delegate = WindowCloseHandler.shared
+                window.tabbingMode = .disallowed
                 WindowCloseHandler.shared.mainWindow = window
             }
         }
@@ -42,6 +45,7 @@ public struct WindowAccessor: NSViewRepresentable {
     public func updateNSView(_ nsView: NSView, context: Context) {
         if let window = nsView.window, WindowCloseHandler.shared.mainWindow == nil {
             window.delegate = WindowCloseHandler.shared
+            window.tabbingMode = .disallowed
             WindowCloseHandler.shared.mainWindow = window
         }
     }
