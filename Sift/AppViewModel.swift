@@ -44,6 +44,28 @@ public final class AppViewModel {
         self.httpClient = httpClient
     }
 
+    public func selectNextArticle(in articles: [FeedItem]) {
+        guard !articles.isEmpty else { return }
+        guard let current = selectedArticle, let index = articles.firstIndex(where: { $0.id == current.id }) else {
+            selectedArticle = articles.first
+            return
+        }
+        if index + 1 < articles.count {
+            selectedArticle = articles[index + 1]
+        }
+    }
+
+    public func selectPreviousArticle(in articles: [FeedItem]) {
+        guard !articles.isEmpty else { return }
+        guard let current = selectedArticle, let index = articles.firstIndex(where: { $0.id == current.id }) else {
+            selectedArticle = articles.first
+            return
+        }
+        if index - 1 >= 0 {
+            selectedArticle = articles[index - 1]
+        }
+    }
+
     public func refreshAllFeeds() {
         guard !isRefreshing else { return }
         isRefreshing = true
@@ -54,9 +76,13 @@ public final class AppViewModel {
     }
 
     public func addFeed(context: ModelContext) async {
-        let trimmed = addFeedURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), let scheme = url.scheme, ["http", "https"].contains(scheme.lowercased()) else {
-            showError("Please enter a valid HTTP or HTTPS URL.")
+        var trimmedURL = addFeedURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedURL.lowercased().hasPrefix("http://") && !trimmedURL.lowercased().hasPrefix("https://") {
+            trimmedURL = "https://" + trimmedURL
+        }
+        
+        guard let url = URL(string: trimmedURL) else {
+            showError("Please enter a valid URL.")
             return
         }
 

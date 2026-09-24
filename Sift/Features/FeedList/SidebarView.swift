@@ -85,9 +85,14 @@ struct SidebarView: View {
             Section {
                 ForEach(feeds) { feed in
                     NavigationLink(value: SidebarItem.feed(feed.id)) {
-                        HStack {
-                            Label(feed.title, systemImage: "rss")
+                        HStack(spacing: 8) {
+                            FeedFaviconView(feed: feed)
+
+                            Text(feed.title)
+                                .lineLimit(1)
+
                             Spacer()
+
                             let count = feed.unreadCount
                             if count > 0 {
                                 Text("\(count)")
@@ -134,6 +139,37 @@ struct SidebarView: View {
                 }
                 .disabled(viewModel.isRefreshing)
             }
+        }
+    }
+}
+
+struct FeedFaviconView: View {
+    let feed: Feed
+    
+    private var faviconURL: URL? {
+        FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
+    }
+
+    var body: some View {
+        if let url = faviconURL {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 16, height: 16)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                default:
+                    Image(systemName: "rss")
+                        .foregroundStyle(.orange)
+                        .frame(width: 16, height: 16)
+                }
+            }
+        } else {
+            Image(systemName: "rss")
+                .foregroundStyle(.orange)
+                .frame(width: 16, height: 16)
         }
     }
 }

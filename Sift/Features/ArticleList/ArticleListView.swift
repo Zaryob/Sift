@@ -115,13 +115,35 @@ struct FeedDetailsHeaderView: View {
     let feed: Feed
     let onRefresh: () -> Void
 
+    private var faviconURL: URL? {
+        FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "rss.circle.fill")
-                    .resizable()
-                    .frame(width: 28, height: 28)
-                    .foregroundStyle(.orange)
+                if let url = faviconURL {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 32, height: 32)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        default:
+                            Image(systemName: "rss.circle.fill")
+                                .resizable()
+                                .frame(width: 32, height: 32)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                } else {
+                    Image(systemName: "rss.circle.fill")
+                        .resizable()
+                        .frame(width: 32, height: 32)
+                        .foregroundStyle(.orange)
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
