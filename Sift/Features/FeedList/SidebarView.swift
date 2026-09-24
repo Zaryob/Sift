@@ -6,6 +6,10 @@ struct SidebarView: View {
     @Query(sort: \Feed.title) private var feeds: [Feed]
     @Query private var allArticles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
+    
+    @State private var editingFeedForCategory: Feed?
+    @State private var categoryInputText: String = ""
+    @State private var showCategoryPrompt: Bool = false
 
     private var totalUnreadCount: Int {
         allArticles.filter { !$0.isRead }.count
@@ -17,6 +21,20 @@ struct SidebarView: View {
 
     private var starredArticlesCount: Int {
         allArticles.filter { $0.isStarred }.count
+    }
+
+    private var categorizedFeeds: [String: [Feed]] {
+        Dictionary(grouping: feeds) { feed in
+            feed.category?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+    }
+
+    private var sortedCategories: [String] {
+        categorizedFeeds.keys.filter { !$0.isEmpty }.sorted()
+    }
+
+    private var uncategorizedFeeds: [Feed] {
+        categorizedFeeds[""] ?? []
     }
 
     var body: some View {
@@ -82,39 +100,21 @@ struct SidebarView: View {
                 }
             }
 
+            // Categorized Folders
+            ForEach(sortedCategories, id: \.self) { categoryName in
+                Section(header: Label(categoryName, systemImage: "folder.fill").font(.subheadline).foregroundStyle(.secondary)) {
+                    if let categoryFeeds = categorizedFeeds[categoryName] {
+                        ForEach(categoryFeeds) { feed in
+                            feedRow(feed: feed)
+                        }
+                    }
+                }
+            }
+
+            // Uncategorized Feeds
             Section {
-                ForEach(feeds) { feed in
-                    NavigationLink(value: SidebarItem.feed(feed.id)) {
-                        HStack(spacing: 8) {
-                            FeedFaviconView(feed: feed)
-
-                            Text(feed.title)
-                                .lineLimit(1)
-
-                            Spacer()
-
-                            let count = feed.unreadCount
-                            if count > 0 {
-                                Text("\(count)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.secondary.opacity(0.2)))
-                            }
-                        }
-                    }
-                    .contextMenu {
-                        Button("Refresh Feed") {
-                            Task {
-                                try? await FeedRefreshService().refreshFeed(id: feed.id)
-                            }
-                        }
-                        Divider()
-                        Button("Delete Feed", role: .destructive) {
-                            viewModel.deleteFeed(feed, context: modelContext)
-                        }
-                    }
+                ForEach(uncategorizedFeeds) { feed in
+                    feedRow(feed: feed)
                 }
             } header: {
                 HStack {
@@ -138,6 +138,58 @@ struct SidebarView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .disabled(viewModel.isRefreshing)
+            }
+        }
+        .alert("Set Folder / Category", isPresented: $showCategoryPrompt) {
+            TextField("Folder Name (e.g. Tech, News)", text: $categoryInputText)
+            Button("Save") {
+                if let feed = editingFeedForCategory {
+                    viewModel.updateFeedCategory(feed, category: categoryInputText, context: modelContext)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter a folder name for this feed or leave empty to remove from folder.")
+        }
+    }
+
+    @ViewBuilder
+    private func feedRow(feed: Feed) -> some View {
+        NavigationLink(value: SidebarItem.feed(feed.id)) {
+            HStack(spacing: 8) {
+                FeedFaviconView(feed: feed)
+
+                Text(feed.title)
+                    .lineLimit(1)
+
+                Spacer()
+
+                let count = feed.unreadCount
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.secondary.opacity(0.2)))
+                }
+            }
+        }
+        .contextMenu {
+            Button("Set Folder...") {
+                editingFeedForCategory = feed
+                categoryInputText = feed.category ?? ""
+                showCategoryPrompt = true
+            }
+            Divider()
+            Button("Refresh Feed") {
+                Task {
+                    try? await FeedRefreshService().refreshFeed(id: feed.id)
+                }
+            }
+            Divider()
+            Button("Delete Feed", role: .destructive) {
+                viewModel.deleteFeed(feed, context: modelContext)
             }
         }
     }

@@ -27,6 +27,7 @@ public final class AppViewModel {
     
     public var isAddingFeed: Bool = false
     public var addFeedURLString: String = ""
+    public var addFeedCategoryString: String = ""
     public var isAddingFeedLoading: Bool = false
     
     public var errorMessage: String?
@@ -80,6 +81,8 @@ public final class AppViewModel {
         if !trimmedURL.lowercased().hasPrefix("http://") && !trimmedURL.lowercased().hasPrefix("https://") {
             trimmedURL = "https://" + trimmedURL
         }
+
+        let trimmedCategory = addFeedCategoryString.trimmingCharacters(in: .whitespacesAndNewlines)
         
         guard let url = URL(string: trimmedURL) else {
             showError("Please enter a valid URL.")
@@ -106,6 +109,7 @@ public final class AppViewModel {
                 siteURL: parsedFeed.siteURL,
                 feedDescription: parsedFeed.feedDescription,
                 iconURL: parsedFeed.iconURL,
+                category: trimmedCategory.isEmpty ? nil : trimmedCategory,
                 dateAdded: Date(),
                 lastSuccessfulRefresh: Date(),
                 etag: etag,
@@ -135,12 +139,18 @@ public final class AppViewModel {
             
             // Reset state
             addFeedURLString = ""
+            addFeedCategoryString = ""
             isAddingFeed = false
             selectedSidebarItem = .feed(newFeed.id)
 
         } catch {
             showError("Failed to add feed: \(error.localizedDescription)")
         }
+    }
+
+    public func updateFeedCategory(_ feed: Feed, category: String?, context: ModelContext) {
+        feed.category = category?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : category
+        try? context.save()
     }
 
     public func deleteFeed(_ feed: Feed, context: ModelContext) {

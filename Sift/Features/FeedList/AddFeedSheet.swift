@@ -22,6 +22,15 @@ struct AddFeedSheet: View {
                     .onSubmit {
                         submit()
                     }
+
+                Text("Folder / Category (Optional)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+
+                TextField("e.g. Tech, News, Design", text: $viewModel.addFeedCategoryString)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(viewModel.isAddingFeedLoading)
             }
 
             if viewModel.isAddingFeedLoading {

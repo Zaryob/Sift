@@ -94,6 +94,40 @@ struct ArticleListView: View {
                 }
             }
         }
+        .background {
+            Group {
+                Button("") { viewModel.selectNextArticle(in: filteredArticles) }
+                    .keyboardShortcut("j", modifiers: [])
+                Button("") { viewModel.selectPreviousArticle(in: filteredArticles) }
+                    .keyboardShortcut("k", modifiers: [])
+                Button("") {
+                    if let article = viewModel.selectedArticle {
+                        article.isRead.toggle()
+                        try? modelContext.save()
+                    }
+                }
+                .keyboardShortcut("m", modifiers: [])
+                Button("") {
+                    if let article = viewModel.selectedArticle {
+                        article.isStarred.toggle()
+                        try? modelContext.save()
+                    }
+                }
+                .keyboardShortcut("s", modifiers: [])
+                Button("") {
+                    if let article = viewModel.selectedArticle {
+                        viewModel.openArticleExternally(article)
+                    }
+                }
+                .keyboardShortcut("o", modifiers: [])
+                Button("") {
+                    viewModel.refreshAllFeeds()
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+            }
+            .opacity(0)
+            .allowsHitTesting(false)
+        }
         .navigationTitle(titleForSelection)
     }
 

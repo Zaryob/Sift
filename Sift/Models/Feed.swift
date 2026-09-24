@@ -9,6 +9,7 @@ public final class Feed {
     public var siteURL: String?
     public var feedDescription: String?
     public var iconURL: String?
+    public var category: String?
     public var dateAdded: Date
     public var lastSuccessfulRefresh: Date?
     public var lastRefreshAttempt: Date?
@@ -27,6 +28,7 @@ public final class Feed {
         siteURL: String? = nil,
         feedDescription: String? = nil,
         iconURL: String? = nil,
+        category: String? = nil,
         dateAdded: Date = Date(),
         lastSuccessfulRefresh: Date? = nil,
         lastRefreshAttempt: Date? = nil,
@@ -42,6 +44,7 @@ public final class Feed {
         self.siteURL = siteURL
         self.feedDescription = feedDescription
         self.iconURL = iconURL
+        self.category = category
         self.dateAdded = dateAdded
         self.lastSuccessfulRefresh = lastSuccessfulRefresh
         self.lastRefreshAttempt = lastRefreshAttempt
