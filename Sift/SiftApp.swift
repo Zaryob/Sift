@@ -21,12 +21,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        WindowCloseHandler.shared.showMainWindow()
+        WindowActionTarget.shared.showMainWindow()
         return true
-    }
-
-    func application(_ application: NSApplication, open urls: [URL]) {
-        WindowCloseHandler.shared.showMainWindow()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -55,6 +51,7 @@ struct SiftApp: App {
         Window("Sift", id: "main") {
             ContentView()
         }
+        .handlesExternalEvents(matching: ["*"])
         .modelContainer(PersistenceController.shared.container)
         
         #if os(macOS)

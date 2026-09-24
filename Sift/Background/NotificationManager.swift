@@ -40,7 +40,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     ) {
         let userInfo = response.notification.request.content.userInfo
         DispatchQueue.main.async {
-            WindowCloseHandler.shared.showMainWindow()
+            WindowActionTarget.shared.showMainWindow()
             
             if let articleIDStr = userInfo["articleID"] as? String,
                let url = URL(string: "rssreader://article/\(articleIDStr)") {

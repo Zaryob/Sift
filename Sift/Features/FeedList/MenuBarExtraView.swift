@@ -61,7 +61,7 @@ struct MenuBarExtraView: View {
             }
 
             Button("Open Reader Window") {
-                WindowCloseHandler.shared.showMainWindow()
+                WindowActionTarget.shared.showMainWindow()
             }
 
             Divider()
