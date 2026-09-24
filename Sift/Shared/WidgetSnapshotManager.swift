@@ -1,12 +1,20 @@
 import Foundation
 import SwiftData
+import Darwin
 
 public final class WidgetSnapshotManager {
     public static let shared = WidgetSnapshotManager()
     
     /// Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
     public static var siftAppDataDirectory: URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
+        let realHome: URL
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+            let path = FileManager.default.string(withFileSystemRepresentation: dir, length: Int(strlen(dir)))
+            realHome = URL(fileURLWithPath: path)
+        } else {
+            realHome = URL(fileURLWithPath: "/Users/\(NSUserName())")
+        }
+        let dir = realHome
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent("Sift", isDirectory: true)
@@ -28,8 +36,13 @@ public final class WidgetSnapshotManager {
         )
         
         do {
-            let items = try context.fetch(descriptor).prefix(10)
-            let snapshots = items.map { item in
+            var items: [FeedItem] = (try? context.fetch(descriptor)) ?? []
+            if items.isEmpty {
+                items = (try? context.fetch(FetchDescriptor<FeedItem>())) ?? []
+                items.sort { $0.publicationDate > $1.publicationDate }
+            }
+            
+            let snapshots = items.prefix(10).map { item in
                 ArticleSnapshot(
                     id: item.id,
                     title: item.title,
@@ -54,26 +67,50 @@ public final class WidgetSnapshotManager {
         
         guard let data = try? encoder.encode(snapshots) else { return }
         
-        let targetURL = Self.sharedCacheURL
-        try? data.write(to: targetURL, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: targetURL.path)
+        var targetURLs: [URL] = [Self.sharedCacheURL]
+        
+        // Also write to container App Support as fallback
+        let containerAppSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let containerSift = containerAppSupport?.appendingPathComponent("Sift", isDirectory: true) {
+            try? FileManager.default.createDirectory(at: containerSift, withIntermediateDirectories: true)
+            targetURLs.append(containerSift.appendingPathComponent("widget_articles.plist"))
+        }
+
+        // Also write to App Group if configured
+        let appGroupID = PersistenceController.appGroupID
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            targetURLs.append(groupURL.appendingPathComponent("widget_articles.plist"))
+        }
+
+        for url in targetURLs {
+            try? data.write(to: url, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: url.path)
+        }
     }
 
     public static func loadSnapshots() -> [ArticleSnapshot] {
-        let targetURL = sharedCacheURL
-        guard let data = try? Data(contentsOf: targetURL) else {
-            return []
+        var candidateURLs: [URL] = [sharedCacheURL]
+        
+        let containerAppSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let containerSift = containerAppSupport?.appendingPathComponent("Sift", isDirectory: true) {
+            candidateURLs.append(containerSift.appendingPathComponent("widget_articles.plist"))
         }
 
-        // Decode from binary PropertyList format
+        let appGroupID = PersistenceController.appGroupID
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            candidateURLs.append(groupURL.appendingPathComponent("widget_articles.plist"))
+        }
+
         let decoder = PropertyListDecoder()
-        if let snapshots = try? decoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
-            return snapshots
-        }
-
-        // Fallback for JSON decode if needed
-        if let jsonSnapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data), !jsonSnapshots.isEmpty {
-            return jsonSnapshots
+        for url in candidateURLs {
+            if let data = try? Data(contentsOf: url) {
+                if let snapshots = try? decoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
+                    return snapshots
+                }
+                if let jsonSnapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data), !jsonSnapshots.isEmpty {
+                    return jsonSnapshots
+                }
+            }
         }
 
         return []

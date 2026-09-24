@@ -1,12 +1,20 @@
 import Foundation
 import SwiftData
+import Darwin
 
 public final class PersistenceController {
     public static let appGroupID = "group.com.sift.app"
     
     /// Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
     public static var siftAppDataDirectory: URL {
-        let appSupport = FileManager.default.homeDirectoryForCurrentUser
+        let realHome: URL
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+            let path = FileManager.default.string(withFileSystemRepresentation: dir, length: Int(strlen(dir)))
+            realHome = URL(fileURLWithPath: path)
+        } else {
+            realHome = URL(fileURLWithPath: "/Users/\(NSUserName())")
+        }
+        let appSupport = realHome
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent("Sift", isDirectory: true)

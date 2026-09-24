@@ -1,5 +1,6 @@
 import WidgetKit
 import SwiftUI
+import Darwin
 
 public struct WidgetArticleEntry: TimelineEntry {
     public let date: Date
@@ -40,33 +41,43 @@ public struct ArticleWidgetProvider: TimelineProvider {
     }
 
     private func loadSnapshots() -> [ArticleSnapshot] {
-        // Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
-        let appSupportDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("Sift", isDirectory: true)
-        
-        let plistURL = appSupportDir.appendingPathComponent("widget_articles.plist")
-
-        // 1. Primary: Read Apple native binary PropertyList from ~/Library/Application Support/Sift/
-        if let data = try? Data(contentsOf: plistURL) {
-            let plistDecoder = PropertyListDecoder()
-            if let snapshots = try? plistDecoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
-                return snapshots
-            }
-            if let jsonSnapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data), !jsonSnapshots.isEmpty {
-                return jsonSnapshots
-            }
+        // Resolve real user home directory outside sandbox container redirect
+        let realHome: URL
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+            let path = FileManager.default.string(withFileSystemRepresentation: dir, length: Int(strlen(dir)))
+            realHome = URL(fileURLWithPath: path)
+        } else {
+            realHome = URL(fileURLWithPath: "/Users/\(NSUserName())")
         }
 
-        // 2. App Group fallback if active
+        let realAppSupportPlist = realHome
+            .appendingPathComponent("Library/Application Support/Sift/widget_articles.plist")
+
+        var candidateURLs: [URL] = [realAppSupportPlist]
+
+        // Container fallback
+        let containerAppSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let containerPlist = containerAppSupport?.appendingPathComponent("Sift/widget_articles.plist") {
+            candidateURLs.append(containerPlist)
+        }
+
+        // App Group fallback
         let appGroupID = "group.com.sift.app"
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
-            let groupPlistURL = groupURL.appendingPathComponent("widget_articles.plist")
-            if let data = try? Data(contentsOf: groupPlistURL),
-               let snapshots = (try? PropertyListDecoder().decode([ArticleSnapshot].self, from: data)) ?? (try? JSONDecoder().decode([ArticleSnapshot].self, from: data)),
-               !snapshots.isEmpty {
-                return snapshots
+            candidateURLs.append(groupURL.appendingPathComponent("widget_articles.plist"))
+        }
+
+        let plistDecoder = PropertyListDecoder()
+        let jsonDecoder = JSONDecoder()
+
+        for url in candidateURLs {
+            if let data = try? Data(contentsOf: url) {
+                if let snapshots = try? plistDecoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
+                    return snapshots
+                }
+                if let snapshots = try? jsonDecoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
+                    return snapshots
+                }
             }
         }
 
