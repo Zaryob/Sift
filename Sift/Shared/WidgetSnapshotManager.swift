@@ -27,38 +27,45 @@ public final class WidgetSnapshotManager {
         }
     }
 
-    private func getSnapshotURL() -> URL {
+    private func getSnapshotURLs() -> [URL] {
+        var urls: [URL] = []
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
-            return groupURL.appendingPathComponent("recent_articles.json")
+            urls.append(groupURL.appendingPathComponent("recent_articles.json"))
         }
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        return appSupport.appendingPathComponent("recent_articles.json")
+        urls.append(appSupport.appendingPathComponent("recent_articles.json"))
+        
+        let tmpURL = URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json")
+        urls.append(tmpURL)
+        return urls
     }
 
     private func saveSnapshots(_ snapshots: [ArticleSnapshot]) {
-        let fileURL = getSnapshotURL()
-        do {
-            let data = try JSONEncoder().encode(snapshots)
-            try data.write(to: fileURL)
-        } catch {
-            print("Failed to save widget snapshot file: \(error)")
+        guard let data = try? JSONEncoder().encode(snapshots) else { return }
+        for url in getSnapshotURLs() {
+            try? data.write(to: url, options: .atomic)
         }
     }
 
     public static func loadSnapshots() -> [ArticleSnapshot] {
         let appGroupID = PersistenceController.appGroupID
-        let fileURL: URL
+        var candidates: [URL] = []
+        
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
-            fileURL = groupURL.appendingPathComponent("recent_articles.json")
-        } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            fileURL = appSupport.appendingPathComponent("recent_articles.json")
+            candidates.append(groupURL.appendingPathComponent("recent_articles.json"))
         }
-        guard let data = try? Data(contentsOf: fileURL),
-              let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data) else {
-            return []
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        candidates.append(appSupport.appendingPathComponent("recent_articles.json"))
+        candidates.append(URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"))
+
+        for fileURL in candidates {
+            if let data = try? Data(contentsOf: fileURL),
+               let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+               !snapshots.isEmpty {
+                return snapshots
+            }
         }
-        return snapshots
+        return []
     }
 }

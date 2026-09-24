@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import WidgetKit
 
 struct ContentView: View {
     @State private var viewModel = AppViewModel()
@@ -44,6 +45,8 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.refreshAllFeeds()
+            WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
+            WidgetCenter.shared.reloadAllTimelines()
         }
     }
 }

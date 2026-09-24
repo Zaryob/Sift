@@ -32,7 +32,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Notification click response callback -> activate app & navigate to article via NotificationCenter
+    // Notification click response callback -> activate existing window & navigate to article
     public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
@@ -41,10 +41,10 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         let userInfo = response.notification.request.content.userInfo
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
-            for window in NSApp.windows {
-                if window.canBecomeMain {
-                    window.makeKeyAndOrderFront(nil)
-                }
+            if let keyWindow = NSApp.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
+                keyWindow.makeKeyAndOrderFront(nil)
+            } else if let mainWin = NSApp.windows.first(where: { $0.canBecomeMain }) {
+                mainWin.makeKeyAndOrderFront(nil)
             }
             
             if let articleIDStr = userInfo["articleID"] as? String, let uuid = UUID(uuidString: articleIDStr) {

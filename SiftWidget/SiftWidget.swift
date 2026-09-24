@@ -41,18 +41,23 @@ public struct ArticleWidgetProvider: TimelineProvider {
 
     private func loadSnapshots() -> [ArticleSnapshot] {
         let appGroupID = "group.com.sift.app"
-        let fileURL: URL
+        var candidates: [URL] = []
+        
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
-            fileURL = groupURL.appendingPathComponent("recent_articles.json")
-        } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-            fileURL = appSupport.appendingPathComponent("recent_articles.json")
+            candidates.append(groupURL.appendingPathComponent("recent_articles.json"))
         }
-        guard let data = try? Data(contentsOf: fileURL),
-              let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data) else {
-            return []
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        candidates.append(appSupport.appendingPathComponent("recent_articles.json"))
+        candidates.append(URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"))
+
+        for fileURL in candidates {
+            if let data = try? Data(contentsOf: fileURL),
+               let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+               !snapshots.isEmpty {
+                return snapshots
+            }
         }
-        return snapshots
+        return []
     }
 }
 

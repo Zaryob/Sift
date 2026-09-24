@@ -11,7 +11,9 @@ struct SiftApp: App {
                 .onAppear {
                     NotificationManager.shared.requestAuthorization()
                 }
+                .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
         }
+        .handlesExternalEvents(matching: Set(["*"]))
         .modelContainer(PersistenceController.shared.container)
         
         #if os(macOS)
