@@ -18,9 +18,9 @@ public struct ArticleWidgetProvider: TimelineProvider {
         WidgetArticleEntry(
             date: Date(),
             articles: [
-                ArticleSnapshot(id: UUID(), title: "Apple Releases macOS 15 Sequoia", feedTitle: "Ars Technica", date: Date().addingTimeInterval(-600)),
-                ArticleSnapshot(id: UUID(), title: "New Swift 6 Concurrency Features", feedTitle: "Swift Blog", date: Date().addingTimeInterval(-3600)),
-                ArticleSnapshot(id: UUID(), title: "Linux Kernel 6.11 Released", feedTitle: "LWN", date: Date().addingTimeInterval(-7200))
+                ArticleSnapshot(id: UUID(), title: "Sample Article Headline 1", feedTitle: "Tech News", date: Date().addingTimeInterval(-600)),
+                ArticleSnapshot(id: UUID(), title: "Sample Article Headline 2", feedTitle: "Science Journal", date: Date().addingTimeInterval(-3600)),
+                ArticleSnapshot(id: UUID(), title: "Sample Article Headline 3", feedTitle: "Design Blog", date: Date().addingTimeInterval(-7200))
             ]
         )
     }
@@ -41,10 +41,13 @@ public struct ArticleWidgetProvider: TimelineProvider {
 
     private func loadSnapshots() -> [ArticleSnapshot] {
         let appGroupID = "group.com.sift.app"
-        guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
-            return []
+        let fileURL: URL
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            fileURL = groupURL.appendingPathComponent("recent_articles.json")
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+            fileURL = appSupport.appendingPathComponent("recent_articles.json")
         }
-        let fileURL = groupURL.appendingPathComponent("recent_articles.json")
         guard let data = try? Data(contentsOf: fileURL),
               let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data) else {
             return []
@@ -60,7 +63,7 @@ struct SiftWidgetEntryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Latest Articles", systemImage: "rss")
+                Label("Sift RSS", systemImage: "rss")
                     .font(.caption)
                     .fontWeight(.bold)
                     .foregroundStyle(.orange)
@@ -71,22 +74,28 @@ struct SiftWidgetEntryView: View {
             }
 
             if entry.articles.isEmpty {
-                VStack {
+                VStack(spacing: 4) {
                     Spacer()
+                    Image(systemName: "tray")
+                        .font(.title2)
+                        .foregroundStyle(.tertiary)
                     Text("No Recent Articles")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
+                .frame(maxWidth: .infinity)
             } else {
                 let maxCount = maxArticlesCount(for: family)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(entry.articles.prefix(maxCount))) { article in
                         Link(destination: URL(string: "rssreader://article/\(article.id.uuidString)")!) {
-                            HStack(alignment: .top, spacing: 4) {
-                                Text("•")
-                                    .font(.caption)
-                                    .foregroundStyle(.orange)
+                            HStack(alignment: .top, spacing: 6) {
+                                Circle()
+                                    .fill(Color.orange)
+                                    .frame(width: 5, height: 5)
+                                    .padding(.top, 4)
+                                
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(article.title)
                                         .font(.caption)
@@ -96,7 +105,7 @@ struct SiftWidgetEntryView: View {
                                         Text(article.feedTitle)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
-                                        Text("·")
+                                        Text("•")
                                             .font(.caption2)
                                             .foregroundStyle(.tertiary)
                                         Text(article.date, style: .relative)

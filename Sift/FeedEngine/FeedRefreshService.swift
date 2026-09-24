@@ -80,7 +80,7 @@ public actor FeedRefreshService {
                 feed.refreshError = nil
 
                 // Deduplicate and insert items
-                let (newCount, latestTitle) = merge(parsedItems: parsedFeed.items, into: feed, context: context)
+                let (newCount, latestTitle, latestID) = merge(parsedItems: parsedFeed.items, into: feed, context: context)
                 try context.save()
 
                 let faviconURL = FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
@@ -90,7 +90,9 @@ public actor FeedRefreshService {
                         count: newCount,
                         feedTitle: feed.title,
                         latestArticleTitle: title,
-                        faviconURL: faviconURL
+                        faviconURL: faviconURL,
+                        articleID: latestID,
+                        feedID: feed.id
                     )
                 }
 
@@ -138,8 +140,8 @@ public actor FeedRefreshService {
     }
 
     /// Merge parsed items into existing feed using deduplication logic
-    /// Returns (insertedCount, latestInsertedArticleTitle)
-    private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) -> (Int, String?) {
+    /// Returns (insertedCount, latestInsertedArticleTitle, latestInsertedArticleID)
+    private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) -> (Int, String?, UUID?) {
         let existingItems = feed.items
         
         let existingGuids = Set(existingItems.compactMap { $0.guid?.trimmingCharacters(in: .whitespacesAndNewlines) })
@@ -150,6 +152,7 @@ public actor FeedRefreshService {
 
         var newCount = 0
         var latestTitle: String?
+        var latestID: UUID?
 
         for parsed in parsedItems {
             let cleanGuid = parsed.guid?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -183,9 +186,10 @@ public actor FeedRefreshService {
                 newCount += 1
                 if latestTitle == nil {
                     latestTitle = parsed.title
+                    latestID = newItem.id
                 }
             }
         }
-        return (newCount, latestTitle)
+        return (newCount, latestTitle, latestID)
     }
 }

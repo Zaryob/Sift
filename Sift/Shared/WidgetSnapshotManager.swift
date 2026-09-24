@@ -27,11 +27,17 @@ public final class WidgetSnapshotManager {
         }
     }
 
-    private func saveSnapshots(_ snapshots: [ArticleSnapshot]) {
-        guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
-            return
+    private func getSnapshotURL() -> URL {
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            return groupURL.appendingPathComponent("recent_articles.json")
         }
-        let fileURL = groupURL.appendingPathComponent("recent_articles.json")
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        return appSupport.appendingPathComponent("recent_articles.json")
+    }
+
+    private func saveSnapshots(_ snapshots: [ArticleSnapshot]) {
+        let fileURL = getSnapshotURL()
         do {
             let data = try JSONEncoder().encode(snapshots)
             try data.write(to: fileURL)
@@ -41,10 +47,14 @@ public final class WidgetSnapshotManager {
     }
 
     public static func loadSnapshots() -> [ArticleSnapshot] {
-        guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: PersistenceController.appGroupID) else {
-            return []
+        let appGroupID = PersistenceController.appGroupID
+        let fileURL: URL
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            fileURL = groupURL.appendingPathComponent("recent_articles.json")
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+            fileURL = appSupport.appendingPathComponent("recent_articles.json")
         }
-        let fileURL = groupURL.appendingPathComponent("recent_articles.json")
         guard let data = try? Data(contentsOf: fileURL),
               let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data) else {
             return []

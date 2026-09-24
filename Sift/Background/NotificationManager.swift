@@ -29,12 +29,44 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         completionHandler([.banner, .sound, .badge])
     }
 
-    /// Sends a local notification with optional website Favicon attachment
+    // Notification click response callback -> open app & navigate to article
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        if let articleIDStr = userInfo["articleID"] as? String,
+           let url = URL(string: "rssreader://article/\(articleIDStr)") {
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                NSWorkspace.shared.open(url)
+            }
+        } else if let feedIDStr = userInfo["feedID"] as? String,
+                  let url = URL(string: "rssreader://feed/\(feedIDStr)") {
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                NSWorkspace.shared.open(url)
+            }
+        } else {
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                if let url = URL(string: "rssreader://all") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        }
+        completionHandler()
+    }
+
+    /// Sends a local notification with optional website Favicon attachment and Article ID deep link
     public func sendNewArticlesNotification(
         count: Int,
         feedTitle: String,
         latestArticleTitle: String,
-        faviconURL: URL? = nil
+        faviconURL: URL? = nil,
+        articleID: UUID? = nil,
+        feedID: UUID? = nil
     ) {
         guard count > 0 else { return }
 
@@ -48,6 +80,15 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         }
         content.sound = .default
 
+        var userInfo: [String: Any] = [:]
+        if let articleID = articleID {
+            userInfo["articleID"] = articleID.uuidString
+        }
+        if let feedID = feedID {
+            userInfo["feedID"] = feedID.uuidString
+        }
+        content.userInfo = userInfo
+
         if let faviconURL = faviconURL {
             Task {
                 var attachment: UNNotificationAttachment? = nil
@@ -59,7 +100,6 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                     let tempDir = FileManager.default.temporaryDirectory
                     let fileURL = tempDir.appendingPathComponent("favicon_\(UUID().uuidString).png")
                     
-                    // If image format is PNG/JPEG/ICO, write directly
                     if let image = NSImage(data: data),
                        let tiffData = image.tiffRepresentation,
                        let bitmapRep = NSBitmapImageRep(data: tiffData),

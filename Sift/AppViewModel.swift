@@ -140,6 +140,7 @@ public final class AppViewModel {
             // Insert initial articles
             var addedCount = 0
             var latestTitle: String?
+            var latestID: UUID?
             for parsedItem in parsedFeed.items {
                 let newItem = FeedItem(
                     guid: parsedItem.guid,
@@ -158,6 +159,7 @@ public final class AppViewModel {
                 addedCount += 1
                 if latestTitle == nil {
                     latestTitle = parsedItem.title
+                    latestID = newItem.id
                 }
             }
 
@@ -173,7 +175,9 @@ public final class AppViewModel {
                     count: addedCount,
                     feedTitle: newFeed.title,
                     latestArticleTitle: title,
-                    faviconURL: faviconURL
+                    faviconURL: faviconURL,
+                    articleID: latestID,
+                    feedID: newFeed.id
                 )
             }
 
