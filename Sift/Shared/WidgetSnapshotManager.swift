@@ -54,12 +54,14 @@ public final class WidgetSnapshotManager {
         return urls
     }
 
-    private func saveSnapshots(_ snapshots: [ArticleSnapshot]) {
+    public func saveSnapshots(_ snapshots: [ArticleSnapshot]) {
+        guard !snapshots.isEmpty else { return }
         guard let data = try? JSONEncoder().encode(snapshots) else { return }
         
         // Save to file system candidates
         for url in getSnapshotURLs() {
             try? data.write(to: url, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: url.path)
         }
 
         // Save to UserDefaults candidates
