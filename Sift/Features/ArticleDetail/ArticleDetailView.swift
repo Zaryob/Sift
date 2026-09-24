@@ -157,7 +157,7 @@ struct ArticleDetailView: View {
                                 // Metadata header bar
                                 HStack(spacing: 12) {
                                     if let feedTitle = article.feed?.title {
-                                        Label(feedTitle, systemImage: "rss")
+                                        Label(feedTitle, systemImage: "dot.radiowaves.up.and.right")
                                             .font(.subheadline)
                                             .foregroundStyle(.secondary)
                                     }

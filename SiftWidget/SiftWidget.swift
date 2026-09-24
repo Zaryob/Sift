@@ -88,7 +88,7 @@ struct SiftWidgetEntryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Sift RSS", systemImage: "rss")
+                Label("Sift RSS", systemImage: "dot.radiowaves.up.and.right")
                     .font(.caption)
                     .fontWeight(.bold)
                     .foregroundStyle(.orange)

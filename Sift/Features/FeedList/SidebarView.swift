@@ -242,13 +242,13 @@ struct FeedFaviconView: View {
                         .frame(width: 16, height: 16)
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                 default:
-                    Image(systemName: "rss")
+                    Image(systemName: "dot.radiowaves.up.and.right")
                         .foregroundStyle(.orange)
                         .frame(width: 16, height: 16)
                 }
             }
         } else {
-            Image(systemName: "rss")
+            Image(systemName: "dot.radiowaves.up.and.right")
                 .foregroundStyle(.orange)
                 .frame(width: 16, height: 16)
         }

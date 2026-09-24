@@ -22,7 +22,7 @@ struct SiftApp: App {
                 .modelContainer(PersistenceController.shared.container)
         }
         
-        MenuBarExtra("Sift RSS", systemImage: "rss") {
+        MenuBarExtra("Sift RSS", systemImage: "dot.radiowaves.up.and.right") {
             MenuBarExtraView()
                 .modelContainer(PersistenceController.shared.container)
         }
