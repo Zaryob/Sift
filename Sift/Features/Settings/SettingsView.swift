@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @StateObject private var loginItemManager = LoginItemManager.shared
     @StateObject private var scheduler = BackgroundFeedScheduler.shared
+    @StateObject private var launchAgentManager = LaunchAgentManager.shared
     @Query private var feeds: [Feed]
     @Environment(\.modelContext) private var modelContext
 
@@ -20,7 +21,21 @@ struct SettingsView: View {
                 ))
                 .help("Automatically start Sift when you log into macOS.")
 
-                Picker("Background Refresh Interval", selection: $scheduler.refreshIntervalMinutes) {
+                Toggle("Background Service (launchd)", isOn: Binding(
+                    get: { launchAgentManager.isEnabled },
+                    set: { launchAgentManager.setEnabled($0, intervalMinutes: scheduler.refreshIntervalMinutes > 0 ? scheduler.refreshIntervalMinutes : 15) }
+                ))
+                .help("Allows macOS launchd daemon (com.sift.backgroundfetch) to periodically check RSS feeds even when Sift is completely closed.")
+
+                Picker("Background Refresh Interval", selection: Binding(
+                    get: { scheduler.refreshIntervalMinutes },
+                    set: { newInterval in
+                        scheduler.refreshIntervalMinutes = newInterval
+                        if launchAgentManager.isEnabled {
+                            launchAgentManager.setEnabled(true, intervalMinutes: newInterval > 0 ? newInterval : 15)
+                        }
+                    }
+                )) {
                     Text("Every 5 minutes").tag(5)
                     Text("Every 15 minutes (Default)").tag(15)
                     Text("Every 30 minutes").tag(30)
@@ -53,7 +68,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        .frame(width: 480, height: 280)
+        .frame(width: 500, height: 320)
         .onAppear {
             NotificationManager.shared.requestAuthorization()
         }

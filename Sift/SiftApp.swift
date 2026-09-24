@@ -1,9 +1,22 @@
 import SwiftUI
 import SwiftData
+import WidgetKit
 
 @main
 struct SiftApp: App {
     @StateObject private var backgroundScheduler = BackgroundFeedScheduler.shared
+
+    init() {
+        if CommandLine.arguments.contains("--background-refresh") {
+            Task {
+                let service = FeedRefreshService()
+                await service.refreshAllFeeds()
+                WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
+                WidgetCenter.shared.reloadAllTimelines()
+                exit(0)
+            }
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
