@@ -5,6 +5,8 @@ import Observation
 
 public enum SidebarItem: Hashable, Identifiable {
     case all
+    case today
+    case thisWeek
     case unread
     case starred
     case feed(UUID)
@@ -12,6 +14,8 @@ public enum SidebarItem: Hashable, Identifiable {
     public var id: String {
         switch self {
         case .all: return "all"
+        case .today: return "today"
+        case .thisWeek: return "thisWeek"
         case .unread: return "unread"
         case .starred: return "starred"
         case .feed(let uuid): return "feed-\(uuid.uuidString)"

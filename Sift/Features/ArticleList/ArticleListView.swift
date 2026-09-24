@@ -20,6 +20,11 @@ struct ArticleListView: View {
         switch viewModel.selectedSidebarItem {
         case .all, .none:
             baseArticles = articles
+        case .today:
+            baseArticles = articles.filter { Calendar.current.isDateInToday($0.publicationDate) }
+        case .thisWeek:
+            let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+            baseArticles = articles.filter { $0.publicationDate >= sevenDaysAgo }
         case .unread:
             baseArticles = articles.filter { !$0.isRead }
         case .starred:
@@ -134,6 +139,8 @@ struct ArticleListView: View {
     private var titleForSelection: String {
         switch viewModel.selectedSidebarItem {
         case .all, .none: return "All Articles"
+        case .today: return "Today"
+        case .thisWeek: return "This Week"
         case .unread: return "Unread"
         case .starred: return "Starred"
         case .feed:

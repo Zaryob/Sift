@@ -15,6 +15,15 @@ struct SidebarView: View {
         allArticles.filter { !$0.isRead }.count
     }
 
+    private var todayCount: Int {
+        allArticles.filter { Calendar.current.isDateInToday($0.publicationDate) }.count
+    }
+
+    private var thisWeekCount: Int {
+        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        return allArticles.filter { $0.publicationDate >= sevenDaysAgo }.count
+    }
+
     private var unreadArticlesCount: Int {
         allArticles.filter { !$0.isRead }.count
     }
@@ -46,16 +55,41 @@ struct SidebarView: View {
                             Text("All Articles")
                             Spacer()
                             if totalUnreadCount > 0 {
-                                Text("\(totalUnreadCount)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.secondary.opacity(0.2)))
+                                countBadge(totalUnreadCount, color: .secondary.opacity(0.2))
                             }
                         }
                     } icon: {
                         Image(systemName: "tray.full")
+                    }
+                }
+
+                NavigationLink(value: SidebarItem.today) {
+                    Label {
+                        HStack {
+                            Text("Today")
+                            Spacer()
+                            if todayCount > 0 {
+                                countBadge(todayCount, color: .purple.opacity(0.2))
+                            }
+                        }
+                    } icon: {
+                        Image(systemName: "sun.max.fill")
+                            .foregroundStyle(.purple)
+                    }
+                }
+
+                NavigationLink(value: SidebarItem.thisWeek) {
+                    Label {
+                        HStack {
+                            Text("This Week")
+                            Spacer()
+                            if thisWeekCount > 0 {
+                                countBadge(thisWeekCount, color: .teal.opacity(0.2))
+                            }
+                        }
+                    } icon: {
+                        Image(systemName: "calendar")
+                            .foregroundStyle(.teal)
                     }
                 }
 
@@ -65,12 +99,7 @@ struct SidebarView: View {
                             Text("Unread")
                             Spacer()
                             if unreadArticlesCount > 0 {
-                                Text("\(unreadArticlesCount)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.blue.opacity(0.2)))
+                                countBadge(unreadArticlesCount, color: .blue.opacity(0.2))
                             }
                         }
                     } icon: {
@@ -85,12 +114,7 @@ struct SidebarView: View {
                             Text("Starred")
                             Spacer()
                             if starredArticlesCount > 0 {
-                                Text("\(starredArticlesCount)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Capsule().fill(Color.orange.opacity(0.2)))
+                                countBadge(starredArticlesCount, color: .orange.opacity(0.2))
                             }
                         }
                     } icon: {
@@ -154,6 +178,16 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
+    private func countBadge(_ count: Int, color: Color) -> some View {
+        Text("\(count)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(color))
+    }
+
+    @ViewBuilder
     private func feedRow(feed: Feed) -> some View {
         NavigationLink(value: SidebarItem.feed(feed.id)) {
             HStack(spacing: 8) {
@@ -166,12 +200,7 @@ struct SidebarView: View {
 
                 let count = feed.unreadCount
                 if count > 0 {
-                    Text("\(count)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.secondary.opacity(0.2)))
+                    countBadge(count, color: .secondary.opacity(0.2))
                 }
             }
         }
