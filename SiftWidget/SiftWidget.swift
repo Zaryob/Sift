@@ -43,7 +43,17 @@ public struct ArticleWidgetProvider: TimelineProvider {
         let appGroupID = "group.com.sift.app"
         let userDefaultsKey = "sift_recent_articles_json"
 
-        // 1. Check UserDefaults suite & standard
+        // 1. App Group Container JSON File
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            let fileURL = groupURL.appendingPathComponent("recent_articles.json")
+            if let data = try? Data(contentsOf: fileURL),
+               let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+               !snapshots.isEmpty {
+                return snapshots
+            }
+        }
+
+        // 2. UserDefaults Suite
         if let groupDefaults = UserDefaults(suiteName: appGroupID),
            let jsonStr = groupDefaults.string(forKey: userDefaultsKey),
            let data = jsonStr.data(using: .utf8),
@@ -52,23 +62,13 @@ public struct ArticleWidgetProvider: TimelineProvider {
             return snapshots
         }
 
-        if let jsonStr = UserDefaults.standard.string(forKey: userDefaultsKey),
-           let data = jsonStr.data(using: .utf8),
-           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
-           !snapshots.isEmpty {
-            return snapshots
-        }
-
-        // 2. Check File candidates
-        var candidates: [URL] = []
-        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
-            candidates.append(groupURL.appendingPathComponent("recent_articles.json"))
-        }
+        // 3. Check Application Support candidates
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
         let siftAppSupport = appSupport.appendingPathComponent("Sift", isDirectory: true)
-        candidates.append(siftAppSupport.appendingPathComponent("recent_articles.json"))
-        candidates.append(URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"))
-        candidates.append(URL(fileURLWithPath: "/tmp/sift_recent_articles.json"))
+        let candidates = [
+            siftAppSupport.appendingPathComponent("recent_articles.json"),
+            appSupport.appendingPathComponent("recent_articles.json")
+        ]
 
         for fileURL in candidates {
             if let data = try? Data(contentsOf: fileURL),
@@ -77,6 +77,7 @@ public struct ArticleWidgetProvider: TimelineProvider {
                 return snapshots
             }
         }
+
         return []
     }
 }
