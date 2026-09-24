@@ -53,7 +53,57 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         completionHandler()
     }
 
-    /// Sends a local notification with optional website Favicon attachment and Article ID
+    /// Sends an individual notification for a single newly arrived article
+    public func sendArticleNotification(
+        articleTitle: String,
+        feedTitle: String,
+        articleID: UUID,
+        feedID: UUID,
+        faviconURL: URL? = nil
+    ) {
+        let content = UNMutableNotificationContent()
+        content.title = feedTitle
+        content.body = articleTitle
+        content.sound = .default
+        content.userInfo = [
+            "articleID": articleID.uuidString,
+            "feedID": feedID.uuidString
+        ]
+
+        if let faviconURL = faviconURL {
+            Task {
+                var attachment: UNNotificationAttachment? = nil
+                if let (data, response) = try? await URLSession.shared.data(from: faviconURL),
+                   let httpResp = response as? HTTPURLResponse,
+                   httpResp.statusCode == 200,
+                   !data.isEmpty {
+                    
+                    let tempDir = FileManager.default.temporaryDirectory
+                    let fileURL = tempDir.appendingPathComponent("favicon_\(UUID().uuidString).png")
+                    
+                    if let image = NSImage(data: data),
+                       let tiffData = image.tiffRepresentation,
+                       let bitmapRep = NSBitmapImageRep(data: tiffData),
+                       let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+                        try? pngData.write(to: fileURL)
+                    } else {
+                        try? data.write(to: fileURL)
+                    }
+
+                    attachment = try? UNNotificationAttachment(identifier: "favicon", url: fileURL, options: nil)
+                }
+
+                if let attachment = attachment {
+                    content.attachments = [attachment]
+                }
+                self.scheduleRequest(content: content)
+            }
+        } else {
+            scheduleRequest(content: content)
+        }
+    }
+
+    /// Legacy collective notification helper (deprecated in favor of individual sendArticleNotification)
     public func sendNewArticlesNotification(
         count: Int,
         feedTitle: String,

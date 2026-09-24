@@ -66,6 +66,11 @@ struct ContentView: View {
                 WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
                 WidgetCenter.shared.reloadAllTimelines()
                 viewModel.refreshAllFeeds(context: modelContext)
+
+                if let pending = AppDelegate.pendingURL {
+                    AppDelegate.pendingURL = nil
+                    viewModel.handleDeepLink(pending, context: modelContext)
+                }
             }
         }
     }

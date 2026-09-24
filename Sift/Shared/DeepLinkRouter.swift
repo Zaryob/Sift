@@ -8,7 +8,7 @@ public enum DeepLinkDestination: Equatable {
 
 public struct DeepLinkRouter {
     public static func parse(url: URL) -> DeepLinkDestination? {
-        guard url.scheme?.lowercased() == "rssreader" else {
+        guard let scheme = url.scheme?.lowercased(), scheme == "rssreader" || scheme == "sift" else {
             return nil
         }
         

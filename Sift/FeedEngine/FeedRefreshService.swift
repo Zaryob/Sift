@@ -80,19 +80,19 @@ public actor FeedRefreshService {
                 feed.refreshError = nil
 
                 // Deduplicate and insert items
-                let (newCount, latestTitle, latestID) = merge(parsedItems: parsedFeed.items, into: feed, context: context)
+                let newlyInserted = merge(parsedItems: parsedFeed.items, into: feed, context: context)
                 try context.save()
 
                 let faviconURL = FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
 
-                if newCount > 0, let title = latestTitle {
-                    NotificationManager.shared.sendNewArticlesNotification(
-                        count: newCount,
+                // Post an individual notification for each newly arrived article (up to 5 to avoid notification flood)
+                for newArticle in newlyInserted.prefix(5) {
+                    NotificationManager.shared.sendArticleNotification(
+                        articleTitle: newArticle.title,
                         feedTitle: feed.title,
-                        latestArticleTitle: title,
-                        faviconURL: faviconURL,
-                        articleID: latestID,
-                        feedID: feed.id
+                        articleID: newArticle.id,
+                        feedID: feed.id,
+                        faviconURL: faviconURL
                     )
                 }
             }
@@ -145,8 +145,8 @@ public actor FeedRefreshService {
     }
 
     /// Merge parsed items into existing feed using deduplication logic
-    /// Returns (insertedCount, latestInsertedArticleTitle, latestInsertedArticleID)
-    private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) -> (Int, String?, UUID?) {
+    /// Returns array of newly inserted articles (title and id)
+    private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) -> [(title: String, id: UUID)] {
         let existingItems = feed.items
         
         let existingGuids = Set(existingItems.compactMap { $0.guid?.trimmingCharacters(in: .whitespacesAndNewlines) })
@@ -155,9 +155,7 @@ public actor FeedRefreshService {
             "\(item.title):\(item.publicationDate.timeIntervalSince1970)"
         })
 
-        var newCount = 0
-        var latestTitle: String?
-        var latestID: UUID?
+        var newlyInserted: [(title: String, id: UUID)] = []
 
         for parsed in parsedItems {
             let cleanGuid = parsed.guid?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -188,13 +186,9 @@ public actor FeedRefreshService {
                     feed: feed
                 )
                 context.insert(newItem)
-                newCount += 1
-                if latestTitle == nil {
-                    latestTitle = parsed.title
-                    latestID = newItem.id
-                }
+                newlyInserted.append((title: parsed.title, id: newItem.id))
             }
         }
-        return (newCount, latestTitle, latestID)
+        return newlyInserted
     }
 }

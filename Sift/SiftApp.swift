@@ -8,6 +8,8 @@ extension Notification.Name {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    public static var pendingURL: URL?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         // Register notification delegate immediately at app startup
@@ -23,6 +25,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         WindowActionTarget.shared.showMainWindow()
         return true
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        WindowActionTarget.shared.showMainWindow()
+        for url in urls {
+            AppDelegate.pendingURL = url
+            NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -51,7 +61,6 @@ struct SiftApp: App {
         Window("Sift", id: "main") {
             ContentView()
         }
-        .handlesExternalEvents(matching: ["*"])
         .modelContainer(PersistenceController.shared.container)
         
         #if os(macOS)

@@ -70,18 +70,22 @@ public final class AppViewModel {
             selectedArticle = articles.first
             return
         }
-        if index - 1 >= 0 {
+        if index > 0 {
             selectedArticle = articles[index - 1]
         }
     }
 
     public func markAllAsRead(in articles: [FeedItem], context: ModelContext) {
-        for article in articles {
+        for article in articles where !article.isRead {
             article.isRead = true
         }
-        try? context.save()
-        WidgetSnapshotManager.shared.updateSnapshot(context: context)
-        WidgetCenter.shared.reloadAllTimelines()
+        do {
+            try context.save()
+            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            WidgetCenter.shared.reloadAllTimelines()
+        } catch {
+            print("Failed to save read state: \(error)")
+        }
     }
 
     public func refreshAllFeeds(context: ModelContext? = nil) {
@@ -89,9 +93,13 @@ public final class AppViewModel {
         isRefreshing = true
         Task {
             await refreshService.refreshAllFeeds()
-            self.isRefreshing = false
-            if let context = context {
-                WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            await MainActor.run {
+                self.isRefreshing = false
+                if let context = context {
+                    WidgetSnapshotManager.shared.updateSnapshot(context: context)
+                } else {
+                    WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
+                }
                 WidgetCenter.shared.reloadAllTimelines()
             }
         }
@@ -141,10 +149,7 @@ public final class AppViewModel {
             )
             context.insert(newFeed)
 
-            // Insert initial articles
-            var addedCount = 0
-            var latestTitle: String?
-            var latestID: UUID?
+            // Insert initial articles (silently without sending notifications)
             for parsedItem in parsedFeed.items {
                 let newItem = FeedItem(
                     guid: parsedItem.guid,
@@ -160,11 +165,6 @@ public final class AppViewModel {
                     feed: newFeed
                 )
                 context.insert(newItem)
-                addedCount += 1
-                if latestTitle == nil {
-                    latestTitle = parsedItem.title
-                    latestID = newItem.id
-                }
             }
 
             try context.save()
@@ -172,18 +172,6 @@ public final class AppViewModel {
             // Update widget snapshot & timelines
             WidgetSnapshotManager.shared.updateSnapshot(context: context)
             WidgetCenter.shared.reloadAllTimelines()
-
-            let faviconURL = FaviconFetcher.faviconURL(for: newFeed.siteURL, feedURLString: newFeed.url, iconURLString: newFeed.iconURL)
-            if addedCount > 0, let title = latestTitle {
-                NotificationManager.shared.sendNewArticlesNotification(
-                    count: addedCount,
-                    feedTitle: newFeed.title,
-                    latestArticleTitle: title,
-                    faviconURL: faviconURL,
-                    articleID: latestID,
-                    feedID: newFeed.id
-                )
-            }
 
             // Reset state
             addFeedURLString = ""
@@ -236,6 +224,13 @@ public final class AppViewModel {
                     selectedSidebarItem = .all
                 }
                 selectedArticle = item
+                item.isRead = true
+                try? context.save()
+
+                // Re-affirm selectedArticle on next main tick to avoid list synchronization reset
+                DispatchQueue.main.async { [weak self] in
+                    self?.selectedArticle = item
+                }
             }
         }
     }
