@@ -88,6 +88,12 @@ struct ArticleDetailView: View {
                                 .padding(14)
                                 .frame(width: 220)
                             }
+
+                            Button {
+                                printArticle(article)
+                            } label: {
+                                Label("Print / PDF", systemImage: "printer")
+                            }
                         }
 
                         Button {
@@ -125,6 +131,10 @@ struct ArticleDetailView: View {
                                 Text(article.title)
                                     .font(.system(size: readerFontSize * 1.5, weight: .bold, design: currentFontDesign.design))
 
+                                let rawBody = article.content ?? article.summary ?? ""
+                                let cleanBody = HTMLSanitizer.stripTags(from: rawBody)
+                                let readingTime = estimatedReadingTime(text: cleanBody)
+
                                 // Metadata header bar
                                 HStack(spacing: 12) {
                                     if let feedTitle = article.feed?.title {
@@ -139,6 +149,13 @@ struct ArticleDetailView: View {
                                             .foregroundStyle(.secondary)
                                     }
 
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "clock")
+                                        Text("\(readingTime) min read")
+                                    }
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+
                                     Spacer()
 
                                     Text(article.publicationDate, style: .date)
@@ -149,9 +166,6 @@ struct ArticleDetailView: View {
                                 Divider()
 
                                 // Article Body Content / Summary
-                                let rawBody = article.content ?? article.summary ?? ""
-                                let cleanBody = HTMLSanitizer.stripTags(from: rawBody)
-                                
                                 if !cleanBody.isEmpty {
                                     Text(cleanBody)
                                         .font(.system(size: readerFontSize, weight: .regular, design: currentFontDesign.design))
@@ -182,5 +196,23 @@ struct ArticleDetailView: View {
                 try? modelContext.save()
             }
         }
+    }
+
+    private func estimatedReadingTime(text: String) -> Int {
+        let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        return max(1, Int(ceil(Double(words.count) / 200.0)))
+    }
+
+    private func printArticle(_ article: FeedItem) {
+        let printView = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 700))
+        let body = HTMLSanitizer.stripTags(from: article.content ?? article.summary ?? "")
+        printView.string = "\(article.title)\n\n\(body)"
+        
+        let printInfo = NSPrintInfo.shared
+        printInfo.horizontalPagination = .fit
+        printInfo.verticalPagination = .automatic
+        
+        let printOperation = NSPrintOperation(view: printView, printInfo: printInfo)
+        printOperation.run()
     }
 }
