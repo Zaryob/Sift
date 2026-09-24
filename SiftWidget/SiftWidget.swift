@@ -34,21 +34,41 @@ public struct ArticleWidgetProvider: TimelineProvider {
     public func getTimeline(in context: Context, completion: @escaping (Timeline<WidgetArticleEntry>) -> Void) {
         let snapshots = loadSnapshots()
         let entry = WidgetArticleEntry(date: Date(), articles: snapshots)
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? Date().addingTimeInterval(900)
+        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 5, to: Date()) ?? Date().addingTimeInterval(300)
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
     }
 
     private func loadSnapshots() -> [ArticleSnapshot] {
         let appGroupID = "group.com.sift.app"
+        let userDefaultsKey = "sift_recent_articles_json"
+
+        // 1. Check UserDefaults suite & standard
+        if let groupDefaults = UserDefaults(suiteName: appGroupID),
+           let jsonStr = groupDefaults.string(forKey: userDefaultsKey),
+           let data = jsonStr.data(using: .utf8),
+           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+           !snapshots.isEmpty {
+            return snapshots
+        }
+
+        if let jsonStr = UserDefaults.standard.string(forKey: userDefaultsKey),
+           let data = jsonStr.data(using: .utf8),
+           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+           !snapshots.isEmpty {
+            return snapshots
+        }
+
+        // 2. Check File candidates
         var candidates: [URL] = []
-        
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             candidates.append(groupURL.appendingPathComponent("recent_articles.json"))
         }
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        candidates.append(appSupport.appendingPathComponent("recent_articles.json"))
+        let siftAppSupport = appSupport.appendingPathComponent("Sift", isDirectory: true)
+        candidates.append(siftAppSupport.appendingPathComponent("recent_articles.json"))
         candidates.append(URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"))
+        candidates.append(URL(fileURLWithPath: "/tmp/sift_recent_articles.json"))
 
         for fileURL in candidates {
             if let data = try? Data(contentsOf: fileURL),

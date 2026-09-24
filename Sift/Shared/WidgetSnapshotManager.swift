@@ -5,6 +5,7 @@ public final class WidgetSnapshotManager {
     public static let shared = WidgetSnapshotManager()
     
     private let appGroupID = PersistenceController.appGroupID
+    private let userDefaultsKey = "sift_recent_articles_json"
 
     public func updateSnapshot(context: ModelContext) {
         let descriptor = FetchDescriptor<FeedItem>(
@@ -32,32 +33,64 @@ public final class WidgetSnapshotManager {
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             urls.append(groupURL.appendingPathComponent("recent_articles.json"))
         }
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        urls.append(appSupport.appendingPathComponent("recent_articles.json"))
         
-        let tmpURL = URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json")
-        urls.append(tmpURL)
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let siftAppSupport = appSupport.appendingPathComponent("Sift", isDirectory: true)
+        try? FileManager.default.createDirectory(at: siftAppSupport, withIntermediateDirectories: true)
+        urls.append(siftAppSupport.appendingPathComponent("recent_articles.json"))
+        
+        urls.append(URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"))
+        urls.append(URL(fileURLWithPath: "/tmp/sift_recent_articles.json"))
         return urls
     }
 
     private func saveSnapshots(_ snapshots: [ArticleSnapshot]) {
         guard let data = try? JSONEncoder().encode(snapshots) else { return }
+        
+        // Save to file system candidates
         for url in getSnapshotURLs() {
             try? data.write(to: url, options: .atomic)
+        }
+
+        // Save to UserDefaults candidates
+        if let jsonString = String(data: data, encoding: .utf8) {
+            UserDefaults.standard.set(jsonString, forKey: userDefaultsKey)
+            if let groupDefaults = UserDefaults(suiteName: appGroupID) {
+                groupDefaults.set(jsonString, forKey: userDefaultsKey)
+            }
         }
     }
 
     public static func loadSnapshots() -> [ArticleSnapshot] {
         let appGroupID = PersistenceController.appGroupID
+        let userDefaultsKey = "sift_recent_articles_json"
+
+        // 1. Check UserDefaults suite & standard
+        if let groupDefaults = UserDefaults(suiteName: appGroupID),
+           let jsonStr = groupDefaults.string(forKey: userDefaultsKey),
+           let data = jsonStr.data(using: .utf8),
+           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+           !snapshots.isEmpty {
+            return snapshots
+        }
+
+        if let jsonStr = UserDefaults.standard.string(forKey: userDefaultsKey),
+           let data = jsonStr.data(using: .utf8),
+           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+           !snapshots.isEmpty {
+            return snapshots
+        }
+
+        // 2. Check File candidates
         var candidates: [URL] = []
-        
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             candidates.append(groupURL.appendingPathComponent("recent_articles.json"))
         }
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        candidates.append(appSupport.appendingPathComponent("recent_articles.json"))
+        let siftAppSupport = appSupport.appendingPathComponent("Sift", isDirectory: true)
+        candidates.append(siftAppSupport.appendingPathComponent("recent_articles.json"))
         candidates.append(URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"))
+        candidates.append(URL(fileURLWithPath: "/tmp/sift_recent_articles.json"))
 
         for fileURL in candidates {
             if let data = try? Data(contentsOf: fileURL),
