@@ -26,8 +26,12 @@ public final class WidgetSnapshotManager {
                     date: item.publicationDate
                 )
             }
-            print("[WidgetSnapshotManager] Updating widget snapshot with \(snapshots.count) articles.")
-            saveSnapshots(Array(snapshots))
+            if !snapshots.isEmpty {
+                print("[WidgetSnapshotManager] Successfully generated and saving \(snapshots.count) article snapshots.")
+                saveSnapshots(Array(snapshots))
+            } else {
+                print("[WidgetSnapshotManager] No articles found in database yet. Preserving existing snapshot storage.")
+            }
         } catch {
             print("Failed to generate widget snapshot: \(error)")
         }

@@ -84,12 +84,16 @@ public final class AppViewModel {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    public func refreshAllFeeds() {
+    public func refreshAllFeeds(context: ModelContext? = nil) {
         guard !isRefreshing else { return }
         isRefreshing = true
         Task {
             await refreshService.refreshAllFeeds()
             self.isRefreshing = false
+            if let context = context {
+                WidgetSnapshotManager.shared.updateSnapshot(context: context)
+                WidgetCenter.shared.reloadAllTimelines()
+            }
         }
     }
 

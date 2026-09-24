@@ -51,9 +51,9 @@ struct ContentView: View {
         }
         .onAppear {
             DispatchQueue.main.async {
-                viewModel.refreshAllFeeds()
                 WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
                 WidgetCenter.shared.reloadAllTimelines()
+                viewModel.refreshAllFeeds(context: modelContext)
             }
         }
     }
