@@ -36,13 +36,16 @@ public final class AppViewModel {
 
     private let refreshService: FeedRefreshService
     private let httpClient: FeedHTTPClientProtocol
+    private let discoveryService: FeedDiscoveryService
 
     public init(
         refreshService: FeedRefreshService = FeedRefreshService(),
-        httpClient: FeedHTTPClientProtocol = FeedHTTPClient()
+        httpClient: FeedHTTPClientProtocol = FeedHTTPClient(),
+        discoveryService: FeedDiscoveryService = FeedDiscoveryService()
     ) {
         self.refreshService = refreshService
         self.httpClient = httpClient
+        self.discoveryService = discoveryService
     }
 
     public func selectNextArticle(in articles: [FeedItem]) {
@@ -93,7 +96,11 @@ public final class AppViewModel {
         defer { isAddingFeedLoading = false }
 
         do {
-            let result = try await httpClient.fetchFeed(from: url, etag: nil, lastModified: nil)
+            // 1. Try Auto-Discovery first if web page URL passed
+            let discovered = (try? await discoveryService.discoverFeeds(from: url)) ?? []
+            let targetURL = discovered.first?.url ?? url
+
+            let result = try await httpClient.fetchFeed(from: targetURL, etag: nil, lastModified: nil)
             guard case .success(let data, let etag, let lastModified, let responseURL) = result else {
                 showError("Could not retrieve feed content from URL.")
                 return
