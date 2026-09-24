@@ -80,8 +80,16 @@ public actor FeedRefreshService {
                 feed.refreshError = nil
 
                 // Deduplicate and insert items
-                merge(parsedItems: parsedFeed.items, into: feed, context: context)
+                let (newCount, latestTitle) = merge(parsedItems: parsedFeed.items, into: feed, context: context)
                 try context.save()
+
+                if newCount > 0, let title = latestTitle {
+                    NotificationManager.shared.sendNewArticlesNotification(
+                        count: newCount,
+                        feedTitle: feed.title,
+                        latestArticleTitle: title
+                    )
+                }
 
                 // Update Widget snapshot and notify WidgetKit
                 WidgetSnapshotManager.shared.updateSnapshot(context: context)
@@ -127,7 +135,8 @@ public actor FeedRefreshService {
     }
 
     /// Merge parsed items into existing feed using deduplication logic
-    private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) {
+    /// Returns (insertedCount, latestInsertedArticleTitle)
+    private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) -> (Int, String?) {
         let existingItems = feed.items
         
         let existingGuids = Set(existingItems.compactMap { $0.guid?.trimmingCharacters(in: .whitespacesAndNewlines) })
@@ -135,6 +144,9 @@ public actor FeedRefreshService {
         let existingFallbackKeys = Set(existingItems.map { item in
             "\(item.title):\(item.publicationDate.timeIntervalSince1970)"
         })
+
+        var newCount = 0
+        var latestTitle: String?
 
         for parsed in parsedItems {
             let cleanGuid = parsed.guid?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -165,7 +177,12 @@ public actor FeedRefreshService {
                     feed: feed
                 )
                 context.insert(newItem)
+                newCount += 1
+                if latestTitle == nil {
+                    latestTitle = parsed.title
+                }
             }
         }
+        return (newCount, latestTitle)
     }
 }
