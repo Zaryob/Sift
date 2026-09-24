@@ -16,15 +16,19 @@ public protocol FeedHTTPClientProtocol {
 public final class FeedHTTPClient: FeedHTTPClientProtocol {
     private let session: URLSession
 
-    public init(session: URLSession = .shared) {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15.0
-        config.timeoutIntervalForResource = 30.0
-        config.httpAdditionalHeaders = [
-            "User-Agent": "SiftRSSReader/1.0 (macOS)",
-            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
-        ]
-        self.session = URLSession(configuration: config)
+    public init(session: URLSession? = nil) {
+        if let session = session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 15.0
+            config.timeoutIntervalForResource = 30.0
+            config.httpAdditionalHeaders = [
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15 SiftReader/1.0",
+                "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"
+            ]
+            self.session = URLSession(configuration: config)
+        }
     }
 
     public func fetchFeed(
