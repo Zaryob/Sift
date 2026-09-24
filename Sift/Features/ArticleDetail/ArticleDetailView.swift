@@ -8,17 +8,41 @@ enum DetailViewMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum ReaderFontDesign: String, CaseIterable, Identifiable {
+    case system = "System"
+    case serif = "Serif"
+    case monospace = "Monospace"
+
+    var id: String { rawValue }
+
+    var design: Font.Design {
+        switch self {
+        case .system: return .default
+        case .serif: return .serif
+        case .monospace: return .monospaced
+        }
+    }
+}
+
 struct ArticleDetailView: View {
     @Bindable var viewModel: AppViewModel
     let article: FeedItem?
     @Environment(\.modelContext) private var modelContext
     @State private var viewMode: DetailViewMode = .reader
 
+    @AppStorage("readerFontSize") private var readerFontSize: Double = 15.0
+    @AppStorage("readerFontDesign") private var readerFontDesignRaw: String = ReaderFontDesign.system.rawValue
+    @State private var showTypographyPopover: Bool = false
+
+    private var currentFontDesign: ReaderFontDesign {
+        ReaderFontDesign(rawValue: readerFontDesignRaw) ?? .system
+    }
+
     var body: some View {
         Group {
             if let article = article {
                 VStack(spacing: 0) {
-                    // Mode Picker Bar
+                    // Mode & Action Picker Bar
                     HStack {
                         Picker("View Mode", selection: $viewMode) {
                             ForEach(DetailViewMode.allCases) { mode in
@@ -29,6 +53,42 @@ struct ArticleDetailView: View {
                         .frame(width: 180)
 
                         Spacer()
+
+                        if viewMode == .reader {
+                            Button {
+                                showTypographyPopover.toggle()
+                            } label: {
+                                Label("Text", systemImage: "textformat.size")
+                            }
+                            .popover(isPresented: $showTypographyPopover) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Typography")
+                                        .font(.headline)
+
+                                    HStack {
+                                        Text("Size")
+                                        Spacer()
+                                        Button("-") {
+                                            if readerFontSize > 11 { readerFontSize -= 1 }
+                                        }
+                                        Text("\(Int(readerFontSize)) pt")
+                                            .monospacedDigit()
+                                        Button("+") {
+                                            if readerFontSize < 28 { readerFontSize += 1 }
+                                        }
+                                    }
+
+                                    Picker("Font", selection: $readerFontDesignRaw) {
+                                        ForEach(ReaderFontDesign.allCases) { f in
+                                            Text(f.rawValue).tag(f.rawValue)
+                                        }
+                                    }
+                                    .pickerStyle(.segmented)
+                                }
+                                .padding(14)
+                                .frame(width: 220)
+                            }
+                        }
 
                         Button {
                             article.isStarred.toggle()
@@ -63,8 +123,7 @@ struct ArticleDetailView: View {
                             VStack(alignment: .leading, spacing: 16) {
                                 // Title
                                 Text(article.title)
-                                    .font(.title)
-                                    .fontWeight(.bold)
+                                    .font(.system(size: readerFontSize * 1.5, weight: .bold, design: currentFontDesign.design))
 
                                 // Metadata header bar
                                 HStack(spacing: 12) {
@@ -95,8 +154,8 @@ struct ArticleDetailView: View {
                                 
                                 if !cleanBody.isEmpty {
                                     Text(cleanBody)
-                                        .font(.body)
-                                        .lineSpacing(6)
+                                        .font(.system(size: readerFontSize, weight: .regular, design: currentFontDesign.design))
+                                        .lineSpacing(readerFontSize * 0.4)
                                         .textSelection(.enabled)
                                 } else {
                                     Text("No additional content available for this article.")
