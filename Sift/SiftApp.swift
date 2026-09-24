@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
         }
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        try? PersistenceController.shared.container.mainContext.save()
+    }
 }
 
 @main

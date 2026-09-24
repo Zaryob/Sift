@@ -3,7 +3,7 @@ import SwiftData
 
 public final class PersistenceController {
     public static let appGroupID = "group.com.sift.app"
-    
+
     public static let shared: PersistenceController = {
         PersistenceController()
     }()
@@ -19,13 +19,10 @@ public final class PersistenceController {
         let modelConfiguration: ModelConfiguration
         if inMemory {
             modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        } else if let appGroupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupID) {
-            let storeURL = appGroupURL.appendingPathComponent("SiftData.sqlite")
-            modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
         } else {
-            // Standard sandboxed Application Support store.
-            // Guaranteed read/write persistence across restarts without sandboxing locking issues.
-            modelConfiguration = ModelConfiguration(schema: schema)
+            // Standard sandboxed persistent SQLite store.
+            // Stored in the app's sandboxed Application Support directory with full read/write & lock support.
+            modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         }
 
         do {
