@@ -5,6 +5,9 @@ import AppKit
 public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     public static let shared = NotificationManager()
     
+    public static let openArticleNotification = Notification.Name("SiftOpenArticleNotification")
+    public static let openFeedNotification = Notification.Name("SiftOpenFeedNotification")
+
     override private init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
@@ -29,37 +32,31 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         completionHandler([.banner, .sound, .badge])
     }
 
-    // Notification click response callback -> open app & navigate to article
+    // Notification click response callback -> activate app & navigate to article via NotificationCenter
     public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        if let articleIDStr = userInfo["articleID"] as? String,
-           let url = URL(string: "rssreader://article/\(articleIDStr)") {
-            DispatchQueue.main.async {
-                NSApp.activate(ignoringOtherApps: true)
-                NSWorkspace.shared.open(url)
-            }
-        } else if let feedIDStr = userInfo["feedID"] as? String,
-                  let url = URL(string: "rssreader://feed/\(feedIDStr)") {
-            DispatchQueue.main.async {
-                NSApp.activate(ignoringOtherApps: true)
-                NSWorkspace.shared.open(url)
-            }
-        } else {
-            DispatchQueue.main.async {
-                NSApp.activate(ignoringOtherApps: true)
-                if let url = URL(string: "rssreader://all") {
-                    NSWorkspace.shared.open(url)
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            for window in NSApp.windows {
+                if window.canBecomeMain {
+                    window.makeKeyAndOrderFront(nil)
                 }
+            }
+            
+            if let articleIDStr = userInfo["articleID"] as? String, let uuid = UUID(uuidString: articleIDStr) {
+                NotificationCenter.default.post(name: NotificationManager.openArticleNotification, object: uuid)
+            } else if let feedIDStr = userInfo["feedID"] as? String, let uuid = UUID(uuidString: feedIDStr) {
+                NotificationCenter.default.post(name: NotificationManager.openFeedNotification, object: uuid)
             }
         }
         completionHandler()
     }
 
-    /// Sends a local notification with optional website Favicon attachment and Article ID deep link
+    /// Sends a local notification with optional website Favicon attachment and Article ID
     public func sendNewArticlesNotification(
         count: Int,
         feedTitle: String,
