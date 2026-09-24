@@ -1,0 +1,45 @@
+# Xcode
+.DS_Store
+build/
+DerivedData/
+xcuserdata/
+
+# Swift Package Manager
+.build/
+Packages/
+.swiftpm/
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# Xcode project files
+*.xcworkspace
+!default.xcworkspace
+*.xcuserstate
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace/
+
+# User-specific
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+
+# Archives
+*.xcarchive
+
+# SwiftPM
+*.xcodeproj/project.xcworkspace/xcshareddata/IDETemplateMacros.plist
+
+# App entitlements
+*.entitlements

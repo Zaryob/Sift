@@ -6,8 +6,15 @@
 	objectVersion = 90;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B3DC3C763065BE390089C49D /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = B3DC3C753065BE390089C49D /* LICENSE */; };
+		B3DC3C783065BEB70089C49D /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = B3DC3C773065BEB70089C49D /* .gitignore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* Sift.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sift.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B3DC3C753065BE390089C49D /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		B3DC3C773065BEB70089C49D /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -31,6 +38,8 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000010 /* Sift */,
+				B3DC3C753065BE390089C49D /* LICENSE */,
+				B3DC3C773065BEB70089C49D /* .gitignore */,
 				000000000000000000000020 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -102,6 +111,8 @@
 		000000000000000140000000 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				B3DC3C763065BE390089C49D /* LICENSE in Resources */,
+				B3DC3C783065BEB70089C49D /* .gitignore in Resources */,
 			);
 		};
 /* End PBXResourcesBuildPhase section */
