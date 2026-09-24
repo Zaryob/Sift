@@ -40,49 +40,31 @@ public struct ArticleWidgetProvider: TimelineProvider {
     }
 
     private func loadSnapshots() -> [ArticleSnapshot] {
-        let appGroupID = "group.com.sift.app"
-        let userDefaultsKey = "sift_recent_articles_json"
-        let sharedFileURL = URL(fileURLWithPath: "/Users/Shared/sift_recent_articles.json")
+        // Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
+        let appSupportDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("Sift", isDirectory: true)
+        
+        let plistURL = appSupportDir.appendingPathComponent("widget_articles.plist")
 
-        // 1. Check Shared User File
-        if let data = try? Data(contentsOf: sharedFileURL),
-           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
-           !snapshots.isEmpty {
-            return snapshots
-        }
-
-        // 2. App Group Container JSON File
-        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
-            let fileURL = groupURL.appendingPathComponent("recent_articles.json")
-            if let data = try? Data(contentsOf: fileURL),
-               let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
-               !snapshots.isEmpty {
+        // 1. Primary: Read Apple native binary PropertyList from ~/Library/Application Support/Sift/
+        if let data = try? Data(contentsOf: plistURL) {
+            let plistDecoder = PropertyListDecoder()
+            if let snapshots = try? plistDecoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
                 return snapshots
+            }
+            if let jsonSnapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data), !jsonSnapshots.isEmpty {
+                return jsonSnapshots
             }
         }
 
-        // 3. UserDefaults Suite
-        if let groupDefaults = UserDefaults(suiteName: appGroupID),
-           let jsonStr = groupDefaults.string(forKey: userDefaultsKey),
-           let data = jsonStr.data(using: .utf8),
-           let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
-           !snapshots.isEmpty {
-            return snapshots
-        }
-
-        // 4. Check Application Support candidates
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        let siftAppSupport = appSupport.appendingPathComponent("Sift", isDirectory: true)
-        let candidates = [
-            siftAppSupport.appendingPathComponent("recent_articles.json"),
-            appSupport.appendingPathComponent("recent_articles.json"),
-            URL(fileURLWithPath: "/tmp/devplaceholder_sift_recent_articles.json"),
-            URL(fileURLWithPath: "/tmp/sift_recent_articles.json")
-        ]
-
-        for fileURL in candidates {
-            if let data = try? Data(contentsOf: fileURL),
-               let snapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data),
+        // 2. App Group fallback if active
+        let appGroupID = "group.com.sift.app"
+        if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
+            let groupPlistURL = groupURL.appendingPathComponent("widget_articles.plist")
+            if let data = try? Data(contentsOf: groupPlistURL),
+               let snapshots = (try? PropertyListDecoder().decode([ArticleSnapshot].self, from: data)) ?? (try? JSONDecoder().decode([ArticleSnapshot].self, from: data)),
                !snapshots.isEmpty {
                 return snapshots
             }
@@ -149,36 +131,47 @@ struct SiftWidgetEntryView: View {
                                             .foregroundStyle(.secondary)
                                     }
                                 }
+                                Spacer()
                             }
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(8)
-        .widgetURL(URL(string: "rssreader://all")!)
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func maxArticlesCount(for family: WidgetFamily) -> Int {
         switch family {
-        case .systemSmall: return 2
-        case .systemMedium: return 4
-        case .systemLarge: return 7
-        default: return 4
+        case .systemSmall:
+            return 2
+        case .systemMedium:
+            return 3
+        case .systemLarge:
+            return 7
+        case .systemExtraLarge:
+            return 10
+        @unknown default:
+            return 3
         }
     }
 }
 
-struct SiftWidget: Widget {
-    let kind: String = "SiftWidget"
+public struct SiftWidget: Widget {
+    public let kind: String = "SiftWidget"
 
-    var body: some WidgetConfiguration {
+    public init() {}
+
+    public var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: ArticleWidgetProvider()) { entry in
             SiftWidgetEntryView(entry: entry)
-                .containerBackground(.fill.tertiary, for: .widget)
+                .containerBackground(Color(.windowBackgroundColor), for: .widget)
         }
         .configurationDisplayName("Sift Recent Articles")
-        .description("View recent RSS articles.")
+        .description("View latest RSS headlines directly on your desktop or Notification Center.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

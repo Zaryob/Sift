@@ -4,6 +4,16 @@ import SwiftData
 public final class PersistenceController {
     public static let appGroupID = "group.com.sift.app"
     
+    /// Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
+    public static var siftAppDataDirectory: URL {
+        let appSupport = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("Sift", isDirectory: true)
+        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        return appSupport
+    }
+
     public static let shared: PersistenceController = {
         PersistenceController()
     }()
@@ -23,7 +33,8 @@ public final class PersistenceController {
             let storeURL = appGroupURL.appendingPathComponent("SiftData.sqlite")
             modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
         } else {
-            modelConfiguration = ModelConfiguration(schema: schema)
+            let storeURL = Self.siftAppDataDirectory.appendingPathComponent("SiftData.sqlite")
+            modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
         }
 
         do {
