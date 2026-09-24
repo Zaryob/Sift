@@ -2,32 +2,66 @@ import SwiftUI
 import SwiftData
 
 struct MenuBarExtraView: View {
-    @Query private var articles: [FeedItem]
+    @Query(sort: \FeedItem.publicationDate, order: .reverse) private var articles: [FeedItem]
     private let refreshService = FeedRefreshService()
     @Environment(\.openWindow) private var openWindow
 
-    private var unreadCount: Int {
-        articles.filter { !$0.isRead }.count
+    private var unreadArticles: [FeedItem] {
+        articles.filter { !$0.isRead }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Sift RSS Reader")
-                .font(.headline)
-            
-            Text("\(unreadCount) Unread Articles")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("Sift RSS Reader")
+                    .font(.headline)
+                Spacer()
+                Text("\(unreadArticles.count) Unread")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Divider()
 
-            Button("Refresh Now") {
+            if unreadArticles.isEmpty {
+                Text("No unread articles")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.vertical, 4)
+            } else {
+                Text("Latest Unread")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(unreadArticles.prefix(5)) { item in
+                    Button {
+                        if let link = item.link, let url = URL(string: link) {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title)
+                                .lineLimit(1)
+                                .font(.body)
+                            if let feedTitle = item.feed?.title {
+                                Text(feedTitle)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Refresh Feeds") {
                 Task {
                     await refreshService.refreshAllFeeds()
                 }
             }
 
-            Button("Open Reader") {
+            Button("Open Reader Window") {
                 NSApp.activate(ignoringOtherApps: true)
                 for window in NSApp.windows {
                     if window.canBecomeMain {

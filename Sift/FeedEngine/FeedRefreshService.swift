@@ -83,11 +83,14 @@ public actor FeedRefreshService {
                 let (newCount, latestTitle) = merge(parsedItems: parsedFeed.items, into: feed, context: context)
                 try context.save()
 
+                let faviconURL = FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
+
                 if newCount > 0, let title = latestTitle {
                     NotificationManager.shared.sendNewArticlesNotification(
                         count: newCount,
                         feedTitle: feed.title,
-                        latestArticleTitle: title
+                        latestArticleTitle: title,
+                        faviconURL: faviconURL
                     )
                 }
 

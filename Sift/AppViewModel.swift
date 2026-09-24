@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import SwiftData
 import Observation
+import WidgetKit
 
 public enum SidebarItem: Hashable, Identifiable {
     case all
@@ -79,6 +80,8 @@ public final class AppViewModel {
             article.isRead = true
         }
         try? context.save()
+        WidgetSnapshotManager.shared.updateSnapshot(context: context)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     public func refreshAllFeeds() {
@@ -160,11 +163,17 @@ public final class AppViewModel {
 
             try context.save()
             
+            // Update widget snapshot & timelines
+            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            WidgetCenter.shared.reloadAllTimelines()
+
+            let faviconURL = FaviconFetcher.faviconURL(for: newFeed.siteURL, feedURLString: newFeed.url, iconURLString: newFeed.iconURL)
             if addedCount > 0, let title = latestTitle {
                 NotificationManager.shared.sendNewArticlesNotification(
                     count: addedCount,
                     feedTitle: newFeed.title,
-                    latestArticleTitle: title
+                    latestArticleTitle: title,
+                    faviconURL: faviconURL
                 )
             }
 
@@ -191,6 +200,8 @@ public final class AppViewModel {
         context.delete(feed)
         do {
             try context.save()
+            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            WidgetCenter.shared.reloadAllTimelines()
         } catch {
             print("Failed to delete feed: \(error)")
         }

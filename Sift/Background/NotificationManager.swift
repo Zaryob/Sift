@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import AppKit
 
 public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     public static let shared = NotificationManager()
@@ -28,7 +29,13 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         completionHandler([.banner, .sound, .badge])
     }
 
-    public func sendNewArticlesNotification(count: Int, feedTitle: String, latestArticleTitle: String) {
+    /// Sends a local notification with optional website Favicon attachment
+    public func sendNewArticlesNotification(
+        count: Int,
+        feedTitle: String,
+        latestArticleTitle: String,
+        faviconURL: URL? = nil
+    ) {
         guard count > 0 else { return }
 
         let content = UNMutableNotificationContent()
@@ -41,6 +48,41 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         }
         content.sound = .default
 
+        if let faviconURL = faviconURL {
+            Task {
+                var attachment: UNNotificationAttachment? = nil
+                if let (data, response) = try? await URLSession.shared.data(from: faviconURL),
+                   let httpResp = response as? HTTPURLResponse,
+                   httpResp.statusCode == 200,
+                   !data.isEmpty {
+                    
+                    let tempDir = FileManager.default.temporaryDirectory
+                    let fileURL = tempDir.appendingPathComponent("favicon_\(UUID().uuidString).png")
+                    
+                    // If image format is PNG/JPEG/ICO, write directly
+                    if let image = NSImage(data: data),
+                       let tiffData = image.tiffRepresentation,
+                       let bitmapRep = NSBitmapImageRep(data: tiffData),
+                       let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+                        try? pngData.write(to: fileURL)
+                    } else {
+                        try? data.write(to: fileURL)
+                    }
+
+                    attachment = try? UNNotificationAttachment(identifier: "favicon", url: fileURL, options: nil)
+                }
+
+                if let attachment = attachment {
+                    content.attachments = [attachment]
+                }
+                self.scheduleRequest(content: content)
+            }
+        } else {
+            scheduleRequest(content: content)
+        }
+    }
+
+    private func scheduleRequest(content: UNMutableNotificationContent) {
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
             content: content,
@@ -51,7 +93,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             if let error = error {
                 print("Failed to schedule notification: \(error)")
             } else {
-                print("Successfully posted notification for \(feedTitle)")
+                print("Successfully posted notification with content: \(content.title)")
             }
         }
     }
