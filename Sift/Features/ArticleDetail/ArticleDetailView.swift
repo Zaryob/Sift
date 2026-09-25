@@ -50,14 +50,18 @@ struct ArticleDetailView: View {
                 }
                 .toolbar {
                     ToolbarItemGroup(placement: .primaryAction) {
-                        Picker("View Mode", selection: $viewMode) {
-                            ForEach(DetailViewMode.allCases) { mode in
-                                Text(mode.rawValue).tag(mode)
+                        // Toggle between Clean Reader View and In-App Web View
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                viewMode = (viewMode == .reader ? .web : .reader)
                             }
+                        } label: {
+                            Label(
+                                viewMode == .reader ? "Show Web Page" : "Show Reader",
+                                systemImage: viewMode == .reader ? "globe" : "doc.plaintext"
+                            )
                         }
-                        .pickerStyle(.segmented)
-                        .controlSize(.small)
-                        .help("Switch between Clean Reader and Web View")
+                        .help(viewMode == .reader ? "Switch to In-App Web Page" : "Switch to Clean Reader View")
 
                         if viewMode == .reader {
                             Button {
@@ -105,9 +109,9 @@ struct ArticleDetailView: View {
                             Button {
                                 viewModel.openArticleExternally(article)
                             } label: {
-                                Image(systemName: "safari")
+                                Image(systemName: "arrow.up.right.square")
                             }
-                            .help("Open in Web Browser")
+                            .help("Open in Browser")
                         }
                     }
                 }
