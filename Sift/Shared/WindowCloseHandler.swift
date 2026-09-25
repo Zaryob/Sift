@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import SwiftData
 
 public final class WindowActionTarget: NSObject {
     public static let shared = WindowActionTarget()
@@ -7,9 +8,17 @@ public final class WindowActionTarget: NSObject {
 
     @objc public func hideWindow(_ sender: Any?) {
         mainWindow?.orderOut(nil)
+        try? PersistenceController.shared.container.mainContext.save()
+        DispatchQueue.main.async {
+            // Hide from Dock and Cmd+Tab app switcher, becoming a background menu bar accessory
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     public func showMainWindow() {
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
         NSApp.activate(ignoringOtherApps: true)
         if let window = mainWindow {
             if !window.isVisible {
