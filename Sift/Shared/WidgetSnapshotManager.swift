@@ -1,12 +1,15 @@
 import Foundation
 import SwiftData
+#if os(macOS)
 import Darwin
+#endif
 
 public final class WidgetSnapshotManager {
     public static let shared = WidgetSnapshotManager()
     
     /// Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
     public static var siftAppDataDirectory: URL {
+        #if os(macOS)
         let realHome: URL
         if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
             let path = FileManager.default.string(withFileSystemRepresentation: dir, length: Int(strlen(dir)))
@@ -18,6 +21,10 @@ public final class WidgetSnapshotManager {
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent("Sift", isDirectory: true)
+        #else
+        let dir = (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("Sift", isDirectory: true)
+        #endif
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -101,14 +108,16 @@ public final class WidgetSnapshotManager {
             candidateURLs.append(groupURL.appendingPathComponent("widget_articles.plist"))
         }
 
-        let decoder = PropertyListDecoder()
+        let plistDecoder = PropertyListDecoder()
+        let jsonDecoder = JSONDecoder()
+
         for url in candidateURLs {
             if let data = try? Data(contentsOf: url) {
-                if let snapshots = try? decoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
+                if let snapshots = try? plistDecoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
                     return snapshots
                 }
-                if let jsonSnapshots = try? JSONDecoder().decode([ArticleSnapshot].self, from: data), !jsonSnapshots.isEmpty {
-                    return jsonSnapshots
+                if let snapshots = try? jsonDecoder.decode([ArticleSnapshot].self, from: data), !snapshots.isEmpty {
+                    return snapshots
                 }
             }
         }

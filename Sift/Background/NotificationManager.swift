@@ -1,6 +1,10 @@
 import Foundation
 import UserNotifications
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     public static let shared = NotificationManager()
@@ -29,7 +33,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        if #available(macOS 11.0, *) {
+        if #available(macOS 11.0, iOS 14.0, *) {
             completionHandler([.banner, .list, .sound, .badge])
         } else {
             completionHandler([.alert, .sound, .badge])
@@ -44,7 +48,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     ) {
         let userInfo = response.notification.request.content.userInfo
         DispatchQueue.main.async {
-            WindowActionTarget.shared.showMainWindow()
+            Platform.showMainWindow()
             
             if let articleIDStr = userInfo["articleID"] as? String,
                let url = URL(string: "rssreader://article/\(articleIDStr)") {
@@ -136,6 +140,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                !data.isEmpty {
 
                 let fileURL = tempDir.appendingPathComponent("notif_\(UUID().uuidString).png")
+                #if os(macOS)
                 if let image = NSImage(data: data),
                    let tiffData = image.tiffRepresentation,
                    let bitmapRep = NSBitmapImageRep(data: tiffData),
@@ -145,10 +150,20 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                         return attachment
                     }
                 }
+                #else
+                if let image = UIImage(data: data),
+                   let pngData = image.pngData() {
+                    try? pngData.write(to: fileURL)
+                    if let attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil) {
+                        return attachment
+                    }
+                }
+                #endif
             }
         }
 
         // 2. Fallback to application brand icon as attachment if favicon is not available
+        #if os(macOS)
         if let appIcon = NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName),
            let tiffData = appIcon.tiffRepresentation,
            let bitmapRep = NSBitmapImageRep(data: tiffData),
@@ -159,6 +174,16 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                 return attachment
             }
         }
+        #else
+        if let appIcon = UIImage(named: "AppIcon") ?? UIImage(systemName: "dot.radiowaves.up.and.right"),
+           let pngData = appIcon.pngData() {
+            let fileURL = tempDir.appendingPathComponent("appicon_\(UUID().uuidString).png")
+            try? pngData.write(to: fileURL)
+            if let attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil) {
+                return attachment
+            }
+        }
+        #endif
 
         return nil
     }

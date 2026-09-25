@@ -212,6 +212,19 @@ struct SidebarView: View {
 
                 Spacer()
 
+                #if !os(macOS)
+                Button {
+                    viewModel.isShowingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.body.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
+
+                Spacer()
+                #endif
+
                 Button {
                     viewModel.refreshAllFeeds()
                 } label: {
@@ -281,12 +294,11 @@ struct SidebarView: View {
             }
             if let siteURLStr = feed.siteURL, let url = URL(string: siteURLStr) {
                 Button("Visit Website") {
-                    NSWorkspace.shared.open(url)
+                    Platform.openURL(url)
                 }
             }
             Button("Copy Feed URL") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(feed.url, forType: .string)
+                Platform.copyToPasteboard(feed.url)
             }
             Divider()
             Button("Delete Feed", role: .destructive) {

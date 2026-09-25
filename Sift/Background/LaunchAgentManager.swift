@@ -9,23 +9,30 @@ public final class LaunchAgentManager: ObservableObject {
     @Published public var isEnabled: Bool = false
     @Published public var intervalSeconds: Int = 900 // Default 15 minutes (900s)
 
+    #if os(macOS)
     private var plistURL: URL {
         let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
         let launchAgentsURL = libraryURL.appendingPathComponent("LaunchAgents", isDirectory: true)
         try? FileManager.default.createDirectory(at: launchAgentsURL, withIntermediateDirectories: true)
         return launchAgentsURL.appendingPathComponent("\(Self.label).plist")
     }
+    #endif
 
     private init() {
         let storedInterval = UserDefaults.standard.integer(forKey: "launchAgentIntervalSeconds")
         self.intervalSeconds = storedInterval > 0 ? storedInterval : 900
+        #if os(macOS)
         self.isEnabled = FileManager.default.fileExists(atPath: plistURL.path)
+        #else
+        self.isEnabled = false
+        #endif
     }
 
     /// Automatically validates and synchronizes the LaunchAgent whenever a new app version or build launches.
     /// If the executable binary path, interval, or app version has changed, it updates the plist
     /// and safely re-registers with launchctl.
     public func syncOnLaunch() {
+        #if os(macOS)
         guard isEnabled || FileManager.default.fileExists(atPath: plistURL.path) else {
             return
         }
@@ -57,9 +64,11 @@ public final class LaunchAgentManager: ObservableObject {
             print("[LaunchAgentManager] Synchronizing LaunchAgent for updated app version/path...")
             installLaunchAgent(intervalSeconds: intervalSeconds)
         }
+        #endif
     }
 
     public func setEnabled(_ enabled: Bool, intervalMinutes: Int = 15) {
+        #if os(macOS)
         let seconds = max(300, intervalMinutes * 60) // Minimum 5 minutes
         self.intervalSeconds = seconds
         UserDefaults.standard.set(seconds, forKey: "launchAgentIntervalSeconds")
@@ -70,8 +79,10 @@ public final class LaunchAgentManager: ObservableObject {
         } else {
             removeLaunchAgent()
         }
+        #endif
     }
 
+    #if os(macOS)
     private func installLaunchAgent(intervalSeconds: Int) {
         let appBundleURL = Bundle.main.bundleURL
         let executableURL = appBundleURL.appendingPathComponent("Contents/MacOS/Sift")
@@ -131,4 +142,5 @@ public final class LaunchAgentManager: ObservableObject {
         self.isEnabled = false
         print("[LaunchAgentManager] LaunchAgent removed.")
     }
+    #endif
 }

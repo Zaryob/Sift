@@ -1,6 +1,7 @@
 import SwiftUI
-import AppKit
 import SwiftData
+#if os(macOS)
+import AppKit
 
 public final class WindowActionTarget: NSObject {
     public static let shared = WindowActionTarget()
@@ -67,3 +68,16 @@ public struct WindowAccessor: NSViewRepresentable {
         }
     }
 }
+#else
+public final class WindowActionTarget: NSObject {
+    public static let shared = WindowActionTarget()
+    public func showMainWindow() {}
+}
+
+public struct WindowAccessor: View {
+    public init() {}
+    public var body: some View {
+        EmptyView()
+    }
+}
+#endif

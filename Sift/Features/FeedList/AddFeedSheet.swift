@@ -122,7 +122,12 @@ struct AddFeedSheet: View {
             }
         }
         .padding(22)
+        #if os(macOS)
         .frame(width: 440)
+        #else
+        .frame(maxWidth: .infinity)
+        .presentationDetents([.medium, .large])
+        #endif
     }
 
     private func submit() {

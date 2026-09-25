@@ -1,5 +1,10 @@
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 enum DetailViewMode: String, CaseIterable, Identifiable {
     case reader = "Reader"
@@ -28,11 +33,11 @@ struct ArticleDetailView: View {
     @Bindable var viewModel: AppViewModel
     let article: FeedItem?
     @Environment(\.modelContext) private var modelContext
-    @State private var viewMode: DetailViewMode = .reader
 
     @AppStorage("readerFontSize") private var readerFontSize: Double = 16.0
     @AppStorage("readerFontDesign") private var readerFontDesignRaw: String = ReaderFontDesign.system.rawValue
-    @State private var showTypographyPopover: Bool = false
+    @State private var viewMode: DetailViewMode = .reader
+    @State private var showTypographyPopover = false
 
     private var currentFontDesign: ReaderFontDesign {
         ReaderFontDesign(rawValue: readerFontDesignRaw) ?? .system
@@ -41,111 +46,123 @@ struct ArticleDetailView: View {
     var body: some View {
         Group {
             if let article = article {
-                Group {
+                VStack(spacing: 0) {
+                    // Header Toolbar Bar
+                    headerBar(for: article)
+                    Divider()
+
+                    // Main Content: Reader or Web View
                     if viewMode == .web, let linkStr = article.link, let url = URL(string: linkStr) {
                         WebView(url: url)
                     } else {
-                        readerContent(article: article)
-                    }
-                }
-                .toolbar {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        // Toggle between Clean Reader View and In-App Web View
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                viewMode = (viewMode == .reader ? .web : .reader)
-                            }
-                        } label: {
-                            Label(
-                                viewMode == .reader ? "Show Web Page" : "Show Reader",
-                                systemImage: viewMode == .reader ? "globe" : "doc.plaintext"
-                            )
-                        }
-                        .help(viewMode == .reader ? "Switch to In-App Web Page" : "Switch to Clean Reader View")
-
-                        if viewMode == .reader {
-                            Button {
-                                showTypographyPopover.toggle()
-                            } label: {
-                                Image(systemName: "textformat.size")
-                            }
-                            .popover(isPresented: $showTypographyPopover) {
-                                typographyPopoverContent
-                            }
-                            .help("Reading Appearance")
-
-                            Button {
-                                printArticle(article)
-                            } label: {
-                                Image(systemName: "printer")
-                            }
-                            .help("Print or Export Article as PDF")
-                        }
-
-                        Button {
-                            article.isStarred.toggle()
-                            try? modelContext.save()
-                        } label: {
-                            Image(systemName: article.isStarred ? "star.fill" : "star")
-                                .foregroundStyle(article.isStarred ? Color.orange : Color.secondary)
-                        }
-                        .help(article.isStarred ? "Unstar Article" : "Star Article")
-
-                        Button {
-                            article.isRead.toggle()
-                            try? modelContext.save()
-                        } label: {
-                            Image(systemName: article.isRead ? "circle" : "circle.fill")
-                                .foregroundStyle(article.isRead ? Color.secondary : Color.blue)
-                        }
-                        .help(article.isRead ? "Mark as Unread" : "Mark as Read")
-
-                        if let linkStr = article.link, let url = URL(string: linkStr) {
-                            ShareLink(item: url) {
-                                Image(systemName: "square.and.arrow.up")
-                            }
-                            .help("Share Article")
-
-                            Button {
-                                viewModel.openArticleExternally(article)
-                            } label: {
-                                Image(systemName: "arrow.up.right.square")
-                            }
-                            .help("Open in Browser")
-                        }
+                        readerScrollView(for: article)
                     }
                 }
             } else {
-                ContentUnavailableView(
-                    "No Article Selected",
-                    systemImage: "newspaper",
-                    description: Text("Select an article from the list to start reading.")
-                )
-            }
-        }
-        .onChange(of: article) { _, newItem in
-            if let newItem = newItem, !newItem.isRead {
-                newItem.isRead = true
-                try? modelContext.save()
+                emptySelectionView
             }
         }
     }
 
-    @ViewBuilder
-    private func readerContent(article: FeedItem) -> some View {
-        let rawBody = article.content ?? article.summary ?? ""
-        let cleanBody = HTMLSanitizer.stripTags(from: rawBody)
-        let readingTime = estimatedReadingTime(text: cleanBody)
+    private var emptySelectionView: some View {
+        ContentUnavailableView(
+            "No Article Selected",
+            systemImage: "doc.text",
+            description: Text("Select an article from the list to read its content.")
+        )
+    }
 
+    private func headerBar(for article: FeedItem) -> some View {
+        HStack(spacing: 12) {
+            Picker("View Mode", selection: $viewMode) {
+                ForEach(DetailViewMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 160)
+
+            Spacer()
+
+            if viewMode == .reader {
+                Button {
+                    showTypographyPopover.toggle()
+                } label: {
+                    Label("Text Formatting", systemImage: "textformat.size")
+                }
+                .help("Adjust font size and style")
+                .popover(isPresented: $showTypographyPopover) {
+                    typographyPopoverContent
+                }
+            }
+
+            Button {
+                article.isStarred.toggle()
+                try? modelContext.save()
+            } label: {
+                Label(article.isStarred ? "Starred" : "Star", systemImage: article.isStarred ? "star.fill" : "star")
+                    .foregroundStyle(article.isStarred ? Color.orange : Color.secondary)
+            }
+            .help(article.isStarred ? "Remove Star" : "Star Article")
+
+            Button {
+                article.isRead.toggle()
+                try? modelContext.save()
+            } label: {
+                Label(article.isRead ? "Mark Unread" : "Mark Read", systemImage: article.isRead ? "circle" : "checkmark.circle")
+            }
+            .help(article.isRead ? "Mark as Unread" : "Mark as Read")
+
+            Button {
+                viewModel.openArticleExternally(article)
+            } label: {
+                Label("Open in Browser", systemImage: "safari")
+            }
+            .help("Open original article in default browser")
+
+            Menu {
+                Button {
+                    printArticle(article)
+                } label: {
+                    Label("Print Article", systemImage: "printer")
+                }
+
+                if let link = article.link, let url = URL(string: link) {
+                    Button {
+                        Platform.copyToPasteboard(url.absoluteString)
+                    } label: {
+                        Label("Copy Link", systemImage: "doc.on.doc")
+                    }
+                }
+
+                Divider()
+
+                ShareLink(item: URL(string: article.link ?? "") ?? URL(string: "https://apple.com")!) {
+                    Label("Share...", systemImage: "square.and.arrow.up")
+                }
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private func readerScrollView(for article: FeedItem) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Header: Feed & Category badge + Metadata
-                HStack(spacing: 8) {
+            let rawContent = article.content ?? article.summary ?? ""
+            let cleanBody = HTMLSanitizer.stripTags(from: rawContent)
+            let readingTime = estimatedReadingTime(text: cleanBody)
+
+            VStack(alignment: .leading, spacing: 18) {
+                // Feed Title & Category & Estimated Reading Time
+                HStack(alignment: .center) {
                     if let feed = article.feed {
                         FeedFaviconView(feed: feed)
                         Text(feed.title)
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(.secondary)
 
                         if let category = feed.category, !category.isEmpty {
                             Text(category)
@@ -244,8 +261,8 @@ struct ArticleDetailView: View {
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.secondary.opacity(0.08)))
                 }
             }
-            .padding(.horizontal, 36)
-            .padding(.vertical, 28)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
             .frame(maxWidth: 720, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .top)
         }
@@ -308,7 +325,7 @@ struct ArticleDetailView: View {
             }
         }
         .padding(18)
-        .frame(width: 320, alignment: .leading)
+        .frame(maxWidth: 320, alignment: .leading)
     }
 
     private func estimatedReadingTime(text: String) -> Int {
@@ -317,6 +334,7 @@ struct ArticleDetailView: View {
     }
 
     private func printArticle(_ article: FeedItem) {
+        #if os(macOS)
         let printView = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 700))
         let body = HTMLSanitizer.stripTags(from: article.content ?? article.summary ?? "")
         printView.string = "\(article.title)\n\n\(body)"
@@ -327,5 +345,16 @@ struct ArticleDetailView: View {
         
         let printOperation = NSPrintOperation(view: printView, printInfo: printInfo)
         printOperation.run()
+        #elseif os(iOS)
+        let printController = UIPrintInteractionController.shared
+        let printInfo = UIPrintInfo(dictionary: nil)
+        printInfo.outputType = .general
+        printInfo.jobName = article.title
+        printController.printInfo = printInfo
+        let body = HTMLSanitizer.stripTags(from: article.content ?? article.summary ?? "")
+        let formatter = UIMarkupTextPrintFormatter(markupText: "<h1>\(article.title)</h1><p>\(body)</p>")
+        printController.printFormatter = formatter
+        printController.present(animated: true, completionHandler: nil)
+        #endif
     }
 }

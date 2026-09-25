@@ -1,12 +1,15 @@
 import SwiftUI
 import SwiftData
 import WidgetKit
+#if os(macOS)
 import AppKit
+#endif
 
 extension Notification.Name {
     public static let siftHandleDeepLink = Notification.Name("siftHandleDeepLink")
 }
 
+#if os(macOS)
 final class AppDelegate: NSObject, NSApplicationDelegate {
     public static var pendingURL: URL?
 
@@ -43,13 +46,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? PersistenceController.shared.container.mainContext.save()
     }
 }
+#endif
 
 @main
 struct SiftApp: App {
+    #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #endif
     @StateObject private var backgroundScheduler = BackgroundFeedScheduler.shared
 
     init() {
+        #if os(macOS)
         if CommandLine.arguments.contains("--background-refresh") {
             Task {
                 let service = FeedRefreshService()
@@ -59,28 +66,36 @@ struct SiftApp: App {
                 exit(0)
             }
         }
+        #endif
+        _ = NotificationManager.shared
+        NotificationManager.shared.requestAuthorization()
     }
 
     var body: some Scene {
+        #if os(macOS)
         Window("Sift", id: "main") {
             ContentView()
         }
         .modelContainer(PersistenceController.shared.container)
         .defaultSize(width: 1100, height: 720)
         .windowToolbarStyle(.unified)
-        
-        #if os(macOS)
+
         Settings {
             SettingsView()
                 .modelContainer(PersistenceController.shared.container)
         }
-        
+
         MenuBarExtra {
             MenuBarExtraView()
                 .modelContainer(PersistenceController.shared.container)
         } label: {
             Image("MenuBarIcon")
         }
+        #else
+        WindowGroup {
+            ContentView()
+        }
+        .modelContainer(PersistenceController.shared.container)
         #endif
     }
 }

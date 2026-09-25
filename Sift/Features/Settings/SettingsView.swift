@@ -2,6 +2,29 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
+struct OPMLFileDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.xml, .plainText] }
+    
+    var text: String
+    
+    init(text: String = "") {
+        self.text = text
+    }
+    
+    init(configuration: ReadConfiguration) throws {
+        if let data = configuration.file.regularFileContents {
+            text = String(decoding: data, as: UTF8.self)
+        } else {
+            text = ""
+        }
+    }
+    
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        let data = Data(text.utf8)
+        return FileWrapper(regularFileWithContents: data)
+    }
+}
+
 struct SettingsView: View {
     @StateObject private var loginItemManager = LoginItemManager.shared
     @StateObject private var scheduler = BackgroundFeedScheduler.shared
@@ -9,38 +32,76 @@ struct SettingsView: View {
     @Query private var feeds: [Feed]
     @Query private var articles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
 
     @AppStorage("readerFontSize") private var readerFontSize: Double = 16.0
     @AppStorage("readerFontDesign") private var readerFontDesignRaw: String = ReaderFontDesign.system.rawValue
 
     @State private var opmlStatusMessage: String?
     @State private var isImporting: Bool = false
+    @State private var isShowingFileImporter: Bool = false
+    @State private var isShowingFileExporter: Bool = false
+    @State private var exportDocument: OPMLFileDocument?
 
     var body: some View {
-        TabView {
-            generalTab
-                .tabItem {
-                    Label("General", systemImage: "gearshape")
-                }
+        NavigationStack {
+            TabView {
+                generalTab
+                    .tabItem {
+                        Label("General", systemImage: "gearshape")
+                    }
 
-            readingTab
-                .tabItem {
-                    Label("Reading", systemImage: "textformat")
-                }
+                readingTab
+                    .tabItem {
+                        Label("Reading", systemImage: "textformat")
+                    }
 
-            subscriptionsTab
-                .tabItem {
-                    Label("Subscriptions", systemImage: "tray.and.arrow.down")
+                subscriptionsTab
+                    .tabItem {
+                        Label("Subscriptions", systemImage: "tray.and.arrow.down")
+                    }
+            }
+            .navigationTitle("Settings")
+            #if os(macOS)
+            .frame(width: 520, height: 380)
+            #else
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
                 }
-        }
-        .frame(width: 520, height: 380)
-        .onAppear {
-            NotificationManager.shared.requestAuthorization()
+            }
+            #endif
+            .onAppear {
+                NotificationManager.shared.requestAuthorization()
+            }
+            .fileImporter(
+                isPresented: $isShowingFileImporter,
+                allowedContentTypes: [.xml, .plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                handleImportResult(result)
+            }
+            .fileExporter(
+                isPresented: $isShowingFileExporter,
+                document: exportDocument,
+                contentType: .xml,
+                defaultFilename: "sift_subscriptions.opml"
+            ) { result in
+                switch result {
+                case .success:
+                    opmlStatusMessage = "Successfully exported \(feeds.count) feeds to OPML."
+                case .failure(let error):
+                    opmlStatusMessage = "OPML Export Failed: \(error.localizedDescription)"
+                }
+            }
         }
     }
 
     private var generalTab: some View {
         Form {
+            #if os(macOS)
             Section("Startup & Background") {
                 Toggle("Launch at Login", isOn: Binding(
                     get: { loginItemManager.isLaunchAtLoginEnabled },
@@ -71,6 +132,17 @@ struct SettingsView: View {
                 }
                 .help("How frequently Sift checks for new feed articles in the background.")
             }
+            #else
+            Section("Background Refresh") {
+                Picker("Refresh Interval", selection: $scheduler.refreshIntervalMinutes) {
+                    Text("Every 5 minutes").tag(5)
+                    Text("Every 15 minutes (Default)").tag(15)
+                    Text("Every 30 minutes").tag(30)
+                    Text("Every hour").tag(60)
+                    Text("Manual Only").tag(0)
+                }
+            }
+            #endif
 
             Section("Notifications") {
                 HStack {
@@ -165,7 +237,7 @@ struct SettingsView: View {
             Section("OPML Backup & Import") {
                 HStack {
                     Button("Import Subscriptions (.opml)...") {
-                        importOPML()
+                        isShowingFileImporter = true
                     }
                     .disabled(isImporting)
 
@@ -188,15 +260,19 @@ struct SettingsView: View {
         .padding()
     }
 
-    private func importOPML() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.xml, .plainText]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.title = "Import OPML File"
+    private func handleImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            opmlStatusMessage = "Import failed: \(error.localizedDescription)"
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
 
-        if panel.runModal() == .OK, let url = panel.url {
             isImporting = true
             opmlStatusMessage = "Parsing OPML..."
             Task {
@@ -204,7 +280,7 @@ struct SettingsView: View {
                     let data = try Data(contentsOf: url)
                     let parser = OPMLService()
                     let items = try parser.parse(data: data)
-                    
+
                     var importedCount = 0
                     for item in items {
                         let targetURL = item.xmlURL
@@ -224,7 +300,7 @@ struct SettingsView: View {
                     }
                     try modelContext.save()
                     opmlStatusMessage = "Successfully imported \(importedCount) new feeds from OPML."
-                    
+
                     // Refresh newly added feeds
                     Task {
                         await FeedRefreshService().refreshAllFeeds()
@@ -238,19 +314,8 @@ struct SettingsView: View {
     }
 
     private func exportOPML() {
-        let panel = NSSavePanel()
-        panel.title = "Export Subscriptions (.opml)"
-        panel.nameFieldStringValue = "sift_subscriptions.opml"
-        panel.allowedContentTypes = [.xml]
-
-        if panel.runModal() == .OK, let url = panel.url {
-            let opmlContent = OPMLService.generateOPML(from: feeds)
-            do {
-                try opmlContent.write(to: url, atomically: true, encoding: .utf8)
-                opmlStatusMessage = "Successfully exported \(feeds.count) feeds to OPML."
-            } catch {
-                opmlStatusMessage = "OPML Export Failed: \(error.localizedDescription)"
-            }
-        }
+        let opmlContent = OPMLService.generateOPML(from: feeds)
+        exportDocument = OPMLFileDocument(text: opmlContent)
+        isShowingFileExporter = true
     }
 }

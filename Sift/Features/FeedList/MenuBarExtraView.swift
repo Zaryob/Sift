@@ -1,5 +1,7 @@
+#if os(macOS)
 import SwiftUI
 import SwiftData
+import AppKit
 
 struct MenuBarExtraView: View {
     @Query(sort: \FeedItem.publicationDate, order: .reverse) private var articles: [FeedItem]
@@ -98,3 +100,4 @@ struct MenuBarExtraView: View {
         .padding(.vertical, 4)
     }
 }
+#endif

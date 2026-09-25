@@ -1,11 +1,13 @@
 import WidgetKit
 import SwiftUI
+#if os(macOS)
 import Darwin
+#endif
 
 public struct WidgetArticleEntry: TimelineEntry {
     public let date: Date
     public let articles: [ArticleSnapshot]
-
+    
     public init(date: Date, articles: [ArticleSnapshot]) {
         self.date = date
         self.articles = articles
@@ -13,22 +15,23 @@ public struct WidgetArticleEntry: TimelineEntry {
 }
 
 public struct ArticleWidgetProvider: TimelineProvider {
+    public typealias Entry = WidgetArticleEntry
+
     public init() {}
 
     public func placeholder(in context: Context) -> WidgetArticleEntry {
         WidgetArticleEntry(
             date: Date(),
             articles: [
-                ArticleSnapshot(id: UUID(), title: "Sample Article Headline 1", feedTitle: "Tech News", date: Date().addingTimeInterval(-600)),
-                ArticleSnapshot(id: UUID(), title: "Sample Article Headline 2", feedTitle: "Science Journal", date: Date().addingTimeInterval(-3600)),
-                ArticleSnapshot(id: UUID(), title: "Sample Article Headline 3", feedTitle: "Design Blog", date: Date().addingTimeInterval(-7200))
+                ArticleSnapshot(id: UUID(), title: "Swift 6.0 Released with Full Concurrency Safety", feedTitle: "Swift Blog", date: Date()),
+                ArticleSnapshot(id: UUID(), title: "Designing Modern Multiplatform Applications", feedTitle: "Apple Developer", date: Date())
             ]
         )
     }
 
     public func getSnapshot(in context: Context, completion: @escaping (WidgetArticleEntry) -> Void) {
         let snapshots = loadSnapshots()
-        let entry = WidgetArticleEntry(date: Date(), articles: snapshots)
+        let entry = WidgetArticleEntry(date: Date(), articles: snapshots.isEmpty ? placeholder(in: context).articles : snapshots)
         completion(entry)
     }
 
@@ -41,6 +44,9 @@ public struct ArticleWidgetProvider: TimelineProvider {
     }
 
     private func loadSnapshots() -> [ArticleSnapshot] {
+        var candidateURLs: [URL] = []
+
+        #if os(macOS)
         // Resolve real user home directory outside sandbox container redirect
         let realHome: URL
         if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
@@ -52,8 +58,8 @@ public struct ArticleWidgetProvider: TimelineProvider {
 
         let realAppSupportPlist = realHome
             .appendingPathComponent("Library/Application Support/Sift/widget_articles.plist")
-
-        var candidateURLs: [URL] = [realAppSupportPlist]
+        candidateURLs.append(realAppSupportPlist)
+        #endif
 
         // Container fallback
         let containerAppSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -179,10 +185,10 @@ public struct SiftWidget: Widget {
     public var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: ArticleWidgetProvider()) { entry in
             SiftWidgetEntryView(entry: entry)
-                .containerBackground(Color(.windowBackgroundColor), for: .widget)
+                .containerBackground(.background, for: .widget)
         }
         .configurationDisplayName("Sift Recent Articles")
-        .description("View latest RSS headlines directly on your desktop or Notification Center.")
+        .description("View latest RSS headlines directly on your desktop or Home Screen.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

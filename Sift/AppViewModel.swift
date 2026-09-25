@@ -35,6 +35,8 @@ public final class AppViewModel {
     public var addFeedCategoryString: String = ""
     public var isAddingFeedLoading: Bool = false
     
+    public var isShowingSettings: Bool = false
+
     public var errorMessage: String?
     public var showErrorAlert: Bool = false
     public var isRefreshing: Bool = false
@@ -224,7 +226,7 @@ public final class AppViewModel {
 
     public func openArticleExternally(_ article: FeedItem) {
         guard let linkStr = article.link, let url = URL(string: linkStr) else { return }
-        NSWorkspace.shared.open(url)
+        Platform.openURL(url)
     }
 
     public func handleDeepLink(_ url: URL, context: ModelContext) {
