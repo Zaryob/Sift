@@ -272,19 +272,15 @@ struct SettingsView: View {
             }
 
             Section("OPML Backup & Import") {
-                HStack {
-                    Button("Import Subscriptions (.opml)...") {
-                        isShowingFileImporter = true
-                    }
-                    .disabled(isImporting)
-
-                    Spacer()
-
-                    Button("Export Subscriptions (.opml)...") {
-                        exportOPML()
-                    }
-                    .disabled(feeds.isEmpty)
+                Button("Import Subscriptions (.opml)...") {
+                    isShowingFileImporter = true
                 }
+                .disabled(isImporting)
+
+                Button("Export Subscriptions (.opml)...") {
+                    exportOPML()
+                }
+                .disabled(feeds.isEmpty)
 
                 if let message = opmlStatusMessage {
                     Text(message)
