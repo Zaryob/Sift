@@ -33,16 +33,28 @@ struct ContentView: View {
             Text(viewModel.errorMessage ?? "An unknown error occurred.")
         }
         .onOpenURL { url in
-            DispatchQueue.main.async {
-                Platform.showMainWindow()
-                viewModel.handleDeepLink(url, context: modelContext)
+            Platform.showMainWindow()
+            if url.isFileURL {
+                Task {
+                    await viewModel.importOPMLFile(at: url, context: modelContext)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    viewModel.handleDeepLink(url, context: modelContext)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .siftHandleDeepLink)) { notification in
             if let url = notification.object as? URL {
-                DispatchQueue.main.async {
-                    Platform.showMainWindow()
-                    viewModel.handleDeepLink(url, context: modelContext)
+                Platform.showMainWindow()
+                if url.isFileURL {
+                    Task {
+                        await viewModel.importOPMLFile(at: url, context: modelContext)
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        viewModel.handleDeepLink(url, context: modelContext)
+                    }
                 }
             }
         }
@@ -80,7 +92,13 @@ struct ContentView: View {
                 #if os(macOS)
                 if let pending = AppDelegate.pendingURL {
                     AppDelegate.pendingURL = nil
-                    viewModel.handleDeepLink(pending, context: modelContext)
+                    if pending.isFileURL {
+                        Task {
+                            await viewModel.importOPMLFile(at: pending, context: modelContext)
+                        }
+                    } else {
+                        viewModel.handleDeepLink(pending, context: modelContext)
+                    }
                 }
                 #endif
             }

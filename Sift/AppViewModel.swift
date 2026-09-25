@@ -257,6 +257,41 @@ public final class AppViewModel {
         }
     }
 
+    /// Imports subscriptions from an OPML file opened externally (Files app, Mail, AirDrop, "Open With").
+    public func importOPMLFile(at url: URL, context: ModelContext) async {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        guard let data = try? Data(contentsOf: url) else {
+            showError("Could not read the OPML file.")
+            return
+        }
+
+        guard let items = try? OPMLService().parse(data: data), !items.isEmpty else {
+            showError("The file doesn't contain any recognizable feed subscriptions.")
+            return
+        }
+
+        for item in items {
+            let targetURL = item.xmlURL
+            let descriptor = FetchDescriptor<Feed>(predicate: #Predicate { $0.url == targetURL })
+            if (try? context.fetch(descriptor).first) == nil {
+                let newFeed = Feed(title: item.title, url: item.xmlURL, siteURL: item.htmlURL, category: item.category, dateAdded: Date())
+                context.insert(newFeed)
+            }
+        }
+        try? context.save()
+        await refreshService.refreshAllFeeds()
+        await MainActor.run {
+            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+    }
+
     private func showError(_ message: String) {
         errorMessage = message
         showErrorAlert = true
