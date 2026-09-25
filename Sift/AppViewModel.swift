@@ -162,6 +162,7 @@ public final class AppViewModel {
                     author: parsedItem.author,
                     summary: parsedItem.summary,
                     content: parsedItem.content,
+                    imageURL: parsedItem.imageURL,
                     publicationDate: parsedItem.publicationDate,
                     discoveredDate: Date(),
                     isRead: false,

@@ -47,9 +47,10 @@ struct ArticleDetailView: View {
         Group {
             if let article = article {
                 VStack(spacing: 0) {
-                    // Header Toolbar Bar
+                    #if os(macOS)
                     headerBar(for: article)
                     Divider()
+                    #endif
 
                     // Main Content: Reader or Web View
                     if viewMode == .web, let linkStr = article.link, let url = URL(string: linkStr) {
@@ -58,6 +59,95 @@ struct ArticleDetailView: View {
                         readerScrollView(for: article)
                     }
                 }
+                .navigationTitle(article.feed?.title ?? "")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        // Switch between Reader and Web mode
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                viewMode = (viewMode == .reader) ? .web : .reader
+                            }
+                        } label: {
+                            Image(systemName: viewMode == .reader ? "safari" : "doc.plaintext")
+                        }
+                        .help(viewMode == .reader ? "Switch to Web View" : "Switch to Reader View")
+
+                        // Star Article
+                        Button {
+                            article.isStarred.toggle()
+                            try? modelContext.save()
+                        } label: {
+                            Image(systemName: article.isStarred ? "star.fill" : "star")
+                                .foregroundStyle(article.isStarred ? Color.orange : Color.primary)
+                        }
+                        .help(article.isStarred ? "Remove Star" : "Star Article")
+
+                        // Overflow Action Menu
+                        Menu {
+                            if viewMode == .reader {
+                                Button {
+                                    showTypographyPopover.toggle()
+                                } label: {
+                                    Label("Text Formatting", systemImage: "textformat.size")
+                                }
+                            }
+
+                            Button {
+                                article.isRead.toggle()
+                                try? modelContext.save()
+                            } label: {
+                                Label(article.isRead ? "Mark Unread" : "Mark Read", systemImage: article.isRead ? "circle" : "checkmark.circle")
+                            }
+
+                            Button {
+                                viewModel.openArticleExternally(article)
+                            } label: {
+                                Label("Open in Browser", systemImage: "arrow.up.right.square")
+                            }
+
+                            if let link = article.link, let url = URL(string: link) {
+                                Button {
+                                    Platform.copyToPasteboard(url.absoluteString)
+                                } label: {
+                                    Label("Copy Link", systemImage: "doc.on.doc")
+                                }
+
+                                ShareLink(item: url) {
+                                    Label("Share...", systemImage: "square.and.arrow.up")
+                                }
+                            }
+
+                            Divider()
+
+                            Button {
+                                printArticle(article)
+                            } label: {
+                                Label("Print Article", systemImage: "printer")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
+                .sheet(isPresented: $showTypographyPopover) {
+                    NavigationStack {
+                        typographyPopoverContent
+                            .navigationTitle("Typography")
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") {
+                                        showTypographyPopover = false
+                                    }
+                                }
+                            }
+                    }
+                    .presentationDetents([.height(260)])
+                    .presentationDragIndicator(.visible)
+                }
+                #endif
             } else {
                 emptySelectionView
             }
@@ -72,6 +162,7 @@ struct ArticleDetailView: View {
         )
     }
 
+    #if os(macOS)
     private func headerBar(for article: FeedItem) -> some View {
         HStack(spacing: 12) {
             Picker("View Mode", selection: $viewMode) {
@@ -148,6 +239,7 @@ struct ArticleDetailView: View {
         .padding(.vertical, 8)
         .background(.bar)
     }
+    #endif
 
     private func readerScrollView(for article: FeedItem) -> some View {
         ScrollView {
@@ -211,6 +303,23 @@ struct ArticleDetailView: View {
                     .foregroundStyle(.secondary)
 
                     Spacer()
+                }
+
+                if let imageURLString = article.imageURL, let imageURL = URL(string: imageURLString) {
+                    AsyncImage(url: imageURL) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        default:
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.08))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
 
                 Divider()

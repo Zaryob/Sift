@@ -46,6 +46,7 @@ public final class FeedParser: NSObject, XMLParserDelegate {
     private var currentItemAuthor: String?
     private var currentItemSummary: String?
     private var currentItemContent: String?
+    private var currentItemImageURL: String?
     private var currentItemPubDateString: String?
 
     // State tracking for Atom entries
@@ -56,6 +57,7 @@ public final class FeedParser: NSObject, XMLParserDelegate {
     private var currentEntryAuthor: String?
     private var currentEntrySummary: String?
     private var currentEntryContent: String?
+    private var currentEntryImageURL: String?
     private var currentEntryUpdatedString: String?
     private var currentEntryPublishedString: String?
     private var inAuthorElement: Bool = false
@@ -156,7 +158,23 @@ public final class FeedParser: NSObject, XMLParserDelegate {
                 currentItemAuthor = nil
                 currentItemSummary = nil
                 currentItemContent = nil
+                currentItemImageURL = nil
                 currentItemPubDateString = nil
+            } else if inItem, name == "enclosure" {
+                let type = attributeDict["type"] ?? ""
+                if currentItemImageURL == nil, type.hasPrefix("image"), let url = attributeDict["url"], !url.isEmpty {
+                    currentItemImageURL = url
+                }
+            } else if inItem, name == "media:thumbnail" {
+                if currentItemImageURL == nil, let url = attributeDict["url"], !url.isEmpty {
+                    currentItemImageURL = url
+                }
+            } else if inItem, name == "media:content" {
+                let medium = attributeDict["medium"] ?? ""
+                let type = attributeDict["type"] ?? ""
+                if currentItemImageURL == nil, medium == "image" || type.hasPrefix("image"), let url = attributeDict["url"], !url.isEmpty {
+                    currentItemImageURL = url
+                }
             }
         } else if feedType == .atom {
             if name == "entry" {
@@ -167,6 +185,7 @@ public final class FeedParser: NSObject, XMLParserDelegate {
                 currentEntryAuthor = nil
                 currentEntrySummary = nil
                 currentEntryContent = nil
+                currentEntryImageURL = nil
                 currentEntryUpdatedString = nil
                 currentEntryPublishedString = nil
             } else if name == "author" {
@@ -180,9 +199,21 @@ public final class FeedParser: NSObject, XMLParserDelegate {
                     } else {
                         if feedLink == nil { feedLink = href }
                     }
+                } else if rel == "enclosure", inEntry, currentEntryImageURL == nil {
+                    let type = attributeDict["type"] ?? ""
+                    if type.hasPrefix("image"), let href = href, !href.isEmpty {
+                        currentEntryImageURL = href
+                    }
                 }
             } else if name == "icon" || name == "logo" {
                 // atom icon/logo
+            } else if inEntry, (name == "media:thumbnail" || name == "media:content") {
+                let medium = attributeDict["medium"] ?? ""
+                let type = attributeDict["type"] ?? ""
+                if currentEntryImageURL == nil, medium == "image" || type.hasPrefix("image") || name == "media:thumbnail",
+                   let url = attributeDict["url"], !url.isEmpty {
+                    currentEntryImageURL = url
+                }
             }
         }
     }
@@ -280,6 +311,7 @@ public final class FeedParser: NSObject, XMLParserDelegate {
     private func commitRSSItem() {
         let title = currentItemTitle.isEmpty ? "Untitled Article" : currentItemTitle
         let pubDate = parseDate(currentItemPubDateString) ?? Date()
+        let imageURL = currentItemImageURL ?? Self.extractFirstImageURL(from: currentItemContent ?? currentItemSummary)
 
         let parsedItem = ParsedItem(
             guid: currentItemGuid,
@@ -288,6 +320,7 @@ public final class FeedParser: NSObject, XMLParserDelegate {
             author: currentItemAuthor,
             summary: currentItemSummary,
             content: currentItemContent,
+            imageURL: imageURL,
             publicationDate: pubDate
         )
         items.append(parsedItem)
@@ -297,6 +330,7 @@ public final class FeedParser: NSObject, XMLParserDelegate {
         let title = currentEntryTitle.isEmpty ? "Untitled Article" : currentEntryTitle
         let dateString = currentEntryPublishedString ?? currentEntryUpdatedString
         let pubDate = parseDate(dateString) ?? Date()
+        let imageURL = currentEntryImageURL ?? Self.extractFirstImageURL(from: currentEntryContent ?? currentEntrySummary)
 
         let parsedItem = ParsedItem(
             guid: currentEntryID,
@@ -305,9 +339,25 @@ public final class FeedParser: NSObject, XMLParserDelegate {
             author: currentEntryAuthor,
             summary: currentEntrySummary,
             content: currentEntryContent,
+            imageURL: imageURL,
             publicationDate: pubDate
         )
         items.append(parsedItem)
+    }
+
+    /// Falls back to the first inline `<img>` tag when the feed provides no
+    /// enclosure/media:thumbnail/media:content image reference.
+    private static func extractFirstImageURL(from html: String?) -> String? {
+        guard let html = html, !html.isEmpty else { return nil }
+        guard let regex = try? NSRegularExpression(pattern: "<img[^>]+src=[\"']([^\"']+)[\"']", options: .caseInsensitive) else {
+            return nil
+        }
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        guard let match = regex.firstMatch(in: html, options: [], range: range),
+              let urlRange = Range(match.range(at: 1), in: html) else {
+            return nil
+        }
+        return String(html[urlRange])
     }
 
     private func parseDate(_ dateString: String?) -> Date? {

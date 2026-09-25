@@ -188,6 +188,7 @@ public actor FeedRefreshService {
                     author: parsed.author,
                     summary: parsed.summary,
                     content: parsed.content,
+                    imageURL: parsed.imageURL,
                     publicationDate: parsed.publicationDate,
                     discoveredDate: Date(),
                     isRead: false,

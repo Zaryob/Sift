@@ -29,6 +29,7 @@ public struct ParsedItem: Equatable {
     public var author: String?
     public var summary: String?
     public var content: String?
+    public var imageURL: String?
     public var publicationDate: Date
 
     public init(
@@ -38,6 +39,7 @@ public struct ParsedItem: Equatable {
         author: String? = nil,
         summary: String? = nil,
         content: String? = nil,
+        imageURL: String? = nil,
         publicationDate: Date = Date()
     ) {
         self.guid = guid
@@ -46,6 +48,7 @@ public struct ParsedItem: Equatable {
         self.author = author
         self.summary = summary
         self.content = content
+        self.imageURL = imageURL
         self.publicationDate = publicationDate
     }
 }

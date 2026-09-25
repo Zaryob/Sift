@@ -10,6 +10,7 @@ public final class FeedItem {
     public var author: String?
     public var summary: String?
     public var content: String?
+    public var imageURL: String?
     public var publicationDate: Date
     public var discoveredDate: Date
     public var isRead: Bool
@@ -25,6 +26,7 @@ public final class FeedItem {
         author: String? = nil,
         summary: String? = nil,
         content: String? = nil,
+        imageURL: String? = nil,
         publicationDate: Date = Date(),
         discoveredDate: Date = Date(),
         isRead: Bool = false,
@@ -38,6 +40,7 @@ public final class FeedItem {
         self.author = author
         self.summary = summary
         self.content = content
+        self.imageURL = imageURL
         self.publicationDate = publicationDate
         self.discoveredDate = discoveredDate
         self.isRead = isRead
