@@ -24,28 +24,13 @@ enum ReaderFontDesign: String, CaseIterable, Identifiable {
     }
 }
 
-struct ShareButton: View {
-    let items: [Any]
-
-    var body: some View {
-        Button {
-            let picker = NSSharingServicePicker(items: items)
-            if let window = NSApp.keyWindow {
-                picker.show(relativeTo: .zero, of: window.contentView ?? NSView(), preferredEdge: .minY)
-            }
-        } label: {
-            Label("Share", systemImage: "square.and.arrow.up")
-        }
-    }
-}
-
 struct ArticleDetailView: View {
     @Bindable var viewModel: AppViewModel
     let article: FeedItem?
     @Environment(\.modelContext) private var modelContext
     @State private var viewMode: DetailViewMode = .reader
 
-    @AppStorage("readerFontSize") private var readerFontSize: Double = 15.0
+    @AppStorage("readerFontSize") private var readerFontSize: Double = 16.0
     @AppStorage("readerFontDesign") private var readerFontDesignRaw: String = ReaderFontDesign.system.rawValue
     @State private var showTypographyPopover: Bool = false
 
@@ -56,156 +41,81 @@ struct ArticleDetailView: View {
     var body: some View {
         Group {
             if let article = article {
-                VStack(spacing: 0) {
-                    // Mode & Action Picker Bar
-                    HStack {
+                Group {
+                    if viewMode == .web, let linkStr = article.link, let url = URL(string: linkStr) {
+                        WebView(url: url)
+                    } else {
+                        readerContent(article: article)
+                    }
+                }
+                .toolbar {
+                    ToolbarItemGroup(placement: .primaryAction) {
                         Picker("View Mode", selection: $viewMode) {
                             ForEach(DetailViewMode.allCases) { mode in
                                 Text(mode.rawValue).tag(mode)
                             }
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 180)
-
-                        Spacer()
+                        .controlSize(.small)
+                        .help("Switch between Clean Reader and Web View")
 
                         if viewMode == .reader {
                             Button {
                                 showTypographyPopover.toggle()
                             } label: {
-                                Label("Text", systemImage: "textformat.size")
+                                Image(systemName: "textformat.size")
                             }
                             .popover(isPresented: $showTypographyPopover) {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("Typography")
-                                        .font(.headline)
-
-                                    HStack {
-                                        Text("Size")
-                                        Spacer()
-                                        Button("-") {
-                                            if readerFontSize > 11 { readerFontSize -= 1 }
-                                        }
-                                        Text("\(Int(readerFontSize)) pt")
-                                            .monospacedDigit()
-                                        Button("+") {
-                                            if readerFontSize < 28 { readerFontSize += 1 }
-                                        }
-                                    }
-
-                                    Picker("Font", selection: $readerFontDesignRaw) {
-                                        ForEach(ReaderFontDesign.allCases) { f in
-                                            Text(f.rawValue).tag(f.rawValue)
-                                        }
-                                    }
-                                    .pickerStyle(.segmented)
-                                }
-                                .padding(14)
-                                .frame(width: 220)
+                                typographyPopoverContent
                             }
+                            .help("Reading Appearance")
 
                             Button {
                                 printArticle(article)
                             } label: {
-                                Label("Print / PDF", systemImage: "printer")
+                                Image(systemName: "printer")
                             }
-                        }
-
-                        if let linkStr = article.link, let url = URL(string: linkStr) {
-                            ShareButton(items: [url, article.title])
+                            .help("Print or Export Article as PDF")
                         }
 
                         Button {
                             article.isStarred.toggle()
                             try? modelContext.save()
                         } label: {
-                            Label(article.isStarred ? "Unstar" : "Star", systemImage: article.isStarred ? "star.fill" : "star")
+                            Image(systemName: article.isStarred ? "star.fill" : "star")
+                                .foregroundStyle(article.isStarred ? .orange : .secondary)
                         }
+                        .help(article.isStarred ? "Unstar Article" : "Star Article")
 
                         Button {
                             article.isRead.toggle()
                             try? modelContext.save()
                         } label: {
-                            Label(article.isRead ? "Mark Unread" : "Mark Read", systemImage: article.isRead ? "circle" : "circle.fill")
+                            Image(systemName: article.isRead ? "circle" : "circle.fill")
+                                .foregroundStyle(article.isRead ? .secondary : .blue)
                         }
+                        .help(article.isRead ? "Mark as Unread" : "Mark as Read")
 
-                        Button {
-                            viewModel.openArticleExternally(article)
-                        } label: {
-                            Label("Browser", systemImage: "safari")
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(NSColor.controlBackgroundColor))
-
-                    Divider()
-
-                    if viewMode == .web, let linkStr = article.link, let url = URL(string: linkStr) {
-                        WebView(url: url)
-                    } else {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 16) {
-                                // Title
-                                Text(article.title)
-                                    .font(.system(size: readerFontSize * 1.5, weight: .bold, design: currentFontDesign.design))
-
-                                let rawBody = article.content ?? article.summary ?? ""
-                                let cleanBody = HTMLSanitizer.stripTags(from: rawBody)
-                                let readingTime = estimatedReadingTime(text: cleanBody)
-
-                                // Metadata header bar
-                                HStack(spacing: 12) {
-                                    if let feedTitle = article.feed?.title {
-                                        Label(feedTitle, systemImage: "dot.radiowaves.up.and.right")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    if let author = article.author, !author.isEmpty {
-                                        Text("By \(author)")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "clock")
-                                        Text("\(readingTime) min read")
-                                    }
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-
-                                    Spacer()
-
-                                    Text(article.publicationDate, style: .date)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Divider()
-
-                                // Article Body Content / Summary
-                                if !cleanBody.isEmpty {
-                                    Text(cleanBody)
-                                        .font(.system(size: readerFontSize, weight: .regular, design: currentFontDesign.design))
-                                        .lineSpacing(readerFontSize * 0.4)
-                                        .textSelection(.enabled)
-                                } else {
-                                    Text("No additional content available for this article.")
-                                        .font(.body)
-                                        .foregroundStyle(.secondary)
-                                        .italic()
-                                }
+                        if let linkStr = article.link, let url = URL(string: linkStr) {
+                            ShareLink(item: url) {
+                                Image(systemName: "square.and.arrow.up")
                             }
-                            .padding(24)
+                            .help("Share Article")
+
+                            Button {
+                                viewModel.openArticleExternally(article)
+                            } label: {
+                                Image(systemName: "safari")
+                            }
+                            .help("Open in Web Browser")
                         }
                     }
                 }
             } else {
                 ContentUnavailableView(
                     "No Article Selected",
-                    systemImage: "sidebar.right",
-                    description: Text("Select an article from the list to read.")
+                    systemImage: "newspaper",
+                    description: Text("Select an article from the list to start reading.")
                 )
             }
         }
@@ -215,6 +125,171 @@ struct ArticleDetailView: View {
                 try? modelContext.save()
             }
         }
+    }
+
+    @ViewBuilder
+    private func readerContent(article: FeedItem) -> some View {
+        let rawBody = article.content ?? article.summary ?? ""
+        let cleanBody = HTMLSanitizer.stripTags(from: rawBody)
+        let readingTime = estimatedReadingTime(text: cleanBody)
+
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Header: Feed & Category badge + Metadata
+                HStack(spacing: 8) {
+                    if let feed = article.feed {
+                        FeedFaviconView(feed: feed)
+                        Text(feed.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+
+                        if let category = feed.category, !category.isEmpty {
+                            Text(category)
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                        Text("\(readingTime) min read")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                // Article Title
+                Text(article.title)
+                    .font(.system(size: readerFontSize * 1.6, weight: .bold, design: currentFontDesign.design))
+                    .foregroundStyle(.primary)
+                    .textSelection(.enabled)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Byline & Publication Date
+                HStack(spacing: 12) {
+                    if let author = article.author, !author.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "person.circle")
+                            Text(author)
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                        Text(article.publicationDate, style: .date)
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                    Spacer()
+                }
+
+                Divider()
+
+                // Article Body
+                if !cleanBody.isEmpty {
+                    Text(cleanBody)
+                        .font(.system(size: readerFontSize, weight: .regular, design: currentFontDesign.design))
+                        .lineSpacing(readerFontSize * 0.38)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .padding(.top, 4)
+                } else {
+                    VStack(spacing: 8) {
+                        Text("No full text preview available.")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .italic()
+                    }
+                    .padding(.vertical, 20)
+                }
+
+                // Bottom Footer Card
+                if let linkStr = article.link, let url = URL(string: linkStr) {
+                    Divider()
+                        .padding(.top, 16)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Original Source")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(url.host ?? url.absoluteString)
+                                .font(.subheadline.weight(.medium))
+                        }
+
+                        Spacer()
+
+                        Button {
+                            viewModel.openArticleExternally(article)
+                        } label: {
+                            Label("Open in Browser", systemImage: "arrow.up.right.square")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                    }
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.secondary.opacity(0.08)))
+                }
+            }
+            .padding(.horizontal, 36)
+            .padding(.vertical, 28)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+    }
+
+    private var typographyPopoverContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Typography")
+                .font(.headline)
+
+            HStack {
+                Text("Size")
+                    .font(.subheadline)
+                Spacer()
+                Button {
+                    if readerFontSize > 12 { readerFontSize -= 1 }
+                } label: {
+                    Image(systemName: "minus")
+                }
+                .controlSize(.small)
+
+                Text("\(Int(readerFontSize)) pt")
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .center)
+
+                Button {
+                    if readerFontSize < 28 { readerFontSize += 1 }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .controlSize(.small)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Font Family")
+                    .font(.subheadline)
+
+                Picker("Font", selection: $readerFontDesignRaw) {
+                    ForEach(ReaderFontDesign.allCases) { f in
+                        Text(f.rawValue).tag(f.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+        .padding(16)
+        .frame(width: 240)
     }
 
     private func estimatedReadingTime(text: String) -> Int {

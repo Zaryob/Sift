@@ -16,16 +16,16 @@ struct SidebarView: View {
     }
 
     private var todayCount: Int {
-        allArticles.filter { Calendar.current.isDateInToday($0.publicationDate) }.count
+        allArticles.filter { Calendar.current.isDateInToday($0.publicationDate) && !$0.isRead }.count
     }
 
     private var thisWeekCount: Int {
         let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-        return allArticles.filter { $0.publicationDate >= sevenDaysAgo }.count
+        return allArticles.filter { $0.publicationDate >= sevenDaysAgo && !$0.isRead }.count
     }
 
     private var unreadArticlesCount: Int {
-        allArticles.filter { !$0.isRead }.count
+        totalUnreadCount
     }
 
     private var starredArticlesCount: Int {
@@ -46,6 +46,11 @@ struct SidebarView: View {
         categorizedFeeds[""] ?? []
     }
 
+    private func categoryUnreadCount(_ categoryName: String) -> Int {
+        let catFeeds = categorizedFeeds[categoryName] ?? []
+        return catFeeds.reduce(0) { $0 + $1.unreadCount }
+    }
+
     var body: some View {
         List(selection: $viewModel.selectedSidebarItem) {
             Section("Smart Filters") {
@@ -54,12 +59,11 @@ struct SidebarView: View {
                         HStack {
                             Text("All Articles")
                             Spacer()
-                            if totalUnreadCount > 0 {
-                                countBadge(totalUnreadCount, color: .secondary.opacity(0.2))
-                            }
+                            countBadge(totalUnreadCount, tint: .indigo)
                         }
                     } icon: {
-                        Image(systemName: "tray.full")
+                        Image(systemName: "tray.full.fill")
+                            .foregroundStyle(.indigo)
                     }
                 }
 
@@ -68,9 +72,7 @@ struct SidebarView: View {
                         HStack {
                             Text("Today")
                             Spacer()
-                            if todayCount > 0 {
-                                countBadge(todayCount, color: .purple.opacity(0.2))
-                            }
+                            countBadge(todayCount, tint: .purple)
                         }
                     } icon: {
                         Image(systemName: "sun.max.fill")
@@ -83,9 +85,7 @@ struct SidebarView: View {
                         HStack {
                             Text("This Week")
                             Spacer()
-                            if thisWeekCount > 0 {
-                                countBadge(thisWeekCount, color: .teal.opacity(0.2))
-                            }
+                            countBadge(thisWeekCount, tint: .teal)
                         }
                     } icon: {
                         Image(systemName: "calendar")
@@ -98,9 +98,7 @@ struct SidebarView: View {
                         HStack {
                             Text("Unread")
                             Spacer()
-                            if unreadArticlesCount > 0 {
-                                countBadge(unreadArticlesCount, color: .blue.opacity(0.2))
-                            }
+                            countBadge(unreadArticlesCount, tint: .blue)
                         }
                     } icon: {
                         Image(systemName: "circle.fill")
@@ -113,9 +111,7 @@ struct SidebarView: View {
                         HStack {
                             Text("Starred")
                             Spacer()
-                            if starredArticlesCount > 0 {
-                                countBadge(starredArticlesCount, color: .orange.opacity(0.2))
-                            }
+                            countBadge(starredArticlesCount, tint: .orange)
                         }
                     } icon: {
                         Image(systemName: "star.fill")
@@ -126,42 +122,49 @@ struct SidebarView: View {
 
             // Categorized Folders
             ForEach(sortedCategories, id: \.self) { categoryName in
-                Section(header: Label(categoryName, systemImage: "folder.fill").font(.subheadline).foregroundStyle(.secondary)) {
+                Section {
                     if let categoryFeeds = categorizedFeeds[categoryName] {
                         ForEach(categoryFeeds) { feed in
                             feedRow(feed: feed)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Label(categoryName, systemImage: "folder.fill")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        let catCount = categoryUnreadCount(categoryName)
+                        if catCount > 0 {
+                            Text("\(catCount)")
+                                .font(.caption2.weight(.medium))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
 
             // Uncategorized Feeds
-            Section {
-                ForEach(uncategorizedFeeds) { feed in
-                    feedRow(feed: feed)
-                }
-            } header: {
-                HStack {
-                    Text("Feeds")
-                    Spacer()
-                    Button {
-                        viewModel.isAddingFeed = true
-                    } label: {
-                        Image(systemName: "plus")
+            if !uncategorizedFeeds.isEmpty || sortedCategories.isEmpty {
+                Section("Feeds") {
+                    ForEach(uncategorizedFeeds) { feed in
+                        feedRow(feed: feed)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) {
+            sidebarBottomBar
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    viewModel.refreshAllFeeds()
+                    viewModel.isAddingFeed = true
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Add Feed", systemImage: "plus")
                 }
-                .disabled(viewModel.isRefreshing)
+                .help("Add New RSS Feed")
             }
         }
         .alert("Set Folder / Category", isPresented: $showCategoryPrompt) {
@@ -177,14 +180,68 @@ struct SidebarView: View {
         }
     }
 
+    private var sidebarBottomBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack {
+                Button {
+                    viewModel.isAddingFeed = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .help("Add RSS Feed")
+
+                Spacer()
+
+                if viewModel.isRefreshing {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.7)
+                        Text("Refreshing...")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("\(feeds.count) \(feeds.count == 1 ? "feed" : "feeds")")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                Button {
+                    viewModel.refreshAllFeeds()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.body.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isRefreshing)
+                .help("Refresh All Feeds")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
+    }
+
     @ViewBuilder
-    private func countBadge(_ count: Int, color: Color) -> some View {
-        Text("\(count)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(color))
+    private func countBadge(_ count: Int, tint: Color) -> some View {
+        if count > 0 {
+            Text("\(count)")
+                .font(.caption2.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(tint.opacity(0.14))
+                )
+        }
     }
 
     @ViewBuilder
@@ -200,7 +257,13 @@ struct SidebarView: View {
 
                 let count = feed.unreadCount
                 if count > 0 {
-                    countBadge(count, color: .secondary.opacity(0.2))
+                    Text("\(count)")
+                        .font(.caption2.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
                 }
             }
         }
@@ -215,6 +278,15 @@ struct SidebarView: View {
                 Task {
                     try? await FeedRefreshService().refreshFeed(id: feed.id)
                 }
+            }
+            if let siteURLStr = feed.siteURL, let url = URL(string: siteURLStr) {
+                Button("Visit Website") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            Button("Copy Feed URL") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(feed.url, forType: .string)
             }
             Divider()
             Button("Delete Feed", role: .destructive) {
@@ -240,17 +312,25 @@ struct FeedFaviconView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 16, height: 16)
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
                 default:
-                    Image(systemName: "dot.radiowaves.up.and.right")
-                        .foregroundStyle(.orange)
-                        .frame(width: 16, height: 16)
+                    placeholderIcon
                 }
             }
         } else {
-            Image(systemName: "dot.radiowaves.up.and.right")
-                .foregroundStyle(.orange)
+            placeholderIcon
+        }
+    }
+
+    private var placeholderIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                .fill(Color.orange.opacity(0.15))
                 .frame(width: 16, height: 16)
+
+            Image(systemName: "dot.radiowaves.up.and.right")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.orange)
         }
     }
 }

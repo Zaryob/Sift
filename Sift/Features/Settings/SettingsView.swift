@@ -7,12 +7,39 @@ struct SettingsView: View {
     @StateObject private var scheduler = BackgroundFeedScheduler.shared
     @StateObject private var launchAgentManager = LaunchAgentManager.shared
     @Query private var feeds: [Feed]
+    @Query private var articles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
+
+    @AppStorage("readerFontSize") private var readerFontSize: Double = 16.0
+    @AppStorage("readerFontDesign") private var readerFontDesignRaw: String = ReaderFontDesign.system.rawValue
 
     @State private var opmlStatusMessage: String?
     @State private var isImporting: Bool = false
 
     var body: some View {
+        TabView {
+            generalTab
+                .tabItem {
+                    Label("General", systemImage: "gearshape")
+                }
+
+            readingTab
+                .tabItem {
+                    Label("Reading", systemImage: "textformat")
+                }
+
+            subscriptionsTab
+                .tabItem {
+                    Label("Subscriptions", systemImage: "tray.and.arrow.down")
+                }
+        }
+        .frame(width: 520, height: 380)
+        .onAppear {
+            NotificationManager.shared.requestAuthorization()
+        }
+    }
+
+    private var generalTab: some View {
         Form {
             Section("Startup & Background") {
                 Toggle("Launch at Login", isOn: Binding(
@@ -25,7 +52,7 @@ struct SettingsView: View {
                     get: { launchAgentManager.isEnabled },
                     set: { launchAgentManager.setEnabled($0, intervalMinutes: scheduler.refreshIntervalMinutes > 0 ? scheduler.refreshIntervalMinutes : 15) }
                 ))
-                .help("Allows macOS launchd daemon (com.sift.backgroundfetch) to periodically check RSS feeds even when Sift is completely closed.")
+                .help("Allows macOS launchd daemon to periodically check RSS feeds even when Sift is completely closed.")
 
                 Picker("Background Refresh Interval", selection: Binding(
                     get: { scheduler.refreshIntervalMinutes },
@@ -45,6 +72,96 @@ struct SettingsView: View {
                 .help("How frequently Sift checks for new feed articles in the background.")
             }
 
+            Section("Notifications") {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("New Article Alerts")
+                        Text("Sift notifies you when newly published articles arrive.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Check Permissions") {
+                        NotificationManager.shared.requestAuthorization()
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+
+    private var readingTab: some View {
+        Form {
+            Section("Typography & Display") {
+                Picker("Font Family", selection: $readerFontDesignRaw) {
+                    ForEach(ReaderFontDesign.allCases) { f in
+                        Text(f.rawValue).tag(f.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                HStack {
+                    Text("Font Size")
+                    Spacer()
+                    Button {
+                        if readerFontSize > 12 { readerFontSize -= 1 }
+                    } label: {
+                        Image(systemName: "minus")
+                    }
+                    .controlSize(.small)
+
+                    Text("\(Int(readerFontSize)) pt")
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .center)
+
+                    Button {
+                        if readerFontSize < 28 { readerFontSize += 1 }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .controlSize(.small)
+                }
+            }
+
+            Section("Preview") {
+                VStack(alignment: .leading, spacing: 6) {
+                    let design: Font.Design = (ReaderFontDesign(rawValue: readerFontDesignRaw) ?? .system).design
+                    Text("The quick brown fox jumps over the lazy dog.")
+                        .font(.system(size: readerFontSize, weight: .regular, design: design))
+                        .foregroundStyle(.primary)
+                    Text("Sample text preview reflecting your reading font configuration.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+
+    private var subscriptionsTab: some View {
+        Form {
+            Section("Library Statistics") {
+                HStack {
+                    Text("Subscribed Feeds")
+                    Spacer()
+                    Text("\(feeds.count)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+
+                HStack {
+                    Text("Total Stored Articles")
+                    Spacer()
+                    Text("\(articles.count)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+
             Section("OPML Backup & Import") {
                 HStack {
                     Button("Import Subscriptions (.opml)...") {
@@ -57,6 +174,7 @@ struct SettingsView: View {
                     Button("Export Subscriptions (.opml)...") {
                         exportOPML()
                     }
+                    .disabled(feeds.isEmpty)
                 }
 
                 if let message = opmlStatusMessage {
@@ -68,10 +186,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        .frame(width: 500, height: 320)
-        .onAppear {
-            NotificationManager.shared.requestAuthorization()
-        }
     }
 
     private func importOPML() {

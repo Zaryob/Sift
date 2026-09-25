@@ -12,27 +12,37 @@ struct MenuBarExtraView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Sift RSS Reader")
+                Label("Sift", systemImage: "dot.radiowaves.up.and.right")
                     .font(.headline)
                 Spacer()
-                Text("\(unreadArticles.count) Unread")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if !unreadArticles.isEmpty {
+                    Text("\(unreadArticles.count) Unread")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
 
             Divider()
 
             if unreadArticles.isEmpty {
-                Text("No unread articles")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.vertical, 4)
+                HStack {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.green)
+                    Text("All caught up!")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
             } else {
                 Text("Latest Unread")
-                    .font(.caption)
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
 
-                ForEach(unreadArticles.prefix(5)) { item in
+                ForEach(unreadArticles.prefix(6)) { item in
                     Button {
                         if let link = item.link, let url = URL(string: link) {
                             NSWorkspace.shared.open(url)
@@ -42,8 +52,17 @@ struct MenuBarExtraView: View {
                             Text(item.title)
                                 .lineLimit(1)
                                 .font(.body)
-                            if let feedTitle = item.feed?.title {
-                                Text(feedTitle)
+
+                            HStack(spacing: 4) {
+                                if let feedTitle = item.feed?.title {
+                                    Text(feedTitle)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text("•")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                                Text(item.publicationDate, style: .relative)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -54,21 +73,27 @@ struct MenuBarExtraView: View {
 
             Divider()
 
-            Button("Refresh Feeds") {
+            Button {
                 Task {
                     await refreshService.refreshAllFeeds()
                 }
+            } label: {
+                Label("Refresh Feeds", systemImage: "arrow.clockwise")
             }
 
-            Button("Open Reader Window") {
+            Button {
                 WindowActionTarget.shared.showMainWindow()
+            } label: {
+                Label("Open Sift", systemImage: "macwindow")
             }
+            .keyboardShortcut("o", modifiers: [.command])
 
             Divider()
 
             Button("Quit Sift") {
                 NSApplication.shared.terminate(nil)
             }
+            .keyboardShortcut("q", modifiers: [.command])
         }
         .padding(.vertical, 4)
     }
