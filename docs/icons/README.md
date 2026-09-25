@@ -1,39 +1,29 @@
-# Sift app icon
+# Sift — vector app icon
 
-Artwork based on the user-supplied orange RSS reference. Generated with the built-in imagegen tool, then exported with macOS `sips` and `iconutil`.
+The active app icon is [AppIcon.icon](../../Sift/AppIcon.icon), a native Icon Composer document with three editable SVG layers: Dot, Inner Wave and Outer Wave. The background and appearance overrides live in its `icon.json`.
 
-- `Sift-square-master.png`: opaque, full-bleed artwork for iPhone/iPad.
-- `Sift-macOS-master.png`: rounded tile with transparent surroundings for macOS.
-- `Sift.iconset/`: the ten standard macOS entries (16, 32, 128, 256, 512 points at 1× and 2×).
-- `Sift.icns`: standalone macOS icon.
-- `../../Sift/Assets.xcassets/AppIcon.appiconset/`: production asset catalog containing macOS entries and the 1024 px iOS entry.
+- [Sift.svg](vector/Sift.svg): standalone full-color SVG with named groups.
+- [Sift-dark.svg](vector/Sift-dark.svg): standalone dark SVG.
+- [Sift-mono.svg](vector/Sift-mono.svg): transparent monochrome mark using `currentColor`.
+- [layers](vector/layers): production SVG artwork with transparent 1024 × 1024 canvases.
+- [previews](previews): Default, Dark, ClearLight, ClearDark, TintedLight and TintedDark exports from Apple's renderer.
+- [Sift.iconset](Sift.iconset) and [Sift.icns](Sift.icns): static default-appearance exports for tools that need them.
+- [legacy](legacy): archived raster iteration; no longer consumed by the app.
 
-The Sift target selects `AppIcon` in both Debug and Release. Regenerate exports with `sh scripts/export-app-icon.sh`.
+## Appearances
 
-This set supplies the default appearance. The reference sheet's dark, clear, tinted and layered Icon Composer examples are not separate assets in this set.
+Default uses the cream background and orange gradients. Dark uses Apple's system-dark background and the same orange geometry. Mono uses a white silhouette; Icon Composer derives clear and tinted appearances from it. Tint color, lighting and the actual wallpaper are controlled by the OS; the blue preview tint is illustrative.
 
-## Generation prompts
+The Xcode target selects `AppIcon` in Debug and Release. Xcode compiles `Sift/AppIcon.icon` into the app's icon resources. SVG by itself is the editable source; the `.icon` package provides the system appearance behavior.
 
-### Square master
+Open `Sift/AppIcon.icon` in Icon Composer to edit native materials and appearance overrides. To change geometry, edit the SVGs in `vector/layers`, then run:
 
-Use case: logo-brand.
-Asset type: production app icon master for Sift RSS reader, a single 1024 x 1024 square PNG.
-Input image: visual reference only. Recreate ONLY the orange RSS symbol from the leftmost Default icon, on its warm ivory background.
-Primary request: produce one clean high-resolution standalone icon source, NOT the reference presentation sheet.
-Subject: a generous orange-to-red RSS mark consisting of a circular lower-left dot and two thick curved quarter-circle waves, with soft rounded ends. Preserve the elegant tapered ribbon silhouette and subtle red folded edge on the right outer wave from the reference. Yellow-orange highlights at upper left, vivid orange center and red-orange lower-right ends. Balanced placement, emblem occupies central 74 percent width and height.
-Background: warm ivory cream, subtle smooth tonal shading; fully opaque background extends completely to all four straight edges of the square canvas. No rounded-square outer silhouette and no margins outside the background: operating systems will mask the icon.
-Style: precise polished smooth brand artwork, crisp contours, gentle restrained depth in ribbons, no blur, no grain.
-Constraints: exactly one RSS dot and exactly two waves. Front facing, no perspective. No words, letters, labels, watermark, device mockup, layout, borders, surrounding scenery, or extra icons. Square full bleed opaque cream canvas.
+```sh
+sh scripts/export-app-icon.sh
+```
 
-### macOS master
+This synchronizes the vector layers into the app package and regenerates the six previews, iconset and ICNS. The standalone full-color SVGs are reference compositions of the same geometry; update those when changing the layer shapes.
 
-Use case: precise-object-edit.
-Asset type: final macOS app icon PNG with real alpha transparency, square canvas.
-Input: the supplied full-bleed cream and orange Sift icon is the edit target.
-Change ONLY the outer silhouette and canvas layout for macOS delivery. Preserve the exact orange RSS emblem, cream fill, relative emblem scale and design of the input.
-Fit the entire input artwork inside a large centered cream rounded square (Apple-style continuous rounded corners), with about 8% transparent canvas margin on all sides. The tile occupies 84% of the canvas width and height. Corner radius is about 22% of tile width. Very subtle white bevel at top edge and a soft restrained contact shadow below the tile. True transparent pixels outside the rounded square and shadow; no white backdrop, no checkerboard drawn into image.
-One icon only, front facing, no perspective, no text, no label, no extra visual elements. Output square 1024x1024 or higher resolution.
+The vector artwork was redrawn as paths from the provided reference; it contains no embedded bitmap.
 
-### macOS edge refinement
-
-Edit target: supplied macOS RSS icon. Keep the emblem, the cream tile, their geometry, positions and all colors unchanged. Refine only the external alpha edge: remove ALL detached white speckles, fuzzy white fringe, noise and stray pixels above and around the tile. Make the rounded-square silhouette perfectly smooth with clean anti-aliased edges and fully transparent exterior. Remove the heavy bottom shadow; retain only a tiny soft subtle shadow touching the tile. This is a production app icon, with absolutely pristine edges at 16px and 1024px. No white outer halo. Preserve the current canvas size and transparent padding.
+Reference: [Apple — Creating your app icon using Icon Composer](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer).

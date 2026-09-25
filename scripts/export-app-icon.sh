@@ -1,22 +1,24 @@
 #!/bin/sh
-# Re-export the approved artwork using macOS's native image tools.
+# Export all appearances from the editable Icon Composer / SVG source.
 set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 artwork_dir="$project_dir/docs/icons"
-catalog_dir="$project_dir/Sift/Assets.xcassets/AppIcon.appiconset"
+icon_dir="$project_dir/Sift/AppIcon.icon"
 iconset_dir="$artwork_dir/Sift.iconset"
-mkdir -p "$catalog_dir" "$iconset_dir"
+developer_dir=$(xcode-select -p)
+ictool="$developer_dir/../Applications/Icon Composer.app/Contents/Executables/ictool"
+mkdir -p "$iconset_dir" "$artwork_dir/previews"
+# SVG geometry is maintained under docs/icons/vector; sync it into the package.
+cp "$artwork_dir"/vector/layers/*.svg "$icon_dir/Assets/"
+for rendition in Default Dark ClearLight ClearDark TintedLight TintedDark; do
+  "$ictool" "$icon_dir" --export-image --output-file "$artwork_dir/previews/$rendition.png" --platform macOS --rendition "$rendition" --width 512 --height 512 --scale 1 --tint-color 0.60 --tint-strength 0.65 >/dev/null
+done
 for size in 16 32 128 256 512; do
   for scale in 1 2; do
-    pixels=$((size * scale))
     suffix=""
     if [ "$scale" -eq 2 ]; then suffix="@2x"; fi
-    filename="icon_${size}x${size}${suffix}.png"
-    sips -z "$pixels" "$pixels" "$artwork_dir/Sift-macOS-master.png" --out "$iconset_dir/$filename" >/dev/null
-    cp "$iconset_dir/$filename" "$catalog_dir/$filename"
+    "$ictool" "$icon_dir" --export-image --output-file "$iconset_dir/icon_${size}x${size}${suffix}.png" --platform macOS --rendition Default --width "$size" --height "$size" --scale "$scale" >/dev/null
   done
 done
-sips -z 1024 1024 "$artwork_dir/Sift-square-master.png" --out "$catalog_dir/AppIcon-iOS-1024.png" >/dev/null
 iconutil -c icns "$iconset_dir" -o "$artwork_dir/Sift.icns"
-echo "Exported AppIcon.appiconset, Sift.iconset and Sift.icns."
-
+echo "Exported six appearances, Sift.iconset and Sift.icns from SVG layers."

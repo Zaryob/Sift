@@ -16,15 +16,39 @@
       "layers": [
         {
           "name": "Dot",
-          "image-name": "dot.svg"
+          "image-name": "dot.svg",
+          "fill-specializations": [
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ]
         },
         {
           "name": "Inner Wave",
-          "image-name": "inner-wave.svg"
+          "image-name": "inner-wave.svg",
+          "fill-specializations": [
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ]
         },
         {
           "name": "Outer Wave",
-          "image-name": "outer-wave.svg"
+          "image-name": "outer-wave.svg",
+          "fill-specializations": [
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ]
         }
       ],
       "shadow": {
