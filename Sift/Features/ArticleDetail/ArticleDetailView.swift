@@ -83,7 +83,7 @@ struct ArticleDetailView: View {
                             try? modelContext.save()
                         } label: {
                             Image(systemName: article.isStarred ? "star.fill" : "star")
-                                .foregroundStyle(article.isStarred ? .orange : .secondary)
+                                .foregroundStyle(article.isStarred ? Color.orange : Color.secondary)
                         }
                         .help(article.isStarred ? "Unstar Article" : "Star Article")
 
@@ -92,7 +92,7 @@ struct ArticleDetailView: View {
                             try? modelContext.save()
                         } label: {
                             Image(systemName: article.isRead ? "circle" : "circle.fill")
-                                .foregroundStyle(article.isRead ? .secondary : .blue)
+                                .foregroundStyle(article.isRead ? Color.secondary : Color.blue)
                         }
                         .help(article.isRead ? "Mark as Unread" : "Mark as Read")
 

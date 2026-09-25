@@ -9,6 +9,46 @@ enum ArticleFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+struct ArticleFilterPicker: View {
+    @Binding var selection: ArticleFilter
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(ArticleFilter.allCases) { filter in
+                let isSelected = selection == filter
+                Button {
+                    withAnimation(.easeInOut(duration: 0.12)) {
+                        selection = filter
+                    }
+                } label: {
+                    Text(filter.rawValue)
+                        .font(.system(size: 11, weight: isSelected ? .medium : .regular))
+                        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3.5)
+                        .background {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(Color(nsColor: .controlColor))
+                                    .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 0.5)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(Color.secondary.opacity(0.18), lineWidth: 0.5)
+        )
+    }
+}
+
 struct ArticleListView: View {
     @Bindable var viewModel: AppViewModel
     @Query(sort: \FeedItem.publicationDate, order: .reverse) private var articles: [FeedItem]
@@ -143,13 +183,7 @@ struct ArticleListView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Picker("Filter", selection: $filterMode) {
-                    ForEach(ArticleFilter.allCases) { filter in
-                        Text(filter.rawValue).tag(filter)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
+                ArticleFilterPicker(selection: $filterMode)
             }
 
             ToolbarItem(placement: .primaryAction) {
