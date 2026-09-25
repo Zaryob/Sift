@@ -68,10 +68,6 @@ struct SiftApp: App {
                 exit(0)
             }
         }
-        #else
-        // Queue an initial background refresh in case the app is closed before
-        // it ever transitions through .background (e.g. killed from the app switcher).
-        BackgroundFeedScheduler.shared.scheduleAppRefresh()
         #endif
         _ = NotificationManager.shared
         NotificationManager.shared.requestAuthorization()
