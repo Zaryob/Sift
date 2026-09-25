@@ -15,6 +15,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Register notification delegate immediately at app startup
         _ = NotificationManager.shared
         NotificationManager.shared.requestAuthorization()
+
+        // Synchronize launchd background daemon and timers whenever a new app version or build runs
+        LaunchAgentManager.shared.syncOnLaunch()
+        BackgroundFeedScheduler.shared.syncOnLaunch()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

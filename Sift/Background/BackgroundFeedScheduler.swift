@@ -21,6 +21,11 @@ public final class BackgroundFeedScheduler: ObservableObject {
         scheduleNextRefresh()
     }
 
+    public func syncOnLaunch() {
+        print("[BackgroundFeedScheduler] Synchronizing background timers on launch...")
+        scheduleNextRefresh()
+    }
+
     public func scheduleNextRefresh() {
         timerTask?.cancel()
         
