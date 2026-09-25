@@ -1,6 +1,12 @@
 import SwiftUI
 import SwiftData
 
+private let relativeDateFormatter: RelativeDateTimeFormatter = {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .short
+    return formatter
+}()
+
 enum ArticleFilter: String, CaseIterable, Identifiable {
     case all = "All Articles"
     case unread = "Unread Only"
@@ -372,7 +378,7 @@ struct FeedDetailsHeaderView: View {
                 if let lastRefresh = feed.lastSuccessfulRefresh {
                     HStack(spacing: 3) {
                         Image(systemName: "clock")
-                        Text("Updated \(lastRefresh, style: .relative) ago")
+                        Text("Updated \(relativeDateFormatter.localizedString(for: lastRefresh, relativeTo: Date()))")
                     }
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
