@@ -192,13 +192,13 @@ struct ArticleListView: View {
                     try? modelContext.save()
                 }
             }
-            .searchable(text: $searchText, prompt: "Search articles")
             .overlay {
                 if filteredArticles.isEmpty {
                     emptyStateView
                 }
             }
         }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search articles")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
