@@ -109,6 +109,9 @@ struct SidebarView: View {
         }
         #else
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $viewModel.isShowingSettings) {
+            SettingsView()
+        }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Sift")

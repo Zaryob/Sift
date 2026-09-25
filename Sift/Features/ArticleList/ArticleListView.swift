@@ -52,6 +52,7 @@ struct ArticleListView: View {
     @State private var searchText = ""
     @State private var filterMode: ArticleFilter = .all
     @State private var timeScope: TimeScope = .latest
+    @AppStorage(ReadingPreferenceKey.markReadOnOpen) private var markReadOnOpen: Bool = true
 
     private var selectedFeed: Feed? {
         guard let item = viewModel.selectedSidebarItem, case .feed(let id) = item else { return nil }
@@ -203,7 +204,7 @@ struct ArticleListView: View {
             }
             .listStyle(.plain)
             .onChange(of: viewModel.selectedArticle) { _, newArticle in
-                if let article = newArticle, !article.isRead {
+                if markReadOnOpen, let article = newArticle, !article.isRead {
                     article.isRead = true
                     try? modelContext.save()
                 }

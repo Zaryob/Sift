@@ -26,9 +26,6 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.isAddingFeed) {
             AddFeedSheet(viewModel: viewModel)
         }
-        .sheet(isPresented: $viewModel.isShowingSettings) {
-            SettingsView()
-        }
         .alert("Error", isPresented: $viewModel.showErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {

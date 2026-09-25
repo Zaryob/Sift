@@ -13,22 +13,6 @@ enum DetailViewMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum ReaderFontDesign: String, CaseIterable, Identifiable {
-    case system = "System"
-    case serif = "Serif"
-    case monospace = "Monospace"
-
-    var id: String { rawValue }
-
-    var design: Font.Design {
-        switch self {
-        case .system: return .default
-        case .serif: return .serif
-        case .monospace: return .monospaced
-        }
-    }
-}
-
 struct ArticleDetailView: View {
     @Bindable var viewModel: AppViewModel
     let article: FeedItem?
