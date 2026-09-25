@@ -68,7 +68,7 @@ public struct ArticleWidgetProvider: TimelineProvider {
         }
 
         // App Group fallback
-        let appGroupID = "group.com.sift.app"
+        let appGroupID = "group.io.github.zaryob.sift"
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             candidateURLs.append(groupURL.appendingPathComponent("widget_articles.plist"))
         }

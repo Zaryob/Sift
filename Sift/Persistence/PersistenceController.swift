@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 public final class PersistenceController {
-    public static let appGroupID = "group.com.sift.app"
+    public static let appGroupID = "group.io.github.zaryob.sift"
 
     public static let shared: PersistenceController = {
         PersistenceController()
