@@ -252,48 +252,61 @@ struct ArticleDetailView: View {
     }
 
     private var typographyPopoverContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Typography")
                 .font(.headline)
 
             HStack {
-                Text("Size")
+                Text("Text Size")
                     .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
                 Spacer()
-                Button {
-                    if readerFontSize > 12 { readerFontSize -= 1 }
-                } label: {
-                    Image(systemName: "minus")
-                }
-                .controlSize(.small)
 
-                Text("\(Int(readerFontSize)) pt")
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .frame(width: 44, alignment: .center)
+                HStack(spacing: 8) {
+                    Button {
+                        if readerFontSize > 12 { readerFontSize -= 1 }
+                    } label: {
+                        Image(systemName: "textformat.size.smaller")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(readerFontSize <= 12)
 
-                Button {
-                    if readerFontSize < 28 { readerFontSize += 1 }
-                } label: {
-                    Image(systemName: "plus")
+                    Text("\(Int(readerFontSize)) pt")
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .center)
+
+                    Button {
+                        if readerFontSize < 28 { readerFontSize += 1 }
+                    } label: {
+                        Image(systemName: "textformat.size.larger")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(readerFontSize >= 28)
                 }
-                .controlSize(.small)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Font Family")
                     .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
-                Picker("Font", selection: $readerFontDesignRaw) {
+                Picker("Font Family", selection: $readerFontDesignRaw) {
                     ForEach(ReaderFontDesign.allCases) { f in
                         Text(f.rawValue).tag(f.rawValue)
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
             }
         }
         .padding(16)
-        .frame(width: 240)
+        .frame(width: 280)
     }
 
     private func estimatedReadingTime(text: String) -> Int {
