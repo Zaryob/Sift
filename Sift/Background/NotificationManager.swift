@@ -74,40 +74,11 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             "feedID": feedID.uuidString
         ]
 
-        if let faviconURL = faviconURL {
-            Task {
-                var attachment: UNNotificationAttachment? = nil
-                let sessionConfig = URLSessionConfiguration.ephemeral
-                sessionConfig.timeoutIntervalForRequest = 2.0
-                let session = URLSession(configuration: sessionConfig)
-
-                if let (data, response) = try? await session.data(from: faviconURL),
-                   let httpResp = response as? HTTPURLResponse,
-                   httpResp.statusCode == 200,
-                   !data.isEmpty {
-                    
-                    let tempDir = FileManager.default.temporaryDirectory
-                    let fileURL = tempDir.appendingPathComponent("favicon_\(UUID().uuidString).png")
-                    
-                    if let image = NSImage(data: data),
-                       let tiffData = image.tiffRepresentation,
-                       let bitmapRep = NSBitmapImageRep(data: tiffData),
-                       let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-                        try? pngData.write(to: fileURL)
-                    } else {
-                        try? data.write(to: fileURL)
-                    }
-
-                    attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil)
-                }
-
-                if let attachment = attachment {
-                    content.attachments = [attachment]
-                }
-                self.scheduleRequest(content: content)
+        Task {
+            if let attachment = await createNotificationAttachment(from: faviconURL) {
+                content.attachments = [attachment]
             }
-        } else {
-            scheduleRequest(content: content)
+            self.scheduleRequest(content: content)
         }
     }
 
@@ -141,41 +112,55 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         }
         content.userInfo = userInfo
 
-        if let faviconURL = faviconURL {
-            Task {
-                var attachment: UNNotificationAttachment? = nil
-                let sessionConfig = URLSessionConfiguration.ephemeral
-                sessionConfig.timeoutIntervalForRequest = 2.0
-                let session = URLSession(configuration: sessionConfig)
-
-                if let (data, response) = try? await session.data(from: faviconURL),
-                   let httpResp = response as? HTTPURLResponse,
-                   httpResp.statusCode == 200,
-                   !data.isEmpty {
-                    
-                    let tempDir = FileManager.default.temporaryDirectory
-                    let fileURL = tempDir.appendingPathComponent("favicon_\(UUID().uuidString).png")
-                    
-                    if let image = NSImage(data: data),
-                       let tiffData = image.tiffRepresentation,
-                       let bitmapRep = NSBitmapImageRep(data: tiffData),
-                       let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-                        try? pngData.write(to: fileURL)
-                    } else {
-                        try? data.write(to: fileURL)
-                    }
-
-                    attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil)
-                }
-
-                if let attachment = attachment {
-                    content.attachments = [attachment]
-                }
-                self.scheduleRequest(content: content)
+        Task {
+            if let attachment = await createNotificationAttachment(from: faviconURL) {
+                content.attachments = [attachment]
             }
-        } else {
-            scheduleRequest(content: content)
+            self.scheduleRequest(content: content)
         }
+    }
+
+    /// Creates a notification attachment from a feed's favicon, or falls back to the Sift app icon.
+    private func createNotificationAttachment(from faviconURL: URL?) async -> UNNotificationAttachment? {
+        let tempDir = FileManager.default.temporaryDirectory
+
+        // 1. Try to download and convert remote favicon
+        if let faviconURL = faviconURL {
+            let sessionConfig = URLSessionConfiguration.ephemeral
+            sessionConfig.timeoutIntervalForRequest = 2.5
+            let session = URLSession(configuration: sessionConfig)
+
+            if let (data, response) = try? await session.data(from: faviconURL),
+               let httpResp = response as? HTTPURLResponse,
+               (200...299).contains(httpResp.statusCode),
+               !data.isEmpty {
+
+                let fileURL = tempDir.appendingPathComponent("notif_\(UUID().uuidString).png")
+                if let image = NSImage(data: data),
+                   let tiffData = image.tiffRepresentation,
+                   let bitmapRep = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+                    try? pngData.write(to: fileURL)
+                    if let attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil) {
+                        return attachment
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback to application brand icon as attachment if favicon is not available
+        if let appIcon = NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName),
+           let tiffData = appIcon.tiffRepresentation,
+           let bitmapRep = NSBitmapImageRep(data: tiffData),
+           let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+            let fileURL = tempDir.appendingPathComponent("appicon_\(UUID().uuidString).png")
+            try? pngData.write(to: fileURL)
+            if let attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil) {
+                return attachment
+            }
+        }
+
+        return nil
     }
 
     private func scheduleRequest(content: UNMutableNotificationContent) {
