@@ -2,50 +2,18 @@ import SwiftUI
 import SwiftData
 
 enum ArticleFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case unread = "Unread"
-    case starred = "Starred"
+    case all = "All Articles"
+    case unread = "Unread Only"
+    case starred = "Starred Only"
 
     var id: String { rawValue }
-}
 
-struct ArticleFilterPicker: View {
-    @Binding var selection: ArticleFilter
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(ArticleFilter.allCases) { filter in
-                let isSelected = selection == filter
-                Button {
-                    withAnimation(.easeInOut(duration: 0.12)) {
-                        selection = filter
-                    }
-                } label: {
-                    Text(filter.rawValue)
-                        .font(.system(size: 11, weight: isSelected ? .medium : .regular))
-                        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3.5)
-                        .background {
-                            if isSelected {
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(Color(nsColor: .controlColor))
-                                    .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 0.5)
-                            }
-                        }
-                }
-                .buttonStyle(.plain)
-            }
+    var icon: String {
+        switch self {
+        case .all: return "tray.full"
+        case .unread: return "circle.fill"
+        case .starred: return "star.fill"
         }
-        .padding(2)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .stroke(Color.secondary.opacity(0.18), lineWidth: 0.5)
-        )
     }
 }
 
@@ -119,6 +87,33 @@ struct ArticleListView: View {
                 Divider()
             }
 
+            // Filter status banner when a non-default filter is active
+            if filterMode != .all {
+                HStack(spacing: 6) {
+                    Image(systemName: filterMode.icon)
+                        .font(.caption2)
+                        .foregroundStyle(filterMode == .unread ? Color.blue : Color.orange)
+                    Text("Filtered by: \(filterMode.rawValue)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            filterMode = .all
+                        }
+                    } label: {
+                        Text("Show All")
+                            .font(.caption2.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 5)
+                .background(Color.secondary.opacity(0.08))
+                Divider()
+            }
+
             List(selection: $viewModel.selectedArticle) {
                 ForEach(filteredArticles) { article in
                     ArticleRow(article: article)
@@ -182,8 +177,28 @@ struct ArticleListView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                ArticleFilterPicker(selection: $filterMode)
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Section("Filter Articles") {
+                        ForEach(ArticleFilter.allCases) { filter in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    filterMode = filter
+                                }
+                            } label: {
+                                if filterMode == filter {
+                                    Label(filter.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Label(filter.rawValue, systemImage: filter.icon)
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Filter", systemImage: filterMode == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                        .foregroundStyle(filterMode == .all ? Color.secondary : Color.accentColor)
+                }
+                .help("Filter articles by status")
             }
 
             ToolbarItem(placement: .primaryAction) {
