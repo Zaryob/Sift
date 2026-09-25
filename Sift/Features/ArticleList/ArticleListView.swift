@@ -114,7 +114,7 @@ struct ArticleListView: View {
                 HStack(spacing: 6) {
                     Image(systemName: filterMode.icon)
                         .font(.caption2)
-                        .foregroundStyle(filterMode == .unread ? Color.blue : Color.orange)
+                        .foregroundStyle(filterMode == .unread ? Color.accentColor : Color.siftStarred)
                     Text("Filtered by: \(filterMode.rawValue)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -162,7 +162,7 @@ struct ArticleListView: View {
                         } label: {
                             Label(article.isStarred ? "Unstar" : "Star", systemImage: article.isStarred ? "star.slash" : "star.fill")
                         }
-                        .tint(.orange)
+                        .tint(Color.siftStarred)
                     }
                     .contextMenu {
                         Button(article.isRead ? "Mark as Unread" : "Mark as Read") {
@@ -416,11 +416,11 @@ struct FeedDetailsHeaderView: View {
     private var fallbackIcon: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.orange.opacity(0.15))
+                .fill(Color.accentColor.opacity(0.15))
                 .frame(width: 28, height: 28)
             Image(systemName: "dot.radiowaves.up.and.right")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.accentColor)
         }
     }
 }
@@ -440,7 +440,7 @@ struct ArticleRow: View {
             HStack(alignment: .top, spacing: 8) {
                 if !article.isRead {
                     Circle()
-                        .fill(Color.blue)
+                        .fill(Color.accentColor)
                         .frame(width: 8, height: 8)
                         .padding(.top, 5)
                 }
@@ -456,7 +456,7 @@ struct ArticleRow: View {
                 if article.isStarred {
                     Image(systemName: "star.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.siftStarred)
                         .padding(.top, 3)
                 }
             }

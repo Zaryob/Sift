@@ -374,12 +374,12 @@ struct FeedFaviconView: View {
     private var placeholderIcon: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 3.5, style: .continuous)
-                .fill(Color.orange.opacity(0.15))
+                .fill(Color.accentColor.opacity(0.15))
                 .frame(width: 16, height: 16)
 
             Image(systemName: "dot.radiowaves.up.and.right")
                 .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.accentColor)
         }
     }
 }

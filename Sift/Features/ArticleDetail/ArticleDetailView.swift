@@ -80,7 +80,7 @@ struct ArticleDetailView: View {
                             try? modelContext.save()
                         } label: {
                             Image(systemName: article.isStarred ? "star.fill" : "star")
-                                .foregroundStyle(article.isStarred ? Color.orange : Color.primary)
+                                .foregroundStyle(article.isStarred ? Color.siftStarred : Color.primary)
                         }
                         .help(article.isStarred ? "Remove Star" : "Star Article")
 
@@ -192,7 +192,7 @@ struct ArticleDetailView: View {
                 try? modelContext.save()
             } label: {
                 Label(article.isStarred ? "Starred" : "Star", systemImage: article.isStarred ? "star.fill" : "star")
-                    .foregroundStyle(article.isStarred ? Color.orange : Color.secondary)
+                    .foregroundStyle(article.isStarred ? Color.siftStarred : Color.secondary)
             }
             .help(article.isStarred ? "Remove Star" : "Star Article")
 
