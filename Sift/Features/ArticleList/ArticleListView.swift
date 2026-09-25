@@ -1,24 +1,18 @@
 import SwiftUI
 import SwiftData
 
-private let relativeDateFormatter: RelativeDateTimeFormatter = {
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .short
-    return formatter
-}()
-
 enum ArticleFilter: String, CaseIterable, Identifiable {
-    case all = "All Articles"
-    case unread = "Unread Only"
-    case starred = "Starred Only"
+    case all = "All"
+    case unread = "Unread"
+    case starred = "Starred"
 
     var id: String { rawValue }
 
     var icon: String {
         switch self {
         case .all: return "tray.full"
-        case .unread: return "circle.fill"
-        case .starred: return "star.fill"
+        case .unread: return "circlebadge"
+        case .starred: return "star"
         }
     }
 }
@@ -44,6 +38,23 @@ enum TimeScope: String, CaseIterable, Identifiable {
     }
 }
 
+private enum DaySection: String, CaseIterable {
+    case today = "Today"
+    case yesterday = "Yesterday"
+    case earlier = "Earlier"
+
+    init(for date: Date) {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            self = .today
+        } else if calendar.isDateInYesterday(date) {
+            self = .yesterday
+        } else {
+            self = .earlier
+        }
+    }
+}
+
 struct ArticleListView: View {
     @Bindable var viewModel: AppViewModel
     @Query(sort: \FeedItem.publicationDate, order: .reverse) private var allArticles: [FeedItem]
@@ -53,6 +64,11 @@ struct ArticleListView: View {
     @State private var filterMode: ArticleFilter = .all
     @State private var timeScope: TimeScope = .latest
     @AppStorage(ReadingPreferenceKey.markReadOnOpen) private var markReadOnOpen: Bool = true
+    @AppStorage(ReadingPreferenceKey.density) private var densityRaw: String = ArticleDensity.comfortable.rawValue
+
+    private var density: ArticleDensity {
+        ArticleDensity(rawValue: densityRaw) ?? .comfortable
+    }
 
     private var selectedFeed: Feed? {
         guard let item = viewModel.selectedSidebarItem, case .feed(let id) = item else { return nil }
@@ -75,7 +91,6 @@ struct ArticleListView: View {
 
     private var filteredArticles: [FeedItem] {
         sourceArticles.filter { article in
-            // Filter by read/starred state
             let matchesFilter: Bool
             switch filterMode {
             case .all:
@@ -88,7 +103,6 @@ struct ArticleListView: View {
 
             guard matchesFilter, timeScope.includes(article.publicationDate) else { return false }
 
-            // Filter by search query
             if searchText.isEmpty { return true }
             let query = searchText.lowercased()
             let titleMatch = article.title.lowercased().contains(query)
@@ -98,131 +112,85 @@ struct ArticleListView: View {
         }
     }
 
+    private var daySections: [(section: DaySection, articles: [FeedItem])] {
+        let grouped = Dictionary(grouping: filteredArticles) { DaySection(for: $0.publicationDate) }
+        return DaySection.allCases.compactMap { section in
+            guard let articles = grouped[section], !articles.isEmpty else { return nil }
+            return (section, articles)
+        }
+    }
+
     private var titleForSelection: String {
         switch viewModel.selectedSidebarItem {
         case .all, .none: return "All Articles"
         case .unread: return "Unread"
         case .starred: return "Starred"
         case .feed:
-            if let feed = selectedFeed {
-                return feed.title
-            }
-            return "Feed"
+            return selectedFeed?.title ?? "Feed"
         }
     }
 
+    private var subtitle: String {
+        if viewModel.isRefreshing {
+            return "Refreshing…"
+        }
+        var parts: [String] = []
+        if filterMode != .all { parts.append(filterMode.rawValue) }
+        if timeScope != .latest { parts.append(timeScope.rawValue) }
+        let unread = filteredArticles.filter { !$0.isRead }.count
+        parts.append(unread > 0 ? "\(unread) unread" : "All caught up")
+        return parts.joined(separator: " · ")
+    }
+
+    private var hasUnread: Bool {
+        filteredArticles.contains { !$0.isRead }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Header if a specific feed is selected
-            if let feed = selectedFeed {
-                FeedDetailsHeaderView(feed: feed) {
-                    Task {
-                        try? await FeedRefreshService().refreshFeed(id: feed.id)
-                    }
-                } onMarkAllAsRead: {
-                    viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
-                }
-                Divider()
+        List(selection: $viewModel.selectedArticle) {
+            if let error = selectedFeed?.refreshError {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
 
-            // Filter mode indicator bar if non-default
-            if isScoped {
-                HStack(spacing: 6) {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(.caption2)
-                        .foregroundStyle(Color.accentColor)
-                    Text(scopeDescription)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            filterMode = .all
-                            timeScope = .latest
-                        }
-                    } label: {
-                        Text("Show All")
-                            .font(.caption2.weight(.medium))
+            ForEach(daySections, id: \.section) { group in
+                Section(group.section.rawValue) {
+                    ForEach(group.articles) { article in
+                        articleLink(article)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 5)
-                .background(Color.secondary.opacity(0.08))
-                Divider()
-            }
-
-            List(selection: $viewModel.selectedArticle) {
-                ForEach(filteredArticles) { article in
-                    NavigationLink(value: article) {
-                        ArticleRow(article: article)
-                    }
-                    .tag(article)
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        viewModel.openArticleExternally(article)
-                    }
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        Button {
-                            article.isRead.toggle()
-                            try? modelContext.save()
-                        } label: {
-                            Label(article.isRead ? "Mark Unread" : "Mark Read", systemImage: article.isRead ? "circle" : "checkmark.circle")
-                        }
-                        .tint(.blue)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button {
-                            article.isStarred.toggle()
-                            try? modelContext.save()
-                        } label: {
-                            Label(article.isStarred ? "Unstar" : "Star", systemImage: article.isStarred ? "star.slash" : "star.fill")
-                        }
-                        .tint(Color.siftStarred)
-                    }
-                    .contextMenu {
-                        Button(article.isRead ? "Mark as Unread" : "Mark as Read") {
-                            article.isRead.toggle()
-                            try? modelContext.save()
-                        }
-                        Button(article.isStarred ? "Unstar" : "Star") {
-                            article.isStarred.toggle()
-                            try? modelContext.save()
-                        }
-                        Divider()
-                        Button("Open in Browser") {
-                            viewModel.openArticleExternally(article)
-                        }
-                        if let link = article.link, let url = URL(string: link) {
-                            Button("Copy Article Link") {
-                                Platform.copyToPasteboard(url.absoluteString)
-                            }
-                        }
-                    }
-                }
-            }
-            .listStyle(.plain)
-            .onChange(of: viewModel.selectedArticle) { _, newArticle in
-                if markReadOnOpen, let article = newArticle, !article.isRead {
-                    article.isRead = true
-                    try? modelContext.save()
-                }
-            }
-            .overlay {
-                if filteredArticles.isEmpty {
-                    emptyStateView
                 }
             }
         }
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search articles")
+        .listStyle(.plain)
+        .navigationLinkIndicatorVisibility(.hidden)
+        .refreshable {
+            await viewModel.refreshAll(context: modelContext)
+        }
+        .onChange(of: viewModel.selectedArticle) { _, newArticle in
+            if markReadOnOpen, let article = newArticle, !article.isRead {
+                article.isRead = true
+                try? modelContext.save()
+            }
+        }
+        .overlay {
+            if filteredArticles.isEmpty {
+                emptyStateView
+            }
+        }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search articles")
+        .navigationTitle(titleForSelection)
+        .navigationSubtitle(subtitle)
         #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarTitleMenu {
             scopeMenuContent
+            Divider()
+            markAllReadButton
         }
-        #endif
+        #else
         .toolbar {
-            #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     scopeMenuContent
@@ -231,300 +199,244 @@ struct ArticleListView: View {
                 }
                 .help("Filter articles by status and time")
             }
-            #endif
 
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
-                } label: {
-                    Label("Mark All as Read", systemImage: "checkmark.circle")
-                }
-                .disabled(filteredArticles.isEmpty || !filteredArticles.contains(where: { !$0.isRead }))
-                .help("Mark All Filtered Articles as Read")
+                markAllReadButton
+                    .help("Mark All Filtered Articles as Read")
             }
         }
-        .labelStyle(.iconOnly)
-        .background {
-            Group {
-                Button("") { viewModel.selectNextArticle(in: filteredArticles) }
-                    .keyboardShortcut("j", modifiers: [])
-                Button("") { viewModel.selectPreviousArticle(in: filteredArticles) }
-                    .keyboardShortcut("k", modifiers: [])
-                Button("") {
-                    if let article = viewModel.selectedArticle {
-                        article.isRead.toggle()
-                        try? modelContext.save()
-                    }
-                }
-                .keyboardShortcut("m", modifiers: [])
-                Button("") {
-                    if let article = viewModel.selectedArticle {
-                        article.isStarred.toggle()
-                        try? modelContext.save()
-                    }
-                }
-                .keyboardShortcut("s", modifiers: [])
-                Button("") {
-                    if let article = viewModel.selectedArticle {
-                        viewModel.openArticleExternally(article)
-                    }
-                }
-                .keyboardShortcut("o", modifiers: [])
-                Button("") {
-                    viewModel.refreshAllFeeds()
-                }
-                .keyboardShortcut("r", modifiers: [.command])
-                Button("") {
-                    viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
-                }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
-            }
-            .opacity(0)
-            .allowsHitTesting(false)
-        }
-        .navigationTitle(titleForSelection)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
         #endif
+        .background {
+            keyboardShortcuts
+        }
+    }
+
+    private func articleLink(_ article: FeedItem) -> some View {
+        NavigationLink(value: article) {
+            ArticleRow(article: article, density: density)
+        }
+        .tag(article)
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                article.isRead.toggle()
+                try? modelContext.save()
+            } label: {
+                Label(article.isRead ? "Mark Unread" : "Mark Read", systemImage: article.isRead ? "circlebadge" : "checkmark")
+            }
+            .tint(Color.accentColor)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                article.isStarred.toggle()
+                try? modelContext.save()
+            } label: {
+                Label(article.isStarred ? "Unstar" : "Star", systemImage: article.isStarred ? "star.slash" : "star")
+            }
+            .tint(Color.siftStarred)
+        }
+        .contextMenu {
+            Button(article.isRead ? "Mark as Unread" : "Mark as Read") {
+                article.isRead.toggle()
+                try? modelContext.save()
+            }
+            Button(article.isStarred ? "Unstar" : "Star") {
+                article.isStarred.toggle()
+                try? modelContext.save()
+            }
+            Divider()
+            Button("Open in Browser") {
+                viewModel.openArticleExternally(article)
+            }
+            if let link = article.link, let url = URL(string: link) {
+                Button("Copy Article Link") {
+                    Platform.copyToPasteboard(url.absoluteString)
+                }
+            }
+        }
     }
 
     private var isScoped: Bool {
         filterMode != .all || timeScope != .latest
     }
 
-    private var scopeDescription: String {
-        [filterMode != .all ? filterMode.rawValue : nil, timeScope != .latest ? timeScope.rawValue : nil]
-            .compactMap { $0 }
-            .joined(separator: " · ")
-    }
-
     @ViewBuilder
     private var scopeMenuContent: some View {
-        Picker("Show", selection: $filterMode.animation(.easeInOut(duration: 0.15))) {
-            ForEach(ArticleFilter.allCases) { filter in
-                Label(filter.rawValue, systemImage: filter.icon).tag(filter)
+        Section("Show") {
+            Picker("Show", selection: $filterMode.animation(.easeInOut(duration: 0.15))) {
+                ForEach(ArticleFilter.allCases) { filter in
+                    Text(filter.rawValue).tag(filter)
+                }
             }
+            .pickerStyle(.inline)
+            .labelsHidden()
         }
-        Picker("Time", selection: $timeScope.animation(.easeInOut(duration: 0.15))) {
-            ForEach(TimeScope.allCases) { scope in
-                Text(scope.rawValue).tag(scope)
+        Section("Time") {
+            Picker("Time", selection: $timeScope.animation(.easeInOut(duration: 0.15))) {
+                ForEach(TimeScope.allCases) { scope in
+                    Text(scope.rawValue).tag(scope)
+                }
             }
+            .pickerStyle(.inline)
+            .labelsHidden()
         }
+    }
+
+    private var markAllReadButton: some View {
+        Button {
+            viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
+        } label: {
+            Label("Mark All as Read", systemImage: "checkmark.circle")
+        }
+        .disabled(!hasUnread)
+    }
+
+    private var keyboardShortcuts: some View {
+        Group {
+            Button("") { viewModel.selectNextArticle(in: filteredArticles) }
+                .keyboardShortcut("j", modifiers: [])
+            Button("") { viewModel.selectPreviousArticle(in: filteredArticles) }
+                .keyboardShortcut("k", modifiers: [])
+            Button("") {
+                if let article = viewModel.selectedArticle {
+                    article.isRead.toggle()
+                    try? modelContext.save()
+                }
+            }
+            .keyboardShortcut("m", modifiers: [])
+            Button("") {
+                if let article = viewModel.selectedArticle {
+                    article.isStarred.toggle()
+                    try? modelContext.save()
+                }
+            }
+            .keyboardShortcut("s", modifiers: [])
+            Button("") {
+                if let article = viewModel.selectedArticle {
+                    viewModel.openArticleExternally(article)
+                }
+            }
+            .keyboardShortcut("o", modifiers: [])
+            Button("") {
+                viewModel.refreshAllFeeds()
+            }
+            .keyboardShortcut("r", modifiers: [.command])
+            Button("") {
+                viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+        }
+        .opacity(0)
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
     private var emptyStateView: some View {
         if !searchText.isEmpty {
-            ContentUnavailableView(
-                "No Matching Articles",
-                systemImage: "magnifyingglass",
-                description: Text("No articles matched '\(searchText)'.")
-            )
-        } else if filterMode == .unread {
+            ContentUnavailableView.search(text: searchText)
+        } else if filterMode == .unread || viewModel.selectedSidebarItem == .unread {
             ContentUnavailableView(
                 "All Caught Up",
                 systemImage: "checkmark.circle",
-                description: Text("No unread articles in this view.")
+                description: Text("Nothing new to sift through.")
             )
-        } else if filterMode == .starred {
+        } else if filterMode == .starred || viewModel.selectedSidebarItem == .starred {
             ContentUnavailableView(
                 "No Starred Articles",
                 systemImage: "star",
-                description: Text("Star important articles to save them here.")
+                description: Text("Star articles to keep them here.")
             )
         } else {
             ContentUnavailableView(
                 "No Articles",
                 systemImage: "doc.text",
-                description: Text("No articles found in this feed or selection.")
+                description: Text(timeScope == .latest ? "Pull to refresh or add a feed." : "Nothing published in this time range.")
             )
-        }
-    }
-}
-
-struct FeedDetailsHeaderView: View {
-    let feed: Feed
-    let onRefresh: () -> Void
-    let onMarkAllAsRead: () -> Void
-
-    private var faviconURL: URL? {
-        FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 10) {
-                if let url = faviconURL {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 28, height: 28)
-                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        default:
-                            fallbackIcon
-                        }
-                    }
-                } else {
-                    fallbackIcon
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(feed.title)
-                        .font(.headline)
-                        .lineLimit(1)
-
-                    if let desc = feed.feedDescription, !desc.isEmpty {
-                        Text(desc)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer()
-
-                HStack(spacing: 6) {
-                    Button(action: onRefresh) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Refresh this feed")
-
-                    Button(action: onMarkAllAsRead) {
-                        Label("Mark Read", systemImage: "checkmark")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Mark all articles in this feed as read")
-                }
-            }
-
-            HStack(spacing: 10) {
-                if let siteURLStr = feed.siteURL, let siteURL = URL(string: siteURLStr) {
-                    Link(destination: siteURL) {
-                        Label(siteURL.host ?? "Website", systemImage: "safari")
-                            .font(.caption2)
-                    }
-                }
-
-                if let lastRefresh = feed.lastSuccessfulRefresh {
-                    HStack(spacing: 3) {
-                        Image(systemName: "clock")
-                        Text("Updated \(relativeDateFormatter.localizedString(for: lastRefresh, relativeTo: Date()))")
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                }
-
-                Spacer()
-
-                Text("\(feed.unreadCount) unread • \(feed.items.count) total")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let error = feed.refreshError {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.yellow)
-                        .font(.caption)
-                    Text("Warning: \(error)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Color.yellow.opacity(0.12)))
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.bar)
-    }
-
-    private var fallbackIcon: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.accentColor.opacity(0.15))
-                .frame(width: 28, height: 28)
-            Image(systemName: "dot.radiowaves.up.and.right")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color.accentColor)
         }
     }
 }
 
 struct ArticleRow: View {
     let article: FeedItem
+    let density: ArticleDensity
 
-    private var cleanSnippet: String {
-        let raw = article.summary ?? article.content ?? ""
-        let stripped = HTMLSanitizer.stripTags(from: raw)
-        return stripped.trimmingCharacters(in: .whitespacesAndNewlines)
+    @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
+    @ScaledMetric(relativeTo: .body) private var dotBaselineOffset: CGFloat = 5
+    @ScaledMetric(relativeTo: .body) private var gutter: CGFloat = 14
+
+    private var snippet: String {
+        HTMLSanitizer.stripTags(from: article.summary ?? article.content ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Only meaningful when the feed ships full content; a summary would always read "1 min".
+    private var readingMinutes: Int? {
+        guard let content = article.content else { return nil }
+        let words = HTMLSanitizer.stripTags(from: content).split(whereSeparator: \.isWhitespace).count
+        return words >= 200 ? Int((Double(words) / 200).rounded(.up)) : nil
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            // Header: Unread indicator + Title + Star
-            HStack(alignment: .top, spacing: 8) {
-                if !article.isRead {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 8, height: 8)
-                        .padding(.top, 5)
-                }
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            unreadIndicator
+                .frame(width: gutter, alignment: .leading)
 
+            VStack(alignment: .leading, spacing: density == .compact ? 2 : 4) {
                 Text(article.title)
-                    .font(.body.weight(article.isRead ? .regular : .semibold))
+                    .font(.siftSerif(.body, weight: article.isRead ? .regular : .semibold))
                     .foregroundStyle(article.isRead ? .secondary : .primary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(density == .compact ? 2 : 3)
 
-                Spacer(minLength: 4)
-
-                if article.isStarred {
-                    Image(systemName: "star.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color.siftStarred)
-                        .padding(.top, 3)
-                }
-            }
-
-            // Summary snippet preview
-            if !cleanSnippet.isEmpty {
-                Text(cleanSnippet)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .padding(.leading, article.isRead ? 0 : 16)
-            }
-
-            // Metadata footer
-            HStack(spacing: 6) {
-                if let feedTitle = article.feed?.title {
-                    Text(feedTitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                if density == .comfortable, !snippet.isEmpty {
+                    Text(snippet)
+                        .font(.subheadline)
+                        .foregroundStyle(article.isRead ? .tertiary : .secondary)
+                        .lineLimit(2)
                 }
 
-                Text("•")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-
-                Text(article.publicationDate, style: .relative)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                metadataLine
+                    .padding(.top, density == .compact ? 0 : 2)
             }
-            .padding(.leading, article.isRead ? 0 : 16)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, density == .compact ? 2 : 6)
+    }
+
+    @ViewBuilder
+    private var unreadIndicator: some View {
+        if article.isRead {
+            Color.clear.frame(width: dotSize, height: dotSize)
+        } else {
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: dotSize, height: dotSize)
+                // Center the dot on the title's x-height instead of letting it sit on the baseline.
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + dotBaselineOffset }
+        }
+    }
+
+    private var metadataLine: some View {
+        HStack(spacing: 5) {
+            if let feed = article.feed {
+                FeedFaviconView(feed: feed, size: 14)
+                Text(feed.title)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Text("·")
+            Text(article.publicationDate, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+
+            if density == .comfortable, let minutes = readingMinutes {
+                Text("·")
+                Text("\(minutes) min")
+            }
+
+            if article.isStarred {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(Color.siftStarred)
+                    .imageScale(.small)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.tertiary)
     }
 }
