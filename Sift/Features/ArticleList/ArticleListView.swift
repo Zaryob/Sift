@@ -23,6 +23,27 @@ enum ArticleFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// Time is a scope over whatever the sidebar selected, not a sibling of Library/Feeds.
+enum TimeScope: String, CaseIterable, Identifiable {
+    case latest = "Latest"
+    case today = "Today"
+    case week = "This Week"
+
+    var id: String { rawValue }
+
+    func includes(_ date: Date) -> Bool {
+        switch self {
+        case .latest:
+            return true
+        case .today:
+            return Calendar.current.isDateInToday(date)
+        case .week:
+            let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+            return date >= sevenDaysAgo
+        }
+    }
+}
+
 struct ArticleListView: View {
     @Bindable var viewModel: AppViewModel
     @Query(sort: \FeedItem.publicationDate, order: .reverse) private var allArticles: [FeedItem]
@@ -30,6 +51,7 @@ struct ArticleListView: View {
 
     @State private var searchText = ""
     @State private var filterMode: ArticleFilter = .all
+    @State private var timeScope: TimeScope = .latest
 
     private var selectedFeed: Feed? {
         guard let item = viewModel.selectedSidebarItem, case .feed(let id) = item else { return nil }
@@ -41,11 +63,6 @@ struct ArticleListView: View {
         switch item {
         case .all:
             return allArticles
-        case .today:
-            return allArticles.filter { Calendar.current.isDateInToday($0.publicationDate) }
-        case .thisWeek:
-            let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
-            return allArticles.filter { $0.publicationDate >= sevenDaysAgo }
         case .unread:
             return allArticles.filter { !$0.isRead }
         case .starred:
@@ -68,7 +85,7 @@ struct ArticleListView: View {
                 matchesFilter = article.isStarred
             }
 
-            guard matchesFilter else { return false }
+            guard matchesFilter, timeScope.includes(article.publicationDate) else { return false }
 
             // Filter by search query
             if searchText.isEmpty { return true }
@@ -83,8 +100,6 @@ struct ArticleListView: View {
     private var titleForSelection: String {
         switch viewModel.selectedSidebarItem {
         case .all, .none: return "All Articles"
-        case .today: return "Today"
-        case .thisWeek: return "This Week"
         case .unread: return "Unread"
         case .starred: return "Starred"
         case .feed:
@@ -110,18 +125,19 @@ struct ArticleListView: View {
             }
 
             // Filter mode indicator bar if non-default
-            if filterMode != .all {
+            if isScoped {
                 HStack(spacing: 6) {
-                    Image(systemName: filterMode.icon)
+                    Image(systemName: "line.3.horizontal.decrease")
                         .font(.caption2)
-                        .foregroundStyle(filterMode == .unread ? Color.accentColor : Color.siftStarred)
-                    Text("Filtered by: \(filterMode.rawValue)")
+                        .foregroundStyle(Color.accentColor)
+                    Text(scopeDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             filterMode = .all
+                            timeScope = .latest
                         }
                     } label: {
                         Text("Show All")
@@ -199,30 +215,22 @@ struct ArticleListView: View {
             }
         }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search articles")
+        #if os(iOS)
+        .toolbarTitleMenu {
+            scopeMenuContent
+        }
+        #endif
         .toolbar {
+            #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Section("Filter Articles") {
-                        ForEach(ArticleFilter.allCases) { filter in
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    filterMode = filter
-                                }
-                            } label: {
-                                if filterMode == filter {
-                                    Label(filter.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Label(filter.rawValue, systemImage: filter.icon)
-                                }
-                            }
-                        }
-                    }
+                    scopeMenuContent
                 } label: {
-                    Label("Filter", systemImage: filterMode == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
-                        .foregroundStyle(filterMode == .all ? Color.secondary : Color.accentColor)
+                    Label("Filter", systemImage: isScoped ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
-                .help("Filter articles by status")
+                .help("Filter articles by status and time")
             }
+            #endif
 
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -274,6 +282,33 @@ struct ArticleListView: View {
             .allowsHitTesting(false)
         }
         .navigationTitle(titleForSelection)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var isScoped: Bool {
+        filterMode != .all || timeScope != .latest
+    }
+
+    private var scopeDescription: String {
+        [filterMode != .all ? filterMode.rawValue : nil, timeScope != .latest ? timeScope.rawValue : nil]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private var scopeMenuContent: some View {
+        Picker("Show", selection: $filterMode.animation(.easeInOut(duration: 0.15))) {
+            ForEach(ArticleFilter.allCases) { filter in
+                Label(filter.rawValue, systemImage: filter.icon).tag(filter)
+            }
+        }
+        Picker("Time", selection: $timeScope.animation(.easeInOut(duration: 0.15))) {
+            ForEach(TimeScope.allCases) { scope in
+                Text(scope.rawValue).tag(scope)
+            }
+        }
     }
 
     @ViewBuilder

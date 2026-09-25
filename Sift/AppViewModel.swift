@@ -6,8 +6,6 @@ import WidgetKit
 
 public enum SidebarItem: Hashable, Identifiable {
     case all
-    case today
-    case thisWeek
     case unread
     case starred
     case feed(UUID)
@@ -15,8 +13,6 @@ public enum SidebarItem: Hashable, Identifiable {
     public var id: String {
         switch self {
         case .all: return "all"
-        case .today: return "today"
-        case .thisWeek: return "thisWeek"
         case .unread: return "unread"
         case .starred: return "starred"
         case .feed(let uuid): return "feed-\(uuid.uuidString)"
@@ -91,20 +87,18 @@ public final class AppViewModel {
     }
 
     public func refreshAllFeeds(context: ModelContext? = nil) {
+        Task {
+            await refreshAll(context: context)
+        }
+    }
+
+    public func refreshAll(context: ModelContext? = nil) async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        Task {
-            await refreshService.refreshAllFeeds()
-            await MainActor.run {
-                self.isRefreshing = false
-                if let context = context {
-                    WidgetSnapshotManager.shared.updateSnapshot(context: context)
-                } else {
-                    WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
-                }
-                WidgetCenter.shared.reloadAllTimelines()
-            }
-        }
+        await refreshService.refreshAllFeeds()
+        isRefreshing = false
+        WidgetSnapshotManager.shared.updateSnapshot(context: context ?? PersistenceController.shared.container.mainContext)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     public func addFeed(context: ModelContext) async {

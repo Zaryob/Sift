@@ -6,9 +6,11 @@ struct ContentView: View {
     @State private var viewModel = AppViewModel()
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<FeedItem> { !$0.isRead }) private var unreadItems: [FeedItem]
+    // On iPhone the app should open on something to read, not on a filter picker.
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             SidebarView(viewModel: viewModel)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } content: {
