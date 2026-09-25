@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct SiftApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #else
+    @Environment(\.scenePhase) private var scenePhase
     #endif
     @StateObject private var backgroundScheduler = BackgroundFeedScheduler.shared
 
@@ -66,6 +68,10 @@ struct SiftApp: App {
                 exit(0)
             }
         }
+        #else
+        // Queue an initial background refresh in case the app is closed before
+        // it ever transitions through .background (e.g. killed from the app switcher).
+        BackgroundFeedScheduler.shared.scheduleAppRefresh()
         #endif
         _ = NotificationManager.shared
         NotificationManager.shared.requestAuthorization()
@@ -96,6 +102,14 @@ struct SiftApp: App {
             ContentView()
         }
         .modelContainer(PersistenceController.shared.container)
+        .backgroundTask(.appRefresh(BackgroundFeedScheduler.backgroundTaskIdentifier)) {
+            await BackgroundFeedScheduler.shared.performBackgroundRefresh()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background {
+                BackgroundFeedScheduler.shared.scheduleAppRefresh()
+            }
+        }
         #endif
     }
 }
