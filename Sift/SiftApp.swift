@@ -62,6 +62,8 @@ struct SiftApp: App {
             ContentView()
         }
         .modelContainer(PersistenceController.shared.container)
+        .defaultSize(width: 1100, height: 720)
+        .windowToolbarStyle(.unified)
         
         #if os(macOS)
         Settings {

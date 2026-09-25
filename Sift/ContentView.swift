@@ -9,11 +9,14 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView(viewModel: viewModel)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } content: {
             ArticleListView(viewModel: viewModel)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 350, max: 480)
         } detail: {
             ArticleDetailView(viewModel: viewModel, article: viewModel.selectedArticle)
         }
+        .frame(minWidth: 880, minHeight: 520)
         .background(WindowAccessor())
         .sheet(isPresented: $viewModel.isAddingFeed) {
             AddFeedSheet(viewModel: viewModel)
