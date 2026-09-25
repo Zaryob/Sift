@@ -5,6 +5,7 @@ import WidgetKit
 struct ContentView: View {
     @State private var viewModel = AppViewModel()
     @Environment(\.modelContext) private var modelContext
+    @Query(filter: #Predicate<FeedItem> { !$0.isRead }) private var unreadItems: [FeedItem]
 
     var body: some View {
         NavigationSplitView {
@@ -70,6 +71,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            NotificationManager.shared.updateBadgeCount(unreadItems.count)
             DispatchQueue.main.async {
                 WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
                 WidgetCenter.shared.reloadAllTimelines()
@@ -82,6 +84,9 @@ struct ContentView: View {
                 }
                 #endif
             }
+        }
+        .onChange(of: unreadItems.count) { _, newCount in
+            NotificationManager.shared.updateBadgeCount(newCount)
         }
     }
 }

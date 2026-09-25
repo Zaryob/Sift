@@ -100,6 +100,7 @@ public actor FeedRefreshService {
             // Update Widget snapshot and notify WidgetKit for every feed check
             WidgetSnapshotManager.shared.updateSnapshot(context: context)
             WidgetCenter.shared.reloadAllTimelines()
+            refreshBadge(context: context)
 
         } catch {
             feed.refreshError = error.localizedDescription
@@ -142,6 +143,14 @@ public actor FeedRefreshService {
         // Final snapshot update after all feeds finish refreshing
         WidgetSnapshotManager.shared.updateSnapshot(context: context)
         WidgetCenter.shared.reloadAllTimelines()
+        refreshBadge(context: context)
+    }
+
+    /// Recomputes the total unread count and updates the app icon / dock badge.
+    private func refreshBadge(context: ModelContext) {
+        let descriptor = FetchDescriptor<FeedItem>(predicate: #Predicate { !$0.isRead })
+        let count = (try? context.fetchCount(descriptor)) ?? 0
+        NotificationManager.shared.updateBadgeCount(count)
     }
 
     /// Merge parsed items into existing feed using deduplication logic

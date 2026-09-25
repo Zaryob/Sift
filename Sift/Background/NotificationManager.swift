@@ -17,6 +17,15 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         UNUserNotificationCenter.current().delegate = self
     }
 
+    /// Updates the unread count badge shown on the app icon (iOS Home Screen / macOS Dock).
+    public func updateBadgeCount(_ count: Int) {
+        UNUserNotificationCenter.current().setBadgeCount(count) { error in
+            if let error = error {
+                print("Failed to set badge count: \(error)")
+            }
+        }
+    }
+
     public func requestAuthorization() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {
