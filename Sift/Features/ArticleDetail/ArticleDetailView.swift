@@ -252,7 +252,7 @@ struct ArticleDetailView: View {
     }
 
     private var typographyPopoverContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             Text("Typography")
                 .font(.headline)
 
@@ -267,7 +267,8 @@ struct ArticleDetailView: View {
                     Button {
                         if readerFontSize > 12 { readerFontSize -= 1 }
                     } label: {
-                        Image(systemName: "textformat.size.smaller")
+                        Image(systemName: "minus")
+                            .frame(width: 14, height: 14)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -281,7 +282,8 @@ struct ArticleDetailView: View {
                     Button {
                         if readerFontSize < 28 { readerFontSize += 1 }
                     } label: {
-                        Image(systemName: "textformat.size.larger")
+                        Image(systemName: "plus")
+                            .frame(width: 14, height: 14)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -305,8 +307,8 @@ struct ArticleDetailView: View {
                 .labelsHidden()
             }
         }
-        .padding(16)
-        .frame(width: 280)
+        .padding(18)
+        .frame(width: 320, alignment: .leading)
     }
 
     private func estimatedReadingTime(text: String) -> Int {
