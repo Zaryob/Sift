@@ -185,13 +185,14 @@ struct ArticleListView: View {
                     }
                 }
             }
+            .listStyle(.plain)
             .onChange(of: viewModel.selectedArticle) { _, newArticle in
                 if let article = newArticle, !article.isRead {
                     article.isRead = true
                     try? modelContext.save()
                 }
             }
-            .searchable(text: $searchText, placement: .toolbar, prompt: "Search articles")
+            .searchable(text: $searchText, prompt: "Search articles")
             .overlay {
                 if filteredArticles.isEmpty {
                     emptyStateView
@@ -233,6 +234,7 @@ struct ArticleListView: View {
                 .help("Mark All Filtered Articles as Read")
             }
         }
+        .labelStyle(.iconOnly)
         .background {
             Group {
                 Button("") { viewModel.selectNextArticle(in: filteredArticles) }
@@ -433,16 +435,18 @@ struct ArticleRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 5) {
             // Header: Unread indicator + Title + Star
-            HStack(alignment: .top, spacing: 7) {
-                Circle()
-                    .fill(article.isRead ? Color.clear : Color.blue)
-                    .frame(width: 7, height: 7)
-                    .padding(.top, 5)
+            HStack(alignment: .top, spacing: 8) {
+                if !article.isRead {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 8, height: 8)
+                        .padding(.top, 5)
+                }
 
                 Text(article.title)
-                    .font(.system(size: 13, weight: article.isRead ? .regular : .semibold))
+                    .font(.body.weight(article.isRead ? .regular : .semibold))
                     .foregroundStyle(article.isRead ? .secondary : .primary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -451,7 +455,7 @@ struct ArticleRow: View {
 
                 if article.isStarred {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.orange)
                         .padding(.top, 3)
                 }
@@ -460,31 +464,31 @@ struct ArticleRow: View {
             // Summary snippet preview
             if !cleanSnippet.isEmpty {
                 Text(cleanSnippet)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
-                    .padding(.leading, 14)
+                    .padding(.leading, article.isRead ? 0 : 16)
             }
 
             // Metadata footer
             HStack(spacing: 6) {
                 if let feedTitle = article.feed?.title {
                     Text(feedTitle)
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
 
                 Text("•")
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
 
                 Text(article.publicationDate, style: .relative)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(.leading, 14)
+            .padding(.leading, article.isRead ? 0 : 16)
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 4)
     }
 }

@@ -1,1 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><defs><linearGradient id="orange" x1="0" y1="0" x2="0.72" y2="1"><stop stop-color="#ffb62d"/><stop offset=".42" stop-color="#ff7607"/><stop offset="1" stop-color="#ff2809"/></linearGradient><linearGradient id="fold" x1="0" y1="0" x2="1" y2="0.2"><stop stop-color="#ff7808"/><stop offset="1" stop-color="#d81902"/></linearGradient><linearGradient id="cream" x2=".4" y2="1"><stop stop-color="#fcf7ef"/><stop offset="1" stop-color="#f3e7d5"/></linearGradient></defs><g fill="url(#orange)"><circle cx="270" cy="738" r="110"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+    <defs>
+        <linearGradient id="rssOrange" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#FFB52A"/>
+            <stop offset="0.48" stop-color="#FF720A"/>
+            <stop offset="1" stop-color="#F52A12"/>
+        </linearGradient>
+    </defs>
+    <circle cx="252" cy="772" r="86" fill="url(#rssOrange)"/>
+</svg>

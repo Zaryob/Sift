@@ -25,6 +25,14 @@ struct OPMLFileDocument: FileDocument {
     }
 }
 
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general = "General"
+    case reading = "Reading"
+    case subscriptions = "Subscriptions"
+
+    var id: String { rawValue }
+}
+
 struct SettingsView: View {
     @StateObject private var loginItemManager = LoginItemManager.shared
     @StateObject private var scheduler = BackgroundFeedScheduler.shared
@@ -37,6 +45,7 @@ struct SettingsView: View {
     @AppStorage("readerFontSize") private var readerFontSize: Double = 16.0
     @AppStorage("readerFontDesign") private var readerFontDesignRaw: String = ReaderFontDesign.system.rawValue
 
+    @State private var selectedTab: SettingsTab = .general
     @State private var opmlStatusMessage: String?
     @State private var isImporting: Bool = false
     @State private var isShowingFileImporter: Bool = false
@@ -45,6 +54,8 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
+            Group {
+            #if os(macOS)
             TabView {
                 generalTab
                     .tabItem {
@@ -61,10 +72,30 @@ struct SettingsView: View {
                         Label("Subscriptions", systemImage: "tray.and.arrow.down")
                     }
             }
-            .navigationTitle("Settings")
-            #if os(macOS)
             .frame(width: 520, height: 380)
             #else
+            VStack(spacing: 0) {
+                Picker("Settings Section", selection: $selectedTab) {
+                    ForEach(SettingsTab.allCases) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+                Group {
+                    switch selectedTab {
+                    case .general:
+                        generalTab
+                    case .reading:
+                        readingTab
+                    case .subscriptions:
+                        subscriptionsTab
+                    }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
@@ -73,6 +104,8 @@ struct SettingsView: View {
                 }
             }
             #endif
+            }
+            .navigationTitle("Settings")
             .onAppear {
                 NotificationManager.shared.requestAuthorization()
             }
@@ -161,7 +194,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
         .padding()
+        #endif
     }
 
     private var readingTab: some View {
@@ -211,7 +246,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
         .padding()
+        #endif
     }
 
     private var subscriptionsTab: some View {
@@ -257,7 +294,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        #if os(macOS)
         .padding()
+        #endif
     }
 
     private func handleImportResult(_ result: Result<[URL], Error>) {

@@ -154,6 +154,8 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .navigationTitle("Sift")
+        #if os(macOS)
         .safeAreaInset(edge: .bottom) {
             sidebarBottomBar
         }
@@ -167,6 +169,52 @@ struct SidebarView: View {
                 .help("Add New RSS Feed")
             }
         }
+        #else
+        .toolbar {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button {
+                    viewModel.isAddingFeed = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .help("Add Feed")
+
+                Spacer()
+
+                if viewModel.isRefreshing {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.7)
+                        Text("Refreshing...")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("\(feeds.count) \(feeds.count == 1 ? "feed" : "feeds")")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    viewModel.isShowingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .help("Settings")
+
+                Button {
+                    viewModel.refreshAllFeeds()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .disabled(viewModel.isRefreshing)
+                .help("Refresh Feeds")
+            }
+        }
+        #endif
         .alert("Set Folder / Category", isPresented: $showCategoryPrompt) {
             TextField("Folder Name (e.g. Tech, News)", text: $categoryInputText)
             Button("Save") {
@@ -180,6 +228,7 @@ struct SidebarView: View {
         }
     }
 
+    #if os(macOS)
     private var sidebarBottomBar: some View {
         VStack(spacing: 0) {
             Divider()
@@ -212,19 +261,6 @@ struct SidebarView: View {
 
                 Spacer()
 
-                #if !os(macOS)
-                Button {
-                    viewModel.isShowingSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.body.weight(.medium))
-                }
-                .buttonStyle(.plain)
-                .help("Settings")
-
-                Spacer()
-                #endif
-
                 Button {
                     viewModel.refreshAllFeeds()
                 } label: {
@@ -240,6 +276,7 @@ struct SidebarView: View {
             .background(.bar)
         }
     }
+    #endif
 
     @ViewBuilder
     private func countBadge(_ count: Int, tint: Color) -> some View {
