@@ -43,6 +43,8 @@ struct ArticleListView: View {
     @State private var sortOrder: ArticleSortOrder = .newestFirst
     @State private var isConfirmingMarkAllRead = false
     @State private var showToast = false
+    @State private var isShowingFilters = false
+    @State private var excludedFeedIDs: Set<UUID> = []
 
     @AppStorage(ReadingPreferenceKey.density) private var densityRaw: String = ArticleDensity.comfortable.rawValue
     @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showFeedIcons: Bool = true
@@ -64,15 +66,20 @@ struct ArticleListView: View {
             return allArticles.filter { $0.feed?.id == feedID }
         }
 
-        switch activeScope {
+        let scopedArticles = switch activeScope {
         case .all:
-            return allArticles
+            allArticles
         case .unread:
-            return allArticles.filter { !$0.isRead }
+            allArticles.filter { !$0.isRead }
         case .starred:
-            return allArticles.filter { $0.isStarred }
+            allArticles.filter { $0.isStarred }
         case .today:
-            return allArticles.filter { Calendar.current.isDateInToday($0.publicationDate) }
+            allArticles.filter { Calendar.current.isDateInToday($0.publicationDate) }
+        }
+
+        return scopedArticles.filter { article in
+            guard let feedID = article.feed?.id else { return true }
+            return !excludedFeedIDs.contains(feedID)
         }
     }
 
@@ -124,13 +131,16 @@ struct ArticleListView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             List(selection: $viewModel.selectedArticle) {
-                // Header Area on iOS (Brand Logotype + Live Status + Filter Bar)
+                // The title and status live in the navigation bar (so search can slot in under the
+                // large title); only the scope chips are list content, and only on the home timeline.
                 #if os(iOS)
-                Section {
-                    headerContent
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
+                if currentFeedTitle == nil {
+                    Section {
+                        filterBarView
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
                 }
                 #endif
 
@@ -181,15 +191,32 @@ struct ArticleListView: View {
             .task(id: viewModel.selectedArticle?.id) {
                 await markSelectedArticleReadIfNeeded()
             }
+            .navigationTitle(currentFeedTitle ?? "Sift")
+            .navigationSubtitle(statusText)
             #if os(iOS)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search articles, feeds…")
-            .navigationBarTitleDisplayMode(.inline)
+            // On iPhone, toolbar placement gives search the same bottom-bar presentation as Mail.
+            .searchable(text: $searchText, placement: .toolbar, prompt: "Search articles, feeds…")
+            .searchToolbarBehavior(hasActiveFilters ? .minimize : .automatic)
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
+            // The standard back button (to Sidebar/"Sift") remains visible while searching.
+            .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(isPresented: $viewModel.isShowingSettings) {
+                SettingsView()
+            }
             #else
             .searchable(text: $searchText, prompt: "Search articles, feeds…")
-            .navigationTitle(currentFeedTitle ?? "Sift")
             #endif
             .toolbar {
                 toolbarItems
+            }
+            .onChange(of: viewModel.selectedSidebarItem) { _, item in
+                // Library rows selected from the Sidebar map onto the home scopes.
+                switch item {
+                case .all: activeScope = .all
+                case .unread: activeScope = .unread
+                case .starred: activeScope = .starred
+                case .feed, .none: break
+                }
             }
             .confirmationDialog(
                 "Mark All as Read?",
@@ -204,8 +231,12 @@ struct ArticleListView: View {
             } message: {
                 Text("Mark \(currentScopeUnreadCount) unread articles in this view as read?")
             }
-            .sheet(isPresented: $viewModel.isShowingManageFeeds) {
-                ManageSourcesSheet(viewModel: viewModel)
+            .sheet(isPresented: $isShowingFilters) {
+                ArticleFiltersSheet(
+                    activeScope: $activeScope,
+                    excludedFeedIDs: $excludedFeedIDs,
+                    feeds: feeds
+                )
             }
             .background {
                 keyboardShortcuts
@@ -228,68 +259,15 @@ struct ArticleListView: View {
         return nil
     }
 
-    // MARK: - Header Content (Logotype, Status, Filter Pills)
+    // MARK: - Status
 
-    private var headerContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Logotype + Single Feed Back Button
-            HStack(alignment: .firstTextBaseline) {
-                if let feedTitle = currentFeedTitle {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            viewModel.selectedSidebarItem = .all
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text("All Feeds")
-                                .font(.subheadline)
-                        }
-                        .foregroundStyle(Color.siftAccent)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Text(feedTitle)
-                        .font(.headline)
-                        .lineLimit(1)
-                } else {
-                    Text("Sift")
-                        .font(.siftSerif(.largeTitle, weight: .semibold))
-                        .foregroundStyle(.primary)
-
-                    Spacer()
-                }
-            }
-
-            // Status Line: e.g. "50 unread · Updated 2 min ago"
-            statusLineView
-
-            // Filter Bar Chips
-            if currentFeedTitle == nil {
-                filterBarView
-                    .padding(.top, 4)
-            }
+    /// "46 unread · Updated just now"; inside a feed, the unread count is that feed's.
+    private var statusText: String {
+        if viewModel.isRefreshing {
+            return String(localized: "Updating feeds…")
         }
-        .padding(.vertical, 4)
-    }
-
-    private var statusLineView: some View {
-        HStack(spacing: 6) {
-            if viewModel.isRefreshing {
-                ProgressView()
-                    .controlSize(.mini)
-                Text("Updating feeds…")
-            } else {
-                let unreadText = "\(totalUnreadCount) unread"
-                let updatedText = updatedAgoString
-                Text("\(unreadText) · \(updatedText)")
-            }
-        }
-        .font(.system(size: 13, weight: .regular))
-        .foregroundStyle(.secondary)
+        let unread = currentFeedTitle == nil ? totalUnreadCount : currentScopeUnreadCount
+        return "\(String(localized: "\(unread) unread")) · \(updatedAgoString)"
     }
 
     private var updatedAgoString: String {
@@ -322,6 +300,18 @@ struct ArticleListView: View {
 
     private func filterChip(for scope: ArticleScope) -> some View {
         let isSelected = activeScope == scope
+        let selectionColor: Color = switch scope {
+        case .all: .primary
+        case .unread: .blue
+        case .starred: .pink
+        case .today: .green
+        }
+        let symbolName: String = switch scope {
+        case .all: "tray.full"
+        case .unread: "circle.fill"
+        case .starred: "star.fill"
+        case .today: "calendar"
+        }
         let count: Int? = {
             switch scope {
             case .all: return nil
@@ -336,32 +326,38 @@ struct ArticleListView: View {
         }()
 
         return Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(.smooth(duration: 0.24)) {
                 activeScope = scope
             }
         } label: {
-            HStack(spacing: 5) {
-                Text(scope.rawValue)
-                    .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
+            HStack(spacing: 7) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 16, weight: .semibold))
 
-                if let count {
-                    Text(count.formatted())
-                        .font(.system(size: 12, weight: .medium).monospacedDigit())
-                        .opacity(isSelected ? 0.9 : 0.7)
+                if isSelected {
+                    Text(scope.rawValue)
+                        .font(.system(size: 16, weight: .semibold))
+
+                    if let count {
+                        Text(count.formatted())
+                            .font(.system(size: 13, weight: .medium).monospacedDigit())
+                            .opacity(0.85)
+                    }
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .frame(minWidth: 24)
+            .padding(.horizontal, isSelected ? 16 : 12)
+            .padding(.vertical, 11)
             .background {
                 if isSelected {
                     Capsule()
-                        .fill(Color.primary)
+                        .fill(selectionColor)
                 } else {
                     Capsule()
                         .fill(Color.secondary.opacity(0.12))
                 }
             }
-            .foregroundStyle(isSelected ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
+            .foregroundStyle(isSelected ? AnyShapeStyle(.background) : AnyShapeStyle(.secondary))
         }
         .buttonStyle(.plain)
     }
@@ -374,7 +370,10 @@ struct ArticleListView: View {
                 article: article,
                 density: density,
                 showFeedIcon: showFeedIcons,
-                showPreview: showArticlePreviews
+                showPreview: showArticlePreviews,
+                // In a single feed the source is already the nav title; repeating it on every
+                // row is just noise, so the row can spend that space on the article itself.
+                showSource: currentFeedTitle == nil
             )
         }
         .tag(article)
@@ -473,6 +472,20 @@ struct ArticleListView: View {
                 moreOptionsMenu
             }
         }
+
+        ToolbarItem(placement: .bottomBar) {
+            Button {
+                isShowingFilters = true
+            } label: {
+                ArticleFilterToolbarLabel(
+                    isActive: hasActiveFilters,
+                    summary: filterSummaryText
+                )
+            }
+            .accessibilityLabel("Article Filters")
+        }
+
+        DefaultToolbarItem(kind: .search, placement: .bottomBar)
         #else
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
@@ -528,12 +541,6 @@ struct ArticleListView: View {
 
             Section {
                 Button {
-                    viewModel.isShowingManageFeeds = true
-                } label: {
-                    Label("Manage Feeds…", systemImage: "folder")
-                }
-
-                Button {
                     viewModel.isShowingSettings = true
                 } label: {
                     Label("Settings", systemImage: "gearshape")
@@ -547,6 +554,16 @@ struct ArticleListView: View {
         }
         .buttonStyle(.plain)
         .help("Options")
+    }
+
+    private var filterSummaryText: String {
+        guard !excludedFeedIDs.isEmpty else { return activeScope.rawValue }
+        let noun = excludedFeedIDs.count == 1 ? "feed" : "feeds"
+        return "\(activeScope.rawValue) · \(excludedFeedIDs.count) \(noun) excluded"
+    }
+
+    private var hasActiveFilters: Bool {
+        activeScope != .all || !excludedFeedIDs.isEmpty
     }
 
     // MARK: - Undo Toast
@@ -731,6 +748,134 @@ struct ArticleListView: View {
     }
 }
 
+#if os(iOS)
+private struct ArticleFilterToolbarLabel: View {
+    let isActive: Bool
+    let summary: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: isActive ? 17 : 17, weight: .semibold))
+                .foregroundStyle(isActive ? Color.white : Color.primary)
+                .frame(width: isActive ? 40 : 20, height: isActive ? 40 : 20)
+                .background {
+                    Circle()
+                        .fill(
+                            isActive
+                                ? AnyShapeStyle(LinearGradient(
+                                    colors: [.cyan, .blue],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ))
+                                : AnyShapeStyle(.clear)
+                        )
+                }
+
+            if isActive {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Filtered by")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(summary)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.blue)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .frame(minWidth: isActive ? 170 : 20, alignment: .leading)
+    }
+}
+
+private struct ArticleFiltersSheet: View {
+    @Binding var activeScope: ArticleScope
+    @Binding var excludedFeedIDs: Set<UUID>
+    let feeds: [Feed]
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Include Articles") {
+                    filterRow(scope: .all, title: "All Articles", systemImage: "tray.full")
+                    filterRow(scope: .unread, title: "Unread", systemImage: "envelope.badge")
+                    filterRow(scope: .starred, title: "Starred", systemImage: "star")
+                    filterRow(scope: .today, title: "Published Today", systemImage: "calendar")
+                }
+
+                if !feeds.isEmpty {
+                    Section("Include Feeds From") {
+                        ForEach(feeds) { feed in
+                            Button {
+                                toggleFeed(feed.id)
+                            } label: {
+                                HStack {
+                                    Label(feed.title, systemImage: "dot.radiowaves.left.and.right")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if !excludedFeedIDs.contains(feed.id) {
+                                        Image(systemName: "checkmark")
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if activeScope != .all || !excludedFeedIDs.isEmpty {
+                    Section {
+                        Button("Clear All Filters", role: .destructive) {
+                            activeScope = .all
+                            excludedFeedIDs.removeAll()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done", systemImage: "checkmark") {
+                        dismiss()
+                    }
+                    .labelStyle(.iconOnly)
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func filterRow(scope: ArticleScope, title: LocalizedStringKey, systemImage: String) -> some View {
+        Button {
+            activeScope = scope
+        } label: {
+            HStack {
+                Label(title, systemImage: systemImage)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if activeScope == scope {
+                    Image(systemName: "checkmark")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.blue)
+                }
+            }
+        }
+    }
+
+    private func toggleFeed(_ id: UUID) {
+        if excludedFeedIDs.contains(id) {
+            excludedFeedIDs.remove(id)
+        } else {
+            excludedFeedIDs.insert(id)
+        }
+    }
+}
+#endif
+
 // MARK: - Article Row (Apple Mail Density & Layout)
 
 struct ArticleRow: View {
@@ -738,12 +883,14 @@ struct ArticleRow: View {
     let density: ArticleDensity
     var showFeedIcon: Bool = true
     var showPreview: Bool = true
+    /// False inside a single feed's list, where the feed name is already the screen's nav title.
+    var showSource: Bool = true
 
     private var iconSize: CGFloat {
         switch density {
         case .compact: return 30
-        case .comfortable: return 38
-        case .spacious: return 42
+        case .comfortable: return 36
+        case .spacious: return 40
         }
     }
 
@@ -757,20 +904,20 @@ struct ArticleRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 8) {
             // Unread dot
             ZStack(alignment: .top) {
                 if !article.isRead {
                     Circle()
                         .fill(Color.siftAccent)
-                        .frame(width: 7.5, height: 7.5)
+                        .frame(width: 6.5, height: 6.5)
                         .padding(.top, 4)
                 }
             }
-            .frame(width: 8)
+            .frame(width: 7)
 
             // Feed Favicon / Initial Monogram
-            if showFeedIcon {
+            if showFeedIcon && showSource {
                 if let feed = article.feed {
                     FeedFaviconView(feed: feed, size: iconSize, cornerRadius: iconSize * 0.22)
                 } else {
@@ -780,38 +927,39 @@ struct ArticleRow: View {
 
             // Article Content: Header line, Title, Snippet
             VStack(alignment: .leading, spacing: density == .compact ? 2 : 3) {
-                // Header: Feed Name + Timestamp
-                HStack(alignment: .firstTextBaseline) {
-                    Text(feedTitle)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+                if showSource {
+                    // Header: Feed Name + Timestamp
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(feedTitle)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(article.isRead ? Color.primary.opacity(0.75) : Color.primary)
+                            .lineLimit(1)
 
-                    Spacer(minLength: 6)
+                        Spacer(minLength: 6)
 
-                    Text(formattedTime(for: article.publicationDate))
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(.secondary)
-
-                    if article.isStarred {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.siftStarred)
+                        trailingMeta
                     }
                 }
 
-                // Article Title
-                Text(article.title.isEmpty ? "Untitled" : article.title)
-                    .font(.system(size: 16, weight: article.isRead ? .regular : .semibold))
-                    .foregroundStyle(article.isRead ? Color.secondary : Color.primary)
-                    .lineSpacing(1.2)
-                    .lineLimit(density == .compact ? 1 : 2)
+                // Article Title (+ trailing time/star inline when the header line is gone)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(article.title.isEmpty ? "Untitled" : article.title)
+                        .font(.system(size: 16, weight: article.isRead ? .regular : .semibold))
+                        .foregroundStyle(article.isRead ? Color.primary.opacity(0.78) : Color.primary)
+                        .lineSpacing(1.2)
+                        .lineLimit(density == .compact ? 1 : 2)
+
+                    if !showSource {
+                        Spacer(minLength: 6)
+                        trailingMeta
+                    }
+                }
 
                 // Article Preview Snippet
                 if showPreview, !snippet.isEmpty, density != .compact {
                     Text(snippet)
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(.secondary.opacity(article.isRead ? 0.7 : 0.88))
+                        .foregroundStyle(Color.primary.opacity(article.isRead ? 0.58 : 0.7))
                         .lineSpacing(1.1)
                         .lineLimit(density == .spacious ? 2 : 1)
                         .padding(.top, 1)
@@ -820,12 +968,23 @@ struct ArticleRow: View {
         }
     }
 
+    @ViewBuilder
+    private var trailingMeta: some View {
+        Text(formattedTime(for: article.publicationDate))
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(.secondary)
+
+        if article.isStarred {
+            Image(systemName: "star.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.siftStarred)
+        }
+    }
+
     private func formattedTime(for date: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(date) {
+        if calendar.isDateInToday(date) || calendar.isDateInYesterday(date) {
             return date.formatted(date: .omitted, time: .shortened)
-        } else if calendar.isDateInYesterday(date) {
-            return "Yesterday"
         } else {
             return date.formatted(.dateTime.month(.abbreviated).day())
         }

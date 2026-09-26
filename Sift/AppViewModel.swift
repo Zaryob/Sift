@@ -75,7 +75,6 @@ public final class AppViewModel {
     
     public var isAddingFeed: Bool = false
     public var isShowingSettings: Bool = false
-    public var isShowingManageFeeds: Bool = false
 
     public var lastRefreshedAt: Date? = Date()
     public var lastMarkedReadArticles: [FeedItem] = []
