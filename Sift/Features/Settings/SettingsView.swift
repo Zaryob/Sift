@@ -306,7 +306,7 @@ struct SettingsView: View {
                 .foregroundStyle(.primary)
         } icon: {
             Image(systemName: systemImage)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color.siftAccent)
         }
     }
 

@@ -77,7 +77,7 @@ struct AddFeedSheet: View {
                                             .padding(.vertical, 3)
                                             .background(
                                                 Capsule()
-                                                    .fill(viewModel.addFeedCategoryString == cat ? Color.accentColor : Color.secondary.opacity(0.12))
+                                                    .fill(viewModel.addFeedCategoryString == cat ? Color.siftAccent : Color.secondary.opacity(0.12))
                                             )
                                             .foregroundStyle(viewModel.addFeedCategoryString == cat ? .white : .primary)
                                     }

@@ -77,6 +77,7 @@ struct SiftApp: App {
         #if os(macOS)
         Window("Sift", id: "main") {
             ContentView()
+                .tint(Color.siftAccent)
         }
         .modelContainer(PersistenceController.shared.container)
         .defaultSize(width: 1100, height: 720)
@@ -84,11 +85,13 @@ struct SiftApp: App {
 
         Settings {
             SettingsView()
+                .tint(Color.siftAccent)
                 .modelContainer(PersistenceController.shared.container)
         }
 
         MenuBarExtra {
             MenuBarExtraView()
+                .tint(Color.siftAccent)
                 .modelContainer(PersistenceController.shared.container)
         } label: {
             Image("MenuBarIcon")
@@ -96,6 +99,7 @@ struct SiftApp: App {
         #else
         WindowGroup {
             ContentView()
+                .tint(Color.siftAccent)
         }
         .modelContainer(PersistenceController.shared.container)
         .backgroundTask(.appRefresh(BackgroundFeedScheduler.backgroundTaskIdentifier)) {

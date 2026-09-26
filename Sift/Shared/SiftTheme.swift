@@ -3,6 +3,9 @@ import SwiftUI
 /// Sift's visual language: one brand tint (the ember orange from the app icon, via the
 /// AccentColor asset) plus a small set of semantic colors that are only used for state.
 extension Color {
+    /// Referenced by name rather than via `Color.accentColor`, because the app target doesn't set
+    /// ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME; roots also apply it with `.tint(.siftAccent)`.
+    static let siftAccent = Color("AccentColor")
     static let siftStarred = Color.yellow
 }
 
