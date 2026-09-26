@@ -11,6 +11,11 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     
     public static let openArticleNotification = Notification.Name("SiftOpenArticleNotification")
     public static let openFeedNotification = Notification.Name("SiftOpenFeedNotification")
+    public static let articleAlertsEnabledKey = "articleAlertsEnabled"
+
+    private var areArticleAlertsEnabled: Bool {
+        UserDefaults.standard.object(forKey: Self.articleAlertsEnabledKey) as? Bool ?? true
+    }
 
     override private init() {
         super.init()
@@ -78,6 +83,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         feedID: UUID,
         faviconURL: URL? = nil
     ) {
+        guard areArticleAlertsEnabled else { return }
         let content = UNMutableNotificationContent()
         content.title = feedTitle
         content.body = articleTitle
@@ -104,7 +110,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         articleID: UUID? = nil,
         feedID: UUID? = nil
     ) {
-        guard count > 0 else { return }
+        guard count > 0, areArticleAlertsEnabled else { return }
 
         let content = UNMutableNotificationContent()
         if count == 1 {

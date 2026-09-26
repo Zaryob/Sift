@@ -119,19 +119,18 @@ struct SidebarView: View {
             }
             .sharedBackgroundVisibility(.hidden)
 
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    viewModel.isShowingSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-            }
-
-            ToolbarItem(placement: .topBarTrailing) {
+            // Leading stays empty: a button there reads as "Back" on a root screen.
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     viewModel.isAddingFeed = true
                 } label: {
                     Label("Add Feed", systemImage: "plus")
+                }
+
+                Button {
+                    viewModel.isShowingSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
                 }
             }
         }

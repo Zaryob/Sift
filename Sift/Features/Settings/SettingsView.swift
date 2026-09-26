@@ -36,12 +36,14 @@ struct SettingsView: View {
     @Query private var articles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage(ReadingPreferenceKey.density) private var densityRaw: String = ArticleDensity.comfortable.rawValue
     @AppStorage(ReadingPreferenceKey.markReadBehavior) private var markReadRaw: String = MarkReadBehavior.whenOpened.rawValue
     @AppStorage(ReadingPreferenceKey.openLinksInApp) private var openLinksInApp: Bool = true
     @AppStorage(ReadingPreferenceKey.fontSize) private var fontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.system.rawValue
+    @AppStorage(NotificationManager.articleAlertsEnabledKey) private var articleAlertsEnabled: Bool = true
 
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var opmlStatusMessage: String?
@@ -54,9 +56,19 @@ struct SettingsView: View {
         ReaderFontDesign(rawValue: fontDesignRaw) ?? .system
     }
 
+    /// Preview with the reader's own latest article rather than a sample sentence.
+    private var previewText: String {
+        guard let latest = articles.max(by: { $0.publicationDate < $1.publicationDate }) else {
+            return String(localized: "Articles you open in Sift will use this font and size.")
+        }
+        let excerpt = HTMLSanitizer.stripTags(from: latest.summary ?? latest.content ?? "")
+        return excerpt.isEmpty ? latest.title : String(excerpt.prefix(160))
+    }
+
     var body: some View {
         content
-            .task {
+            .task(id: scenePhase) {
+                // Re-read on becoming active so returning from System Settings updates the switch.
                 await refreshNotificationStatus()
             }
             .fileImporter(
@@ -136,12 +148,19 @@ struct SettingsView: View {
                 }
             }
             #if os(iOS)
-            Toggle("Open Links in Sift", isOn: $openLinksInApp)
+            Picker("Open Original Article", selection: $openLinksInApp) {
+                Text("In Sift").tag(true)
+                Text("In Safari").tag(false)
+            }
             #endif
         } header: {
             Text("Reading")
         } footer: {
+            #if os(iOS)
+            Text("“In Sift” shows the publisher’s page in a browser view without leaving the app.")
+            #else
             Text("Compact shows only headlines and source, so more articles fit on screen.")
+            #endif
         }
     }
 
@@ -160,7 +179,7 @@ struct SettingsView: View {
                 }
             }
 
-            Text("Sift keeps the signal and lets the noise fall through.")
+            Text(previewText)
                 .font(.system(size: fontSize, design: fontDesign.design))
                 .lineSpacing(fontSize * 0.3)
                 .padding(.vertical, 4)
@@ -183,7 +202,7 @@ struct SettingsView: View {
                 set: { launchAgentManager.setEnabled($0, intervalMinutes: scheduler.refreshIntervalMinutes > 0 ? scheduler.refreshIntervalMinutes : 15) }
             ))
 
-            Picker("Check for New Articles", selection: Binding(
+            Picker("Preferred Interval", selection: Binding(
                 get: { scheduler.refreshIntervalMinutes },
                 set: { newInterval in
                     scheduler.refreshIntervalMinutes = newInterval
@@ -203,7 +222,7 @@ struct SettingsView: View {
         }
         #else
         Section {
-            Picker("Check for New Articles", selection: $scheduler.refreshIntervalMinutes) {
+            Picker("Preferred Interval", selection: $scheduler.refreshIntervalMinutes) {
                 Text("Every 15 Minutes").tag(15)
                 Text("Every 30 Minutes").tag(30)
                 Text("Every Hour").tag(60)
@@ -211,8 +230,6 @@ struct SettingsView: View {
             }
         } header: {
             Text("Background Refresh")
-        } footer: {
-            Text("iOS decides the exact timing based on how often you use Sift and your battery level.")
         }
         #endif
     }
@@ -221,36 +238,46 @@ struct SettingsView: View {
 
     private var notificationsSection: some View {
         Section {
-            LabeledContent("New Article Alerts") {
-                notificationStatusControl
-            }
+            Toggle("New Article Alerts", isOn: articleAlertsBinding)
         } header: {
             Text("Notifications")
         } footer: {
-            Text("Sift can notify you when new articles arrive in the background.")
+            if notificationStatus == .denied {
+                Text("Notifications for Sift are turned off in System Settings. Turning this on opens them.")
+            } else {
+                Text("Get notified when new articles arrive in the background.")
+            }
         }
     }
 
-    @ViewBuilder
-    private var notificationStatusControl: some View {
-        switch notificationStatus {
-        case .authorized, .provisional, .ephemeral:
-            Text("On")
-                .foregroundStyle(.secondary)
-        case .denied:
-            Button("Turn On in Settings") {
-                openSystemNotificationSettings()
-            }
-        case .notDetermined:
-            Button("Turn On") {
-                Task {
-                    _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-                    await refreshNotificationStatus()
+    private var isNotificationPermissionGranted: Bool {
+        [.authorized, .provisional, .ephemeral].contains(notificationStatus)
+    }
+
+    /// A real switch: it reflects both Sift's own preference and the system permission, and asks
+    /// for (or points to) the permission when needed instead of showing a status label.
+    private var articleAlertsBinding: Binding<Bool> {
+        Binding(
+            get: { articleAlertsEnabled && isNotificationPermissionGranted },
+            set: { isOn in
+                guard isOn else {
+                    articleAlertsEnabled = false
+                    return
+                }
+                switch notificationStatus {
+                case .denied:
+                    openSystemNotificationSettings()
+                case .notDetermined:
+                    Task {
+                        let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+                        articleAlertsEnabled = granted
+                        await refreshNotificationStatus()
+                    }
+                default:
+                    articleAlertsEnabled = true
                 }
             }
-        @unknown default:
-            EmptyView()
-        }
+        )
     }
 
     private func refreshNotificationStatus() async {
@@ -283,14 +310,14 @@ struct SettingsView: View {
             Button {
                 isShowingFileImporter = true
             } label: {
-                settingsActionLabel("Import from OPML…", systemImage: "square.and.arrow.down")
+                settingsActionLabel("Import OPML File", systemImage: "square.and.arrow.down")
             }
             .disabled(isImporting)
 
             Button {
                 exportOPML()
             } label: {
-                settingsActionLabel("Export as OPML…", systemImage: "square.and.arrow.up")
+                settingsActionLabel("Export OPML File", systemImage: "square.and.arrow.up")
             }
             .disabled(feeds.isEmpty)
         } header: {
