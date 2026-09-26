@@ -33,7 +33,7 @@ private struct Options {
     var evaluatorOutput: URL?
     var assignmentsOutput: URL?
     var analysisLocale = "en"
-    var threshold = 0.82
+    var threshold: Double?
     var windowHours = 72.0
     var translationStrategy = StoryClusteringSpike.TranslationStrategy.highFidelity
 
@@ -71,9 +71,9 @@ private struct Options {
             index += 2
         }
 
-        guard input != nil, evaluatorOutput != nil, assignmentsOutput != nil else {
+        guard input != nil, evaluatorOutput != nil, assignmentsOutput != nil, threshold != nil else {
             throw BenchmarkError.usage(
-                "Required: --input corpus.jsonl --evaluator-output predictions.jsonl --assignments-output assignments.json"
+                "Required: --input corpus.jsonl --evaluator-output predictions.jsonl --assignments-output assignments.json --threshold value"
             )
         }
     }
@@ -98,7 +98,7 @@ private enum BenchmarkError: Error, CustomStringConvertible {
         --input corpus.jsonl \
         --evaluator-output predictions.jsonl \
         --assignments-output assignments.json \
-        [--locale en] [--threshold 0.82] [--window-hours 72] \
+        --threshold value [--locale en] [--window-hours 72] \
         [--translation-strategy lowLatency|highFidelity]
 
     Corpus JSONL fields: id (UUID), title, optional summary/fullText,
@@ -120,7 +120,7 @@ private enum StoryClusteringBenchmark {
             let result = await spike.cluster(
                 records.map(\.article),
                 analysisLocale: options.analysisLocale,
-                similarityThreshold: options.threshold,
+                similarityThreshold: options.threshold!,
                 candidateWindow: options.windowHours * 60 * 60,
                 translationStrategy: options.translationStrategy
             )

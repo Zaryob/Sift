@@ -80,3 +80,12 @@ and pipeline/model version. Unassigned articles are retained as unique singleton
 predictions so unsupported languages and unavailable assets count as false splits
 instead of disappearing from the score. A synthetic smoke-test corpus can check the
 runner but cannot satisfy M0's real-corpus gate.
+
+The runner requires `--threshold` explicitly; the sample value above is only a
+command example, not a validated recommendation. Divide the annotated corpus by
+whole `goldStoryID` groups into calibration and holdout sets, keeping language-pair
+and publisher coverage visible in both. Choose the similarity threshold on the
+calibration set, write down the false-merge acceptance bound and selected pipeline
+settings before scoring the holdout, and report the holdout once. Never split articles
+from the same gold story across calibration and holdout, or use a tuned holdout score
+as an unbiased quality estimate.
