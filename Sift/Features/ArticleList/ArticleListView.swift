@@ -367,11 +367,8 @@ struct ArticleRow: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Only meaningful when the feed ships full content; a summary would always read "1 min".
     private var readingMinutes: Int? {
-        guard let content = article.content else { return nil }
-        let words = HTMLSanitizer.stripTags(from: content).split(whereSeparator: \.isWhitespace).count
-        return words >= 200 ? Int((Double(words) / 200).rounded(.up)) : nil
+        article.knownReadingMinutes
     }
 
     var body: some View {

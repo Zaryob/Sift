@@ -219,6 +219,26 @@ public final class AppViewModel {
         }
     }
 
+    /// Fetches and caches the article's full text. Failures are remembered for a day so a page
+    /// that can't be extracted isn't re-downloaded every time it's opened.
+    public func loadFullTextIfNeeded(for article: FeedItem, context: ModelContext) async {
+        guard article.extractedArticleData == nil,
+              let link = article.link, let url = URL(string: link) else { return }
+        if let attempted = article.extractionAttemptedAt, Date().timeIntervalSince(attempted) < 86_400 {
+            return
+        }
+
+        let result = try? await ArticleExtractor.fetch(url: url, summary: article.summary ?? article.content)
+        article.extractionAttemptedAt = Date()
+        if let result, let data = try? JSONEncoder().encode(result) {
+            article.extractedArticleData = data
+            if article.imageURL == nil {
+                article.imageURL = result.leadImageURL
+            }
+        }
+        try? context.save()
+    }
+
     public func openArticleExternally(_ article: FeedItem) {
         guard let linkStr = article.link, let url = URL(string: linkStr) else { return }
         Platform.openURL(url)

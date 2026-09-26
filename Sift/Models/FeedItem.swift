@@ -15,7 +15,10 @@ public final class FeedItem {
     public var discoveredDate: Date
     public var isRead: Bool
     public var isStarred: Bool
-    
+    /// JSON-encoded `ExtractedArticle`: the full text pulled from the publisher's page.
+    public var extractedArticleData: Data?
+    public var extractionAttemptedAt: Date?
+
     public var feed: Feed?
 
     public init(
@@ -48,6 +51,21 @@ public final class FeedItem {
         self.feed = feed
     }
     
+    public var extractedArticle: ExtractedArticle? {
+        guard let extractedArticleData else { return nil }
+        return try? JSONDecoder().decode(ExtractedArticle.self, from: extractedArticleData)
+    }
+
+    /// Reading time only when we actually know the length of the article, never from an excerpt.
+    public var knownReadingMinutes: Int? {
+        if let extracted = extractedArticle {
+            return extracted.readingMinutes
+        }
+        guard let content else { return nil }
+        let words = HTMLSanitizer.stripTags(from: content).split(whereSeparator: \.isWhitespace).count
+        return words >= 200 ? max(1, Int((Double(words) / 220).rounded(.up))) : nil
+    }
+
     public var deduplicationKey: String {
         if let guid = guid, !guid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "guid:\(guid)"
