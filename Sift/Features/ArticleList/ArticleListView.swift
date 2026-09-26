@@ -361,7 +361,7 @@ struct ArticleListView: View {
                         .fill(Color.secondary.opacity(0.12))
                 }
             }
-            .foregroundStyle(isSelected ? Color(uiColor: .systemBackground) : Color.primary)
+            .foregroundStyle(isSelected ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
         }
         .buttonStyle(.plain)
     }
