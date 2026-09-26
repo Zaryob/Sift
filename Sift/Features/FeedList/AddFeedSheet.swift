@@ -233,7 +233,7 @@ struct AddFeedSheet: View {
                         selectDiscoveredChoice(choice)
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: "dot.radiowaves.up.and.right")
+                            Image(systemName: "dot.radiowaves.up.forward")
                                 .font(.body.weight(.semibold))
                                 .foregroundStyle(Color.siftAccent)
                                 .frame(width: 20)
@@ -456,7 +456,7 @@ struct AddFeedSheet: View {
     private var faviconPlaceholder: some View {
         ZStack {
             Color.siftAccent.opacity(0.12)
-            Image(systemName: "dot.radiowaves.up.and.right")
+            Image(systemName: "dot.radiowaves.up.forward")
                 .font(.body.weight(.bold))
                 .foregroundStyle(Color.siftAccent)
         }

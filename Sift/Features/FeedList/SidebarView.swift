@@ -283,7 +283,7 @@ struct FeedFaviconView: View {
     private var placeholderIcon: some View {
         ZStack {
             Color.siftAccent.opacity(0.15)
-            Image(systemName: "dot.radiowaves.up.and.right")
+            Image(systemName: "dot.radiowaves.up.forward")
                 .font(.system(size: size * 0.5, weight: .bold))
                 .foregroundStyle(Color.siftAccent)
         }

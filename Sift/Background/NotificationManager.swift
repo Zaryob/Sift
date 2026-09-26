@@ -190,7 +190,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             }
         }
         #else
-        if let appIcon = UIImage(named: "AppIcon") ?? UIImage(systemName: "dot.radiowaves.up.and.right"),
+        if let appIcon = UIImage(named: "AppIcon") ?? UIImage(systemName: "dot.radiowaves.up.forward"),
            let pngData = appIcon.pngData() {
             let fileURL = tempDir.appendingPathComponent("appicon_\(UUID().uuidString).png")
             try? pngData.write(to: fileURL)

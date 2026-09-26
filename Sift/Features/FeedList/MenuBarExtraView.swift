@@ -14,7 +14,7 @@ struct MenuBarExtraView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Label("Sift", systemImage: "dot.radiowaves.up.and.right")
+                Label("Sift", systemImage: "dot.radiowaves.up.forward")
                     .font(.headline)
                 Spacer()
                 if !unreadArticles.isEmpty {
