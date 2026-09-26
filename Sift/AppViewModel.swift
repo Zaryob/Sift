@@ -213,9 +213,9 @@ public final class AppViewModel {
         selectedSidebarItem = .feed(newFeed.id)
     }
 
-    static func normalizedURL(from input: String) -> URL? {
+    public static func normalizedURL(from input: String) -> URL? {
         var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
+        guard !text.isEmpty, !text.contains(" "), !text.contains("\n") else { return nil }
         if text.lowercased().hasPrefix("feed:") {
             text = String(text.dropFirst(5)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }

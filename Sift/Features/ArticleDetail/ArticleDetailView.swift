@@ -23,6 +23,7 @@ struct ArticleDetailView: View {
     @AppStorage(ReadingPreferenceKey.openLinksInApp) private var openLinksInApp: Bool = true
     @State private var viewMode: DetailViewMode = .reader
     @State private var isLoadingFullText = false
+    @State private var isShowingAppearancePopover = false
 
     private var fontDesign: Font.Design {
         (ReaderFontDesign(rawValue: readerFontDesignRaw) ?? .serif).design
@@ -52,6 +53,8 @@ struct ArticleDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    appearanceButton
+
                     if let url = article.originalURL {
                         OpenOriginalButton(url: url)
                     }
@@ -79,6 +82,19 @@ struct ArticleDetailView: View {
         }
     }
 
+    // MARK: - Reader Appearance Button & Popover
+
+    private var appearanceButton: some View {
+        Button {
+            isShowingAppearancePopover.toggle()
+        } label: {
+            Label("Text Size & Font", systemImage: "textformat.size")
+        }
+        .popover(isPresented: $isShowingAppearancePopover, arrowEdge: .bottom) {
+            ReadingAppearancePopover()
+        }
+    }
+
     // MARK: - Reader
 
     private func reader(for article: FeedItem) -> some View {
@@ -87,15 +103,15 @@ struct ArticleDetailView: View {
                 metadataLine(for: article)
 
                 Text(article.title)
-                    .font(.system(size: readerFontSize * 1.55, weight: .bold, design: fontDesign))
-                    .lineSpacing(2)
+                    .font(.system(size: readerFontSize * 1.5, weight: .bold, design: fontDesign))
+                    .lineSpacing(readerFontSize * 0.16)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let imageURLString = article.imageURL, let imageURL = URL(string: imageURLString) {
                     // The image is an overlay so a .fill image can't widen the column past the screen.
                     Color.clear
                         .frame(maxWidth: .infinity)
-                        .frame(height: 240)
+                        .frame(height: 250)
                         .overlay {
                             AsyncImage(url: imageURL) { phase in
                                 if case .success(let image) = phase {
@@ -107,29 +123,37 @@ struct ArticleDetailView: View {
                                 }
                             }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
                 articleBody(for: article)
             }
             .textSelection(.enabled)
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 40)
-            .frame(maxWidth: 680, alignment: .leading)
+            .padding(.horizontal, 22)
+            .padding(.top, 14)
+            .padding(.bottom, 48)
+            .frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
     }
 
-    /// The feed name is already the navigation title; this line only adds what the title doesn't say.
+    /// Editorial hierarchy: Author/Source · Publication Date · Reading Time
     private func metadataLine(for article: FeedItem) -> some View {
         HStack(spacing: 6) {
-            Text(article.publicationDate, format: .dateTime.day().month(.wide).year())
-            if let author = article.author, !author.isEmpty {
-                Text("·")
+            if let author = article.author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
                 Text(author)
+                    .fontWeight(.medium)
                     .lineLimit(1)
+                Text("·")
+            } else if let feed = article.feed {
+                Text(feed.title)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Text("·")
             }
+
+            Text(article.publicationDate, format: .dateTime.day().month(.wide).year())
+
             if let minutes = article.knownReadingMinutes {
                 Text("·")
                 Text("\(minutes) min read")
@@ -141,7 +165,7 @@ struct ArticleDetailView: View {
 
     @ViewBuilder
     private func articleBody(for article: FeedItem) -> some View {
-        let spacing = readerFontSize * 0.9
+        let spacing = readerFontSize * 0.88
         if let extracted = article.extractedArticle {
             VStack(alignment: .leading, spacing: spacing) {
                 ForEach(Array(extracted.blocks.enumerated()), id: \.offset) { _, block in
@@ -153,7 +177,7 @@ struct ArticleDetailView: View {
                 ForEach(Array(HTMLSanitizer.paragraphs(from: article.content ?? article.summary ?? "").enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
                         .font(bodyFont)
-                        .lineSpacing(readerFontSize * 0.35)
+                        .lineSpacing(readerFontSize * 0.38)
                 }
 
                 if isLoadingFullText {
@@ -187,36 +211,39 @@ struct ArticleDetailView: View {
         case .paragraph:
             Text(block.text)
                 .font(bodyFont)
-                .lineSpacing(readerFontSize * 0.35)
+                .lineSpacing(readerFontSize * 0.38)
         case .heading:
             Text(block.text)
-                .font(.system(size: readerFontSize * 1.2, weight: .semibold, design: fontDesign))
-                .padding(.top, readerFontSize * 0.4)
+                .font(.system(size: readerFontSize * 1.25, weight: .bold, design: fontDesign))
+                .padding(.top, readerFontSize * 0.5)
+                .padding(.bottom, readerFontSize * 0.08)
         case .quote:
             Text(block.text)
-                .font(.system(size: readerFontSize, design: fontDesign).italic())
-                .lineSpacing(readerFontSize * 0.35)
+                .font(.system(size: readerFontSize * 0.96, design: fontDesign).italic())
+                .lineSpacing(readerFontSize * 0.36)
                 .foregroundStyle(.secondary)
-                .padding(.leading, 14)
+                .padding(.leading, 16)
+                .padding(.vertical, 4)
                 .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(Color.siftAccent)
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Color.primary.opacity(0.18))
                         .frame(width: 3)
                 }
         case .listItem:
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("•")
+                    .foregroundStyle(.secondary)
                 Text(block.text)
-                    .lineSpacing(readerFontSize * 0.3)
+                    .lineSpacing(readerFontSize * 0.32)
             }
             .font(bodyFont)
         case .code:
-            ScrollView(.horizontal) {
+            ScrollView(.horizontal, showsIndicators: false) {
                 Text(block.text)
-                    .font(.system(size: readerFontSize * 0.8, design: .monospaced))
+                    .font(.system(size: max(12, readerFontSize * 0.82), design: .monospaced))
                     .padding(12)
             }
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 
@@ -268,6 +295,9 @@ struct ArticleDetailView: View {
             .frame(maxWidth: 160)
 
             Spacer()
+
+            appearanceButton
+                .help("Reading Appearance")
 
             Button {
                 article.isStarred.toggle()
@@ -357,6 +387,58 @@ struct ArticleDetailView: View {
         text.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+    }
+}
+
+/// Floating popover for in-article typography and appearance adjustments
+struct ReadingAppearancePopover: View {
+    @AppStorage(ReadingPreferenceKey.fontSize) private var readerFontSize: Double = 16.0
+    @AppStorage(ReadingPreferenceKey.fontDesign) private var readerFontDesignRaw: String = ReaderFontDesign.serif.rawValue
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Appearance")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            Picker("Font Design", selection: $readerFontDesignRaw) {
+                ForEach(ReaderFontDesign.allCases) { design in
+                    Text(design.rawValue).tag(design.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            HStack(spacing: 12) {
+                Button {
+                    if readerFontSize > 13 {
+                        readerFontSize -= 1
+                    }
+                } label: {
+                    Image(systemName: "textformat.size.smaller")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(readerFontSize <= 13)
+
+                Text("\(Int(readerFontSize)) pt")
+                    .font(.subheadline.monospacedDigit().weight(.medium))
+                    .frame(minWidth: 46)
+
+                Button {
+                    if readerFontSize < 26 {
+                        readerFontSize += 1
+                    }
+                } label: {
+                    Image(systemName: "textformat.size.larger")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(readerFontSize >= 26)
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(16)
+        .frame(width: 220)
     }
 }
 

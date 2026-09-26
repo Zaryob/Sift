@@ -59,6 +59,13 @@ struct ArticleListView: View {
         ArticleDensity(rawValue: densityRaw) ?? .comfortable
     }
 
+    private var isViewingSingleFeed: Bool {
+        if case .feed = viewModel.selectedSidebarItem {
+            return true
+        }
+        return false
+    }
+
     private var selectedFeed: Feed? {
         guard let item = viewModel.selectedSidebarItem, case .feed(let id) = item else { return nil }
         return allArticles.first(where: { $0.feed?.id == id })?.feed
@@ -165,40 +172,54 @@ struct ArticleListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            #if os(iOS)
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                filterMenu
+
+                markAllReadButton
+            }
+            #else
             ToolbarItem(placement: .primaryAction) {
                 filterMenu
             }
 
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isConfirmingMarkAllRead = true
-                } label: {
-                    Label("Mark All as Read", systemImage: "checkmark.circle")
-                }
-                .disabled(unreadCount == 0)
-                .help("Mark all articles in this list as read")
-                .confirmationDialog(
-                    "Mark \(unreadCount) articles as read?",
-                    isPresented: $isConfirmingMarkAllRead,
-                    titleVisibility: .visible
-                ) {
-                    Button("Mark \(unreadCount) as Read", role: .destructive) {
-                        viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("Only articles in “\(titleForSelection)” with the current filters are affected.")
-                }
+                markAllReadButton
             }
+            #endif
         }
         .background {
             keyboardShortcuts
         }
     }
 
+    private var markAllReadButton: some View {
+        Button {
+            isConfirmingMarkAllRead = true
+        } label: {
+            Label("Mark All as Read", systemImage: "checkmark.circle")
+        }
+        .disabled(unreadCount == 0)
+        .help("Mark all articles in this list as read")
+        .confirmationDialog(
+            "Mark All as Read?",
+            isPresented: $isConfirmingMarkAllRead,
+            titleVisibility: .visible
+        ) {
+            Button("Mark All as Read") {
+                viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
     private func articleLink(_ article: FeedItem) -> some View {
         NavigationLink(value: article) {
-            ArticleRow(article: article, density: density)
+            ArticleRow(
+                article: article,
+                density: density,
+                showFeedTitle: !isViewingSingleFeed
+            )
         }
         .tag(article)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -206,9 +227,9 @@ struct ArticleListView: View {
                 article.isRead.toggle()
                 try? modelContext.save()
             } label: {
-                Label(article.isRead ? "Mark Unread" : "Mark Read", systemImage: article.isRead ? "circlebadge" : "checkmark")
+                Label(article.isRead ? "Unread" : "Read", systemImage: article.isRead ? "circle.fill" : "checkmark")
             }
-            .tint(Color.siftAccent)
+            .tint(.blue)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
@@ -357,6 +378,7 @@ struct ArticleListView: View {
 struct ArticleRow: View {
     let article: FeedItem
     let density: ArticleDensity
+    var showFeedTitle: Bool = true
 
     @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
     @ScaledMetric(relativeTo: .body) private var dotBaselineOffset: CGFloat = 5
@@ -377,17 +399,18 @@ struct ArticleRow: View {
                 .frame(width: gutter, alignment: .leading)
 
             VStack(alignment: .leading, spacing: density == .compact ? 2 : 4) {
-                // Read is a state, not "disabled": weight and color step down, but never below
-                // .secondary so read rows keep legible contrast.
+                // Read is a quiet completed state, but never muddy:
+                // Unread: semibold, primary, high contrast.
+                // Read: regular, legible foreground with clear internal hierarchy over snippet.
                 Text(article.title)
                     .font(.body.weight(article.isRead ? .regular : .semibold))
-                    .foregroundStyle(article.isRead ? .secondary : .primary)
+                    .foregroundStyle(article.isRead ? Color.primary.opacity(0.68) : Color.primary)
                     .lineLimit(density == .compact ? 2 : 3)
 
                 if density == .comfortable, !snippet.isEmpty {
                     Text(snippet)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(article.isRead ? .tertiary : .secondary)
                         .lineLimit(2)
                 }
 
@@ -413,14 +436,19 @@ struct ArticleRow: View {
 
     private var metadataLine: some View {
         HStack(spacing: 5) {
-            if let feed = article.feed {
+            if showFeedTitle, let feed = article.feed {
                 FeedFaviconView(feed: feed, size: 14)
                 Text(feed.title)
                     .fontWeight(.medium)
                     .lineLimit(1)
+                Text("·")
+            } else if let author = article.author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
+                Text(author)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Text("·")
             }
 
-            Text("·")
             Text(Self.compactAge(of: article.publicationDate))
 
             if density == .comfortable, let minutes = readingMinutes {
@@ -435,7 +463,7 @@ struct ArticleRow: View {
             }
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(article.isRead ? .tertiary : .secondary)
     }
 
     /// "now", "12m", "4h", "3d", then a short date; static, so the list doesn't tick.
