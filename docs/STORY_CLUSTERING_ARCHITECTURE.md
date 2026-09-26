@@ -1,29 +1,32 @@
-# Sift Story Clustering Architecture (Design Draft v0.1)
+# Sift Story Clustering Architecture (Design Draft v0.2)
 
-**Status:** Draft. Not implementation-ready until the M0 spike (below) passes its exit
-criteria. Extends `ARCHITECTURE.md` and `DATA_FLOW.md`, which describe the feed
-ingestion pipeline that this design builds on top of unchanged.
+**Status:** Product direction and phased roadmap are approved. This clustering
+design remains gated: story-primary UI and user-facing summaries do not ship until
+the M0 evidence gate passes. See [`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md)
+for the shared product contract, full milestones, behavioral personalization,
+briefings, notifications, and release criteria. This document owns the clustering
+data model and pipeline details; it extends `ARCHITECTURE.md` and `DATA_FLOW.md`.
 
-**Scope.** This document owns the clustering subsystem only: turning ingested
-`FeedItem`s into `StoryCluster`s. It deliberately does **not** define briefing
-generation, notification copy, TTS/podcast output, or any Apple-Intelligence-driven
-summarization product. Those are a separate downstream consumer of this subsystem's
-output and belong in their own design document (working name:
-`SIFT_AI_NEWSROOM_AND_BRIEFING.md`, not yet written). Where this doc mentions
-"briefing-worthy," it means only the raw signal this subsystem exposes, not a
-scheduling or delivery contract.
+**Scope.** This document specifies how ingested `FeedItem`s become source-linked
+`StoryCluster`s. The product also includes conventional RSS reading, optional Apple
+on-device synthesis, personalized morning/evening briefings, and separately gated
+urgent notifications; those experiences are governed by the product roadmap. A
+cluster's recency and coverage signals are inputs to those experiences, not proof
+that publishers independently corroborate a claim.
 
 ## 0. Core Premise
 
-The product's core entity is **`StoryCluster`**, not `FeedItem`. `FeedItem` remains
+The product's core story entity is **`StoryCluster`**, not `FeedItem`. `FeedItem` remains
 the raw, effectively immutable ingestion unit (one row per publisher's article,
 produced exactly as today by `FeedParser` + `FeedRefreshService`), but it is no
 longer the primary thing a user reads. A `StoryCluster` groups the `FeedItem`s —
 possibly from different feeds and different languages — that report the same
-underlying story, and is what the article list is built around going forward.
+underlying story; Story mode uses it as the unit of navigation while By Feed keeps
+`FeedItem` as the unit of reading.
 
-This reframes the app from "a list of feeds, each with items" to "a list of stories,
-each with sources."
+Story mode presents "stories, each with sources" while By Feed mode preserves the
+existing "feeds, each with items" experience. Story mode remains gated on M0; RSS
+reading and feed management stay available on devices without Apple Intelligence.
 
 ## 1. Domain Model
 
@@ -70,7 +73,7 @@ public enum TranslationReadiness: String, Codable {
     case notNeeded        // detectedLanguage == analysisLocale, no translation required
     case installed        // pairing was ready; analysisText was produced
     case waitingForAsset  // pairing is supported but the on-device model isn't downloaded yet
-    case unsupported      // pairing is not supported at all — falls back to un-pivoted embedding, flagged low-confidence
+    case unsupported      // pairing is not supported — article remains unassigned
 }
 ```
 
@@ -121,12 +124,11 @@ graph TD
     C -->|"no"| P["Translation Preflight (foreground app only): LanguageAvailability status(from:to:)"]
     P -->|".installed"| E["Translate title+summary -> analysisLocale"]
     P -->|".supported, not downloaded"| W["translationReadiness = waitingForAsset — retried next pipeline pass, no headless download attempted"]
-    P -->|"unsupported"| U["translationReadiness = unsupported — flagged low-confidence, embedded on raw text as fallback"]
+    P -->|"unsupported"| U["translationReadiness = unsupported — keep unassigned; do not compare across incompatible embedding spaces"]
     E --> D1["translationReadiness = installed; analysisText set"]
     D0 --> F
     D1 --> F
-    U --> F
-    F["NLContextualEmbedding over analysisText (or raw text if unsupported); stamp analysisPipelineVersion + embeddingModelVersion"]
+    F["NLContextualEmbedding over analysisText; stamp analysisPipelineVersion + embeddingModelVersion"]
     F --> G["Candidate clusters: centroids updated in last 72h"]
     G --> H{"cosine similarity >= threshold?"}
     H -->|"yes"| I["Assign to existing StoryCluster, update centroid + sourceCount"]
@@ -136,15 +138,20 @@ graph TD
 
 Key decisions:
 
-- **Common analysis locale (point 3).** Every `FeedItem`, regardless of source
-  language, is normalized into one pivot language (`analysisLocale`, default `en`, a
-  fixed global setting for v0 — not per-user) *before* embedding. Embedding spaces
+- **Common analysis locale (M0 hypothesis).** Every `FeedItem`, regardless of source
+  language, may be normalized into one pivot language before embedding. The v0
+  candidate is English, but M0 must validate translation coverage and quality for
+  the target languages before this becomes a shipped default. Embedding spaces
   are not reliably aligned across languages, and simple lexical signals (shared named
   entities, TF-IDF overlap) that we want as a cheap first-pass filter only work when
   both sides are in the same language. `analysisText` is stored separately from
   `title`/`summary` precisely so translation quality never touches what the user
   reads.
-- **Translation asset provisioning is a foreground-only concern (fix 3).**
+- **Unsupported language pairs stay unassigned.** Do not embed raw text from an
+  unsupported translation pair into a pivot-locale cluster: that mixes embedding
+  spaces and can create silent false matches. Preserve the source article and retry
+  only after a supported on-device path is available.
+  **Translation asset provisioning is a foreground-only concern (fix 3).**
   Apple's Translation framework distinguishes a language pair being *supported*
   from actually being *installed* on-device; installing an uninstalled pairing can
   require user-facing download consent. `SiftAgent.app` runs headless and must never
@@ -169,9 +176,10 @@ Key decisions:
   `analysisText`/`embedding` are computed. This is the only reliable way to know,
   after a threshold/model/pivot change, exactly which rows are stale and need
   reclustering rather than reprocessing the entire corpus blindly.
-- **Summary generation.** Extractive only for v0: the sentence from the member
-  nearest the centroid with the richest `extractedArticle`. Generative/LLM
-  summarization is out of scope for this document (see Scope note above).
+- **Clustering does not author the briefing.** This subsystem may expose an
+  extractive representative sentence for diagnostics or a non-generative fallback.
+  Apple on-device synthesis and source-linked claims are governed by
+  [`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md) and must pass M2's gate.
 
 ### The "briefing-worthy" signal is computed, not stored (fix 5a)
 
@@ -182,8 +190,8 @@ purely because a clock advanced, with no write to the row. Persisting it as a st
 store an `isBriefingWorthy` field at all; it exposes `sourceCount`, `languages`, and
 timestamps, and leaves the recency-windowed "is this notable right now" query to
 whatever consumes the cluster (a `BriefingPlanner` or similar, computed at query
-time). That consumer and its scheduling contract are out of scope here — see the
-Scope note above.
+time). Its product behavior and scheduling contract are defined in
+[`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md).
 
 ## 3. Background Execution: SiftAgent.app via `SMAppService.loginItem`
 
@@ -255,28 +263,25 @@ future consumer of `StoryCluster`/`sourceCount` — a briefing, a notification, 
 digest — must treat delivery as **best-effort, never exact-time**, the same way
 `BackgroundFeedScheduler`'s existing `BGAppRefreshTaskRequest` usage already is (it
 only ever sets `earliestBeginDate` as a floor, never a promise). The full scheduling
-and notification contract for that downstream product belongs in
-`SIFT_AI_NEWSROOM_AND_BRIEFING.md`, not here.
+and notification contract for the downstream product is defined in
+[`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md).
 
 ## 5. Milestones
 
 | # | Milestone | Exit Criteria |
 |---|---|---|
-| **M0** | **Blocking spike** — feasibility gate. Blocks all further milestones. | Throwaway prototype runs the full pipeline (language detect → translation preflight → translate to pivot → embed → cluster) over a hand-collected corpus of ~300–500 real articles spanning ≥3 languages and ≥20 feeds, hand-labeled into "true" story groups. **Metric:** pairwise precision/recall/F1 against the labeled set (explicitly pairwise — same-cluster-pair agreement — not an ambiguous "clustering F1"), reported *alongside and separately from* **false-merge rate** (fraction of true story pairs incorrectly unified into one cluster). False-merge rate is treated as its own gate: for Sift, showing two stories separately is a much smaller failure than silently merging two unrelated events into one. **Go/no-go:** pairwise F1 ≥ 0.75, false-merge rate under a separately agreed low bound, per-item pipeline latency acceptable on representative hardware, and translation pairings reach `.installed` (not merely `.supported`) for the target languages during the spike — `.supported`-but-not-downloaded is not sufficient evidence the pipeline works headlessly. Worth measuring `lowLatency` vs `highFidelity` translation model quality/latency as two separate data points, not a single number. If any bar is missed, M1 does not start — revisit pivoting strategy (e.g. a genuinely multilingual embedding model instead of translate-then-embed) before proceeding. |
-| **M1** | Domain & pipeline scaffolding | `StoryCluster` schema + `SchemaMigrationPlan` land (including `Feed.publisherKey` and the `FeedItem` provenance fields); clustering actor runs in shadow mode (no UI change) against production ingestion to gather real precision/latency data without affecting users. |
-| **M2** | Product integration | `ArticleListView` becomes StoryCluster-primary with a "By Feed" fallback; `SiftAgent.app` ships via `SMAppService.loginItem` as the resident helper described in §3; Translation Preflight lands in the foreground app. Briefing/notification UX itself is scoped and built against the separate briefing document, not here. |
-| **M3** | **Real clustering benchmark gate** — release blocker. | Re-run the M0 benchmark (same pairwise precision/recall/F1 + false-merge-rate metric pair) against a larger, production-like corpus (real user OPML diversity and volume, not the small M0 fixture). This is a **standing regression gate**: re-run on every subsequent change to `embeddingModelVersion`, `analysisPipelineVersion`, the pivot locale, or the similarity threshold, using those version fields to identify exactly which rows are affected rather than reprocessing blindly. |
+| **M0** | **Blocking evidence and feasibility gate** — blocks story-primary UI, synthesis, briefings, and urgent alerts. | The current native spike (`Sift/Clustering/StoryClusteringSpike.swift`) runs language detection → installed-asset Translation preflight → on-device embedding → sliding-window clustering without changing shipped data or UI. Run it against a hand-collected corpus of 300–500 real articles from ≥20 publishers and ≥3 languages, manually labeled under [`STORY_CLUSTERING_ANNOTATION_GUIDE.md`](STORY_CLUSTERING_ANNOTATION_GUIDE.md). Evaluate with [`tools/evaluate_story_clusters.py`](../tools/evaluate_story_clusters.py). **Metrics:** pairwise precision/recall/F1; false-merge rate = contaminated predicted clusters / all predicted clusters; false-positive pair rate and false splits reported separately. Record a numeric false-merge bound before scoring. **Go/no-go:** pairwise F1 ≥ 0.75, false-merge rate below that bound, acceptable per-item latency on representative devices, and required translation pairs actually `.installed`. Measure `lowLatency` and `highFidelity` separately. User sessions and a one-week diary are also required by the roadmap; repository code does not substitute for those evidence. If a gate fails, revise the on-device strategy and rerun M0 before moving forward. |
+| **M1–M4** | Product delivery milestones | Defined by [`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md), the product source of truth. M1 adds durable story pipeline after M0; M2 adds story/synthesis; M3 adds briefing and notification policy; M4 pilots and iterates. Keep technical schema and migration details in this architecture document. |
 
 ## 6. Non-Goals and Accepted Risks for v0
 
-- Generative/LLM summarization of clusters, and the briefing/notification/TTS product
-  built on top of this subsystem — both explicitly out of scope for this document
-  (see Scope note); tracked separately in `SIFT_AI_NEWSROOM_AND_BRIEFING.md`.
-- User-facing cluster correction UI (merge/split a bad grouping) — deferred past M3.
-- Server-side/cloud clustering — v0 is 100% on-device; revisit only if the M0 spike
-  fails outright.
-- Per-user analysis-locale personalization — v0 hardcodes one global pivot language;
-  revisit only if M0's translation-coverage data shows it's needed.
+- Cross-publisher fact-checking or claims that source count proves truth.
+- User-facing cluster correction before benchmark quality is established. When
+  correction UI ships, corrections must be durable and included in later evaluation.
+- Server-side/cloud clustering, synthesis, or preference learning. If M0 fails,
+  revisit the on-device strategy rather than silently routing content to a server.
+- Per-user analysis-locale selection is not assumed; M0 determines whether a
+  single validated pivot can meet the language quality gate.
 - **Accepted:** `SiftAgent.app` as a `SMAppService.loginItem` has no crash-restart
   guarantee and will not resume until next login if killed — a deliberate tradeoff of
   point 1's requirement, not something M1–M3 need to solve.
