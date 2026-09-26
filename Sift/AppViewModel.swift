@@ -20,6 +20,15 @@ public enum SidebarItem: Hashable, Identifiable {
     }
 }
 
+public enum ArticleScope: String, CaseIterable, Identifiable {
+    case all = "All"
+    case unread = "Unread"
+    case starred = "Starred"
+    case today = "Today"
+
+    public var id: String { rawValue }
+}
+
 /// A feed that has been fetched and parsed but not yet saved.
 public struct FeedPreview {
     public let url: URL
@@ -65,8 +74,12 @@ public final class AppViewModel {
     public var selectedArticle: FeedItem?
     
     public var isAddingFeed: Bool = false
-    
     public var isShowingSettings: Bool = false
+    public var isShowingManageFeeds: Bool = false
+
+    public var lastRefreshedAt: Date? = Date()
+    public var lastMarkedReadArticles: [FeedItem] = []
+    public var toastMessage: String?
 
     public var errorMessage: String?
     public var showErrorAlert: Bool = false
@@ -109,8 +122,14 @@ public final class AppViewModel {
     }
 
     public func markAllAsRead(in articles: [FeedItem], context: ModelContext) {
+        var changed: [FeedItem] = []
         for article in articles where !article.isRead {
             article.isRead = true
+            changed.append(article)
+        }
+        lastMarkedReadArticles = changed
+        if !changed.isEmpty {
+            toastMessage = "\(changed.count) articles marked as read"
         }
         do {
             try context.save()
@@ -118,6 +137,22 @@ public final class AppViewModel {
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
             print("Failed to save read state: \(error)")
+        }
+    }
+
+    public func undoMarkAllAsRead(context: ModelContext) {
+        guard !lastMarkedReadArticles.isEmpty else { return }
+        for article in lastMarkedReadArticles {
+            article.isRead = false
+        }
+        lastMarkedReadArticles = []
+        toastMessage = nil
+        do {
+            try context.save()
+            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            WidgetCenter.shared.reloadAllTimelines()
+        } catch {
+            print("Failed to undo mark as read: \(error)")
         }
     }
 
@@ -131,6 +166,7 @@ public final class AppViewModel {
         guard !isRefreshing else { return }
         isRefreshing = true
         await refreshService.refreshAllFeeds()
+        lastRefreshedAt = Date()
         isRefreshing = false
         WidgetSnapshotManager.shared.updateSnapshot(context: context ?? PersistenceController.shared.container.mainContext)
         WidgetCenter.shared.reloadAllTimelines()

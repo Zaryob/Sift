@@ -7,11 +7,14 @@ enum ReadingPreferenceKey {
     static let openLinksInApp = "openLinksInApp"
     static let fontSize = "readerFontSize"
     static let fontDesign = "readerFontDesign"
+    static let showFeedIcons = "showFeedIcons"
+    static let showArticlePreviews = "showArticlePreviews"
 }
 
 enum ArticleDensity: String, CaseIterable, Identifiable {
-    case comfortable = "Comfortable"
     case compact = "Compact"
+    case comfortable = "Comfortable"
+    case spacious = "Spacious"
 
     var id: String { rawValue }
 }

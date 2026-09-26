@@ -3,9 +3,12 @@ import SwiftData
 
 struct SidebarView: View {
     @Bindable var viewModel: AppViewModel
+    var isSheet: Bool = false
+
     @Query(sort: \Feed.title) private var feeds: [Feed]
     @Query private var allArticles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
 
     @State private var editingFeedForCategory: Feed?
     @State private var categoryInputText: String = ""
@@ -83,7 +86,7 @@ struct SidebarView: View {
                 }
             }
 
-            // Subtle status section to keep empty space balanced and informative
+            // Subtle status section
             Section {
                 HStack(spacing: 8) {
                     if viewModel.isRefreshing {
@@ -102,7 +105,7 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Sift")
+        .navigationTitle(isSheet ? "Manage Feeds" : "Sift")
         .refreshable {
             await viewModel.refreshAll(context: modelContext)
         }
@@ -131,17 +134,32 @@ struct SidebarView: View {
             SettingsView()
         }
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    viewModel.isAddingFeed = true
-                } label: {
-                    Label("Add Feed", systemImage: "plus")
+            if isSheet {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        viewModel.isAddingFeed = true
+                    } label: {
+                        Label("Add Feed", systemImage: "plus")
+                    }
+                }
+            } else {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        viewModel.isAddingFeed = true
+                    } label: {
+                        Label("Add Feed", systemImage: "plus")
+                    }
 
-                Button {
-                    viewModel.isShowingSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
+                    Button {
+                        viewModel.isShowingSettings = true
+                    } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
                 }
             }
         }
@@ -160,19 +178,23 @@ struct SidebarView: View {
     }
 
     private func libraryRow(_ title: LocalizedStringKey, systemImage: String, item: SidebarItem, count: Int?) -> some View {
-        NavigationLink(value: item) {
-            Label {
-                HStack {
-                    Text(title)
-                    Spacer()
-                    if let count {
-                        countText(count)
-                    }
-                }
-            } icon: {
-                Image(systemName: systemImage)
+        Button {
+            viewModel.selectedSidebarItem = item
+            if isSheet {
+                dismiss()
             }
+        } label: {
+            HStack {
+                Label(title, systemImage: systemImage)
+                    .foregroundStyle(.primary)
+                Spacer()
+                if let count {
+                    countText(count)
+                }
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -186,18 +208,23 @@ struct SidebarView: View {
     }
 
     private func feedRow(feed: Feed) -> some View {
-        NavigationLink(value: SidebarItem.feed(feed.id)) {
-            Label {
-                HStack {
-                    Text(feed.title)
-                        .lineLimit(1)
-                    Spacer()
-                    countText(feed.unreadCount)
-                }
-            } icon: {
-                FeedFaviconView(feed: feed)
+        Button {
+            viewModel.selectedSidebarItem = .feed(feed.id)
+            if isSheet {
+                dismiss()
             }
+        } label: {
+            HStack {
+                FeedFaviconView(feed: feed, size: 20, cornerRadius: 5)
+                Text(feed.title)
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                Spacer()
+                countText(feed.unreadCount)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .contextMenu {
             Button("Set Folder…") {
                 editingFeedForCategory = feed
@@ -226,12 +253,86 @@ struct SidebarView: View {
     }
 }
 
+struct ManageSourcesSheet: View {
+    @Bindable var viewModel: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            SidebarView(viewModel: viewModel, isSheet: true)
+        }
+        #if os(macOS)
+        .frame(minWidth: 400, idealWidth: 460, minHeight: 450)
+        #endif
+    }
+}
+
 struct FeedFaviconView: View {
-    let feed: Feed
-    var size: CGFloat = 16
+    let feed: Feed?
+    var feedTitle: String? = nil
+    var siteURL: String? = nil
+    var feedURL: String? = nil
+    var iconURL: String? = nil
+    var size: CGFloat = 38
+    var cornerRadius: CGFloat = 9
+
+    init(feed: Feed, size: CGFloat = 16, cornerRadius: CGFloat? = nil) {
+        self.feed = feed
+        self.feedTitle = feed.title
+        self.siteURL = feed.siteURL
+        self.feedURL = feed.url
+        self.iconURL = feed.iconURL
+        self.size = size
+        self.cornerRadius = cornerRadius ?? (size * 0.24)
+    }
+
+    init(
+        title: String,
+        siteURL: String? = nil,
+        feedURL: String? = nil,
+        iconURL: String? = nil,
+        size: CGFloat = 38,
+        cornerRadius: CGFloat? = nil
+    ) {
+        self.feed = nil
+        self.feedTitle = title
+        self.siteURL = siteURL
+        self.feedURL = feedURL
+        self.iconURL = iconURL
+        self.size = size
+        self.cornerRadius = cornerRadius ?? (size * 0.24)
+    }
+
+    private var effectiveTitle: String {
+        feed?.title ?? feedTitle ?? "RSS"
+    }
 
     private var faviconURL: URL? {
-        FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
+        FaviconFetcher.faviconURL(
+            for: feed?.siteURL ?? siteURL,
+            feedURLString: feed?.url ?? feedURL ?? "",
+            iconURLString: feed?.iconURL ?? iconURL
+        )
+    }
+
+    private var monogramText: String {
+        let words = effectiveTitle.split(separator: " ").filter { !$0.isEmpty }
+        if words.count >= 2 {
+            let first = words[0].prefix(1)
+            let second = words[1].prefix(1)
+            return "\(first)\(second)".uppercased()
+        } else if let word = words.first, word.count >= 2 {
+            return String(word.prefix(2)).uppercased()
+        } else if let word = words.first {
+            return String(word.prefix(1)).uppercased()
+        }
+        return "RS"
+    }
+
+    private var monogramColor: Color {
+        let hash = abs(effectiveTitle.hashValue)
+        let colors: [Color] = [.blue, .purple, .teal, .indigo, .orange, .pink, .mint]
+        return colors[hash % colors.count]
     }
 
     var body: some View {
@@ -243,23 +344,23 @@ struct FeedFaviconView: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                     } else {
-                        placeholderIcon
+                        monogramFallback
                     }
                 }
             } else {
-                placeholderIcon
+                monogramFallback
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 
-    private var placeholderIcon: some View {
+    private var monogramFallback: some View {
         ZStack {
-            Color.siftAccent.opacity(0.15)
-            Image(systemName: "dot.radiowaves.up.and.right")
-                .font(.system(size: size * 0.5, weight: .bold))
-                .foregroundStyle(Color.siftAccent)
+            monogramColor.opacity(0.14)
+            Text(monogramText)
+                .font(.system(size: size * 0.36, weight: .bold, design: .rounded))
+                .foregroundStyle(monogramColor)
         }
     }
 }
