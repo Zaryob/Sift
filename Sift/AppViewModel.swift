@@ -20,6 +20,44 @@ public enum SidebarItem: Hashable, Identifiable {
     }
 }
 
+/// A feed that has been fetched and parsed but not yet saved.
+public struct FeedPreview {
+    public let url: URL
+    public let parsed: ParsedFeed
+    public let etag: String?
+    public let lastModified: String?
+
+    public var host: String {
+        URL(string: parsed.siteURL ?? "")?.host() ?? url.host() ?? url.absoluteString
+    }
+
+    public var latestDate: Date? {
+        parsed.items.map(\.publicationDate).max()
+    }
+}
+
+public enum FeedLookupResult {
+    case preview(FeedPreview)
+    case choices([DiscoveredFeed])
+}
+
+public enum FeedLookupError: LocalizedError {
+    case invalidAddress
+    case noFeedFound
+    case alreadySubscribed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidAddress:
+            return String(localized: "That doesn’t look like a web address.")
+        case .noFeedFound:
+            return String(localized: "No RSS or Atom feed found at this address.")
+        case .alreadySubscribed(let title):
+            return String(localized: "You’re already subscribed to \(title).")
+        }
+    }
+}
+
 @MainActor
 @Observable
 public final class AppViewModel {
@@ -27,9 +65,6 @@ public final class AppViewModel {
     public var selectedArticle: FeedItem?
     
     public var isAddingFeed: Bool = false
-    public var addFeedURLString: String = ""
-    public var addFeedCategoryString: String = ""
-    public var isAddingFeedLoading: Bool = false
     
     public var isShowingSettings: Bool = false
 
@@ -101,103 +136,96 @@ public final class AppViewModel {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    public func addFeed(context: ModelContext) async {
-        var trimmedURL = addFeedURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedURL.lowercased().hasPrefix("http://") && !trimmedURL.lowercased().hasPrefix("https://") {
-            trimmedURL = "https://" + trimmedURL
+    // MARK: - Adding feeds
+
+    /// Turns whatever the user typed ("evrimagaci.org", a page URL, a feed URL) into either a single
+    /// feed preview or, when a site advertises several feeds, the list to choose from.
+    public func lookUpFeed(_ input: String, existingFeedURLs: Set<String>) async throws -> FeedLookupResult {
+        guard let url = Self.normalizedURL(from: input) else {
+            throw FeedLookupError.invalidAddress
+        }
+        let discovered = try await discoveryService.discoverFeeds(from: url)
+        let candidates = Array(Set(discovered)).sorted { $0.title < $1.title }
+        switch candidates.count {
+        case 0:
+            throw FeedLookupError.noFeedFound
+        case 1:
+            return .preview(try await loadPreview(for: candidates[0].url, existingFeedURLs: existingFeedURLs))
+        default:
+            return .choices(candidates)
+        }
+    }
+
+    public func loadPreview(for feedURL: URL, existingFeedURLs: Set<String>) async throws -> FeedPreview {
+        let result = try await httpClient.fetchFeed(from: feedURL, etag: nil, lastModified: nil)
+        guard case .success(let data, let etag, let lastModified, let responseURL) = result else {
+            throw FeedLookupError.noFeedFound
+        }
+        guard let parsed = try? FeedParser().parse(data: data) else {
+            throw FeedLookupError.noFeedFound
+        }
+        let preview = FeedPreview(url: responseURL, parsed: parsed, etag: etag, lastModified: lastModified)
+        if existingFeedURLs.contains(responseURL.absoluteString) || existingFeedURLs.contains(feedURL.absoluteString) {
+            throw FeedLookupError.alreadySubscribed(parsed.title)
+        }
+        return preview
+    }
+
+    /// Saves the feed and articles already fetched for the preview; nothing is downloaded again.
+    public func subscribe(to preview: FeedPreview, folder: String?, context: ModelContext) throws {
+        let parsed = preview.parsed
+        let newFeed = Feed(
+            title: parsed.title,
+            url: preview.url.absoluteString,
+            siteURL: parsed.siteURL,
+            feedDescription: parsed.feedDescription,
+            iconURL: parsed.iconURL,
+            category: folder,
+            dateAdded: Date(),
+            lastSuccessfulRefresh: Date(),
+            etag: preview.etag,
+            lastModified: preview.lastModified
+        )
+        context.insert(newFeed)
+
+        for item in parsed.items {
+            context.insert(FeedItem(
+                guid: item.guid,
+                title: item.title,
+                link: item.link,
+                author: item.author,
+                summary: item.summary,
+                content: item.content,
+                imageURL: item.imageURL,
+                publicationDate: item.publicationDate,
+                discoveredDate: Date(),
+                isRead: false,
+                isStarred: false,
+                feed: newFeed
+            ))
         }
 
-        let trimmedCategory = addFeedCategoryString.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        guard let url = URL(string: trimmedURL) else {
-            showError("Please enter a valid URL.")
-            return
+        try context.save()
+        WidgetSnapshotManager.shared.updateSnapshot(context: context)
+        WidgetCenter.shared.reloadAllTimelines()
+
+        isAddingFeed = false
+        selectedSidebarItem = .feed(newFeed.id)
+    }
+
+    static func normalizedURL(from input: String) -> URL? {
+        var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        if text.lowercased().hasPrefix("feed:") {
+            text = String(text.dropFirst(5)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         }
-
-        isAddingFeedLoading = true
-        defer { isAddingFeedLoading = false }
-
-        do {
-            let discovered = (try? await discoveryService.discoverFeeds(from: url)) ?? []
-            let targetURL = discovered.first?.url ?? url
-
-            let result = try await httpClient.fetchFeed(from: targetURL, etag: nil, lastModified: nil)
-            guard case .success(let data, let etag, let lastModified, let responseURL) = result else {
-                showError("Could not retrieve feed content from URL.")
-                return
-            }
-
-            let parser = FeedParser()
-            let parsedFeed = try parser.parse(data: data)
-
-            // Save new Feed entity
-            let newFeed = Feed(
-                title: parsedFeed.title,
-                url: responseURL.absoluteString,
-                siteURL: parsedFeed.siteURL,
-                feedDescription: parsedFeed.feedDescription,
-                iconURL: parsedFeed.iconURL,
-                category: trimmedCategory.isEmpty ? nil : trimmedCategory,
-                dateAdded: Date(),
-                lastSuccessfulRefresh: Date(),
-                etag: etag,
-                lastModified: lastModified
-            )
-            context.insert(newFeed)
-
-            // Insert initial articles
-            var latestTitle: String?
-            var latestID: UUID?
-            for parsedItem in parsedFeed.items {
-                let newItem = FeedItem(
-                    guid: parsedItem.guid,
-                    title: parsedItem.title,
-                    link: parsedItem.link,
-                    author: parsedItem.author,
-                    summary: parsedItem.summary,
-                    content: parsedItem.content,
-                    imageURL: parsedItem.imageURL,
-                    publicationDate: parsedItem.publicationDate,
-                    discoveredDate: Date(),
-                    isRead: false,
-                    isStarred: false,
-                    feed: newFeed
-                )
-                context.insert(newItem)
-                if latestTitle == nil {
-                    latestTitle = parsedItem.title
-                    latestID = newItem.id
-                }
-            }
-
-            try context.save()
-            
-            // Update widget snapshot & timelines
-            WidgetSnapshotManager.shared.updateSnapshot(context: context)
-            WidgetCenter.shared.reloadAllTimelines()
-
-            // Post an individual notification for the latest article of the newly added feed
-            // (Old articles do not trigger separate notifications, and no batched "(X new articles)" banner)
-            if let title = latestTitle, let articleID = latestID {
-                let faviconURL = FaviconFetcher.faviconURL(for: newFeed.siteURL, feedURLString: newFeed.url, iconURLString: newFeed.iconURL)
-                NotificationManager.shared.sendArticleNotification(
-                    articleTitle: title,
-                    feedTitle: newFeed.title,
-                    articleID: articleID,
-                    feedID: newFeed.id,
-                    faviconURL: faviconURL
-                )
-            }
-
-            // Reset state
-            addFeedURLString = ""
-            addFeedCategoryString = ""
-            isAddingFeed = false
-            selectedSidebarItem = .feed(newFeed.id)
-
-        } catch {
-            showError("Failed to add feed: \(error.localizedDescription)")
+        if !text.lowercased().hasPrefix("http://") && !text.lowercased().hasPrefix("https://") {
+            text = "https://" + text
         }
+        guard let url = URL(string: text), let host = url.host(), host.contains(".") else {
+            return nil
+        }
+        return url
     }
 
     public func updateFeedCategory(_ feed: Feed, category: String?, context: ModelContext) {
