@@ -6,6 +6,9 @@ struct ContentView: View {
     @State private var viewModel = AppViewModel()
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<FeedItem> { !$0.isRead }) private var unreadItems: [FeedItem]
+    @Query private var feeds: [Feed]
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = false
+    @State private var isShowingOnboarding: Bool = false
     // On iPhone the app should open on something to read, not on a filter picker.
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
 
@@ -26,6 +29,9 @@ struct ContentView: View {
         .background(WindowAccessor())
         .sheet(isPresented: $viewModel.isAddingFeed) {
             AddFeedSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $isShowingOnboarding) {
+            OnboardingView(viewModel: viewModel)
         }
         .alert("Error", isPresented: $viewModel.showErrorAlert) {
             Button("OK", role: .cancel) {}
@@ -83,6 +89,9 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            if !hasCompletedOnboarding && feeds.isEmpty {
+                isShowingOnboarding = true
+            }
             NotificationManager.shared.updateBadgeCount(unreadItems.count)
             DispatchQueue.main.async {
                 WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
