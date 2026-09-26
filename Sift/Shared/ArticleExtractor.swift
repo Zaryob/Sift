@@ -42,10 +42,10 @@ nonisolated public enum ArticleExtractor {
     ]
     private static let skippedElements: Set<String> = [
         "script", "style", "noscript", "svg", "template", "iframe", "nav", "header", "footer",
-        "aside", "form", "button", "select", "figure", "table"
+        "aside", "form", "button", "select"
     ]
     private static let blockKinds: [String: ExtractedArticle.Kind] = [
-        "p": .paragraph, "h2": .heading, "h3": .heading, "h4": .heading, "blockquote": .quote, "li": .listItem, "pre": .code
+        "p": .paragraph, "h2": .heading, "h3": .heading, "h4": .heading, "blockquote": .quote, "li": .listItem, "pre": .code, "figcaption": .quote
     ]
 
     private static let tagRegex = try! NSRegularExpression(pattern: "<(/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>")
