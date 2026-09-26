@@ -91,18 +91,6 @@ struct ArticleDetailView: View {
     #if os(macOS)
     @ToolbarContentBuilder
     private func macOSToolbarItems(for article: FeedItem?) -> some ToolbarContent {
-        if let onBackToList {
-            ToolbarItem(placement: .navigation) {
-                Button(action: onBackToList) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.backward")
-                        Text("Articles")
-                    }
-                }
-                .help("Back to Articles")
-            }
-        }
-
         ToolbarItem(placement: .automatic) {
             Picker("View Mode", selection: $viewMode) {
                 ForEach(DetailViewMode.allCases) { mode in
