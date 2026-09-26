@@ -35,7 +35,7 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.prominentDetail)
         #if os(macOS)
-        .frame(minWidth: 380, minHeight: 480)
+        .frame(minWidth: 480, minHeight: 480)
         .background {
             GeometryReader { proxy in
                 Color.clear
