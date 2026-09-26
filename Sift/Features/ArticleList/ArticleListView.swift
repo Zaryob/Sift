@@ -340,6 +340,13 @@ struct ArticleListView: View {
             .navigationSubtitle(currentNavSubtitle)
             #if os(macOS)
             .searchable(text: $searchText, prompt: "Search articles, feeds…")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if isFilterActive {
+                    macFilterBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: isFilterActive)
             #else
             .navigationBarTitleDisplayMode(.large)
             .navigationDestination(isPresented: $viewModel.isShowingSettings) {
@@ -417,7 +424,7 @@ struct ArticleListView: View {
         }
         if isFilterActive {
             let count = filteredArticles.count
-            return "\(currentScopeTitle) · \(count) \(filterConfig.summaryText)"
+            return "\(String(localized: "\(count) articles")) · \(updatedAgoString)"
         } else {
             return statusText
         }
@@ -577,54 +584,96 @@ struct ArticleListView: View {
         .visibilityPriority(.high)
 
         ToolbarItem(placement: .automatic) {
-            Menu {
-                Button {
-                    viewModel.refreshAllFeeds(context: modelContext)
-                } label: {
-                    Label("Refresh Feeds", systemImage: "arrow.clockwise")
-                }
-                .disabled(viewModel.isRefreshing)
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isFilterActive.toggle()
-                    }
-                } label: {
-                    Label(
-                        isFilterActive ? "Turn Filter Off" : "Turn Filter On",
-                        systemImage: isFilterActive
-                            ? "line.3.horizontal.decrease.circle.fill"
-                            : "line.3.horizontal.decrease.circle"
-                    )
-                }
-
-                Button("Filter Options…", systemImage: "slider.horizontal.3") {
+            MacArticleFilterToolbarButton(
+                isActive: $isFilterActive,
+                showOptions: {
                     isShowingFilters = true
                 }
-
-                Divider()
-
-                Button {
-                    isConfirmingMarkAllRead = true
-                } label: {
-                    Label("Mark All as Read", systemImage: "checkmark.circle")
-                }
-                .disabled(currentScopeUnreadCount == 0)
-
-                Divider()
-
-                Button {
-                    viewModel.isShowingSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-            } label: {
-                Label("Article List Actions", systemImage: "ellipsis.circle")
-            }
-            .help("Article List Actions")
+            )
         }
         #endif
     }
+
+    // MARK: - macOS Filter Bar (Apple Mail Native Style)
+
+    #if os(macOS)
+    @ViewBuilder
+    private var macFilterBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.siftAccent)
+
+            Text("Filtered by")
+                .font(.system(size: 11.5, weight: .regular))
+                .foregroundStyle(.secondary)
+
+            Menu {
+                Section("Include") {
+                    Toggle("Unread", isOn: $filterConfig.includeUnread)
+                    Toggle("Starred", isOn: $filterConfig.includeStarred)
+                }
+
+                Section("Refine") {
+                    Toggle("Only Today", isOn: $filterConfig.onlyToday)
+                    Toggle("Only with Media", isOn: $filterConfig.onlyWithMedia)
+                    Toggle("Only VIP Feeds", isOn: $filterConfig.onlyVIPFeeds)
+                }
+
+                Divider()
+
+                Button {
+                    isShowingFilters = true
+                } label: {
+                    Label("Filter Options…", systemImage: "slider.horizontal.3")
+                }
+
+                if !filterConfig.isDefault {
+                    Divider()
+                    Button("Reset Filters", role: .destructive) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            filterConfig = .defaultConfig
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(filterConfig.summaryText)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Color.siftAccent)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.siftAccent)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            Spacer(minLength: 4)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isFilterActive = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Turn Filter Off")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(.bar)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+    #endif
 
     // MARK: - Floating Dock Bar (Apple Mail iOS 18 Native Style)
 
@@ -1183,6 +1232,14 @@ struct ArticleFiltersSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        #if os(macOS)
+        MacArticleFiltersSheet(
+            filterConfig: $filterConfig,
+            vipFeedIDs: $vipFeedIDs,
+            feeds: feeds,
+            dismiss: dismiss
+        )
+        #else
         NavigationStack {
             List {
                 if !feeds.isEmpty {
@@ -1250,37 +1307,26 @@ struct ArticleFiltersSheet: View {
                     }
                 }
             }
-            #if os(iOS)
             .listStyle(.insetGrouped)
             .navigationBarTitleDisplayMode(.inline)
-            #else
-            .listStyle(.inset)
-            #endif
             .navigationTitle("Filters")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         dismiss()
                     } label: {
-                        #if os(iOS)
                         Image(systemName: "checkmark")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
                             .background(Color.siftAccent, in: Circle())
-                        #else
-                        Text("Done")
-                        #endif
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Done")
                 }
             }
         }
-        #if os(iOS)
         .presentationDetents([.medium, .large])
-        #else
-        .frame(minWidth: 440, minHeight: 520)
         #endif
     }
 
@@ -1387,6 +1433,182 @@ struct ArticleFiltersSheet: View {
     }
 }
 
+#if os(macOS)
+private struct MacArticleFiltersSheet: View {
+    @Binding var filterConfig: ArticleFilterConfig
+    @Binding var vipFeedIDs: Set<UUID>
+    let feeds: [Feed]
+    let dismiss: DismissAction
+
+    private var preferredHeight: CGFloat {
+        min(560, max(360, 300 + CGFloat(feeds.count) * 32))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Filters")
+                    .font(.title3.weight(.semibold))
+
+                Spacer()
+
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider()
+
+            Form {
+                if !feeds.isEmpty {
+                    Section("Include Articles From") {
+                        ForEach(feeds) { feed in
+                            MacFeedFilterRow(
+                                feed: feed,
+                                isIncluded: feedInclusionBinding(for: feed),
+                                isVIP: vipBinding(for: feed)
+                            )
+                        }
+                    }
+                }
+
+                Section("Include") {
+                    Toggle(isOn: $filterConfig.includeUnread) {
+                        Label("Unread", systemImage: "envelope.fill")
+                    }
+
+                    Toggle(isOn: $filterConfig.includeStarred) {
+                        Label("Starred", systemImage: "star.fill")
+                    }
+                }
+
+                Section("Refine Results") {
+                    Toggle("Only Articles with Media", systemImage: "paperclip", isOn: $filterConfig.onlyWithMedia)
+                    Toggle("Only from VIP Feeds", systemImage: "star.fill", isOn: $filterConfig.onlyVIPFeeds)
+                    Toggle("Only Articles Sent Today", systemImage: "calendar", isOn: $filterConfig.onlyToday)
+                }
+
+                if !filterConfig.isDefault {
+                    Section {
+                        Button("Reset Filters", role: .destructive) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                filterConfig = .defaultConfig
+                            }
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+        }
+        .frame(width: 480, height: preferredHeight)
+    }
+
+    private func feedInclusionBinding(for feed: Feed) -> Binding<Bool> {
+        Binding(
+            get: {
+                !filterConfig.excludedFeedIDs.contains(feed.id)
+            },
+            set: { isIncluded in
+                if isIncluded {
+                    filterConfig.excludedFeedIDs.remove(feed.id)
+                } else {
+                    filterConfig.excludedFeedIDs.insert(feed.id)
+                }
+            }
+        )
+    }
+
+    private func vipBinding(for feed: Feed) -> Binding<Bool> {
+        Binding(
+            get: {
+                vipFeedIDs.contains(feed.id)
+            },
+            set: { isVIP in
+                if isVIP {
+                    vipFeedIDs.insert(feed.id)
+                } else {
+                    vipFeedIDs.remove(feed.id)
+                }
+            }
+        )
+    }
+}
+
+private struct MacFeedFilterRow: View {
+    let feed: Feed
+    @Binding var isIncluded: Bool
+    @Binding var isVIP: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Toggle(isOn: $isIncluded) {
+                HStack(spacing: 8) {
+                    FeedFaviconView(feed: feed, size: 20, cornerRadius: 4)
+
+                    Text(feed.title)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                isVIP.toggle()
+            } label: {
+                Image(systemName: isVIP ? "star.fill" : "star")
+                    .foregroundStyle(isVIP ? Color.siftStarred : .secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isVIP ? "Remove VIP" : "Mark as VIP Feed")
+        }
+    }
+}
+
+private struct MacArticleFilterToolbarButton: View {
+    @Binding var isActive: Bool
+    let showOptions: () -> Void
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isActive.toggle()
+            }
+        } label: {
+            Label(
+                isActive ? "Turn Filter Off" : "Turn Filter On",
+                systemImage: isActive
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle"
+            )
+            .foregroundStyle(isActive ? Color.siftAccent : .secondary)
+        }
+        .help(isActive ? "Turn Filter Off" : "Turn Filter On")
+        .contextMenu {
+            Button {
+                showOptions()
+            } label: {
+                Label("Filter Options…", systemImage: "slider.horizontal.3")
+            }
+
+            if isActive {
+                Divider()
+                Button("Turn Filter Off") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isActive = false
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
+
 // MARK: - Article Row (Apple Mail Native: iOS & macOS)
 
 struct ArticleRow: View {
@@ -1405,9 +1627,6 @@ struct ArticleRow: View {
         case .spacious: return 40
         }
     }
-    #else
-    @State private var isHovered: Bool = false
-    @Environment(\.modelContext) private var modelContext
     #endif
 
     private var snippet: String {
@@ -1525,9 +1744,9 @@ struct ArticleRow: View {
             .frame(width: 10)
             .accessibilityHidden(true)
 
-            // Content: Line 1 (Sender + Time/Hover Actions), Line 2 (Subject/Title), Line 3 (Snippet)
+            // Content: Line 1 (sender + date), Line 2 (title), Line 3 (snippet).
             VStack(alignment: .leading, spacing: density == .compact ? 1 : 2) {
-                // Line 1: Feed name + Date/Time (or hover buttons)
+                // Line 1: Feed name + date or time
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(feedTitle)
                         .font(.system(size: 13, weight: .semibold))
@@ -1536,51 +1755,17 @@ struct ArticleRow: View {
 
                     Spacer(minLength: 6)
 
-                    ZStack(alignment: .trailing) {
-                        HStack(spacing: 4) {
-                            Text(formattedTime(for: article.publicationDate))
-                                .font(.system(size: 11.5, weight: .regular))
-                                .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text(formattedTime(for: article.publicationDate))
+                            .font(.system(size: 11.5, weight: .regular))
+                            .foregroundStyle(.secondary)
 
-                            if article.isStarred {
-                                Image(systemName: "star.fill")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color.siftStarred)
-                            }
+                        if article.isStarred {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.siftStarred)
                         }
-                        .opacity(isHovered ? 0 : 1)
-
-                        HStack(spacing: 2) {
-                            Button {
-                                article.isStarred.toggle()
-                                try? modelContext.save()
-                            } label: {
-                                Image(systemName: article.isStarred ? "star.fill" : "star")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(article.isStarred ? Color.siftStarred : .secondary)
-                                    .frame(width: 32, height: 32)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help(article.isStarred ? "Remove Star" : "Star Article")
-
-                            Button {
-                                article.isRead.toggle()
-                                try? modelContext.save()
-                            } label: {
-                                Image(systemName: article.isRead ? "circle" : "circle.fill")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(article.isRead ? Color.secondary : Color.siftAccent)
-                                    .frame(width: 32, height: 32)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help(article.isRead ? "Mark as Unread" : "Mark as Read")
-                        }
-                        .opacity(isHovered ? 1 : 0)
                     }
-                    .frame(width: 68, height: 32, alignment: .trailing)
-                    .animation(.easeInOut(duration: 0.12), value: isHovered)
                 }
 
                 // Line 2: Article Title (Subject)
@@ -1600,20 +1785,13 @@ struct ArticleRow: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
-            }
-        }
     }
     #endif
 
     private func formattedTime(for date: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(date) {
+        if calendar.isDateInToday(date) || calendar.isDateInYesterday(date) {
             return date.formatted(date: .omitted, time: .shortened)
-        } else if calendar.isDateInYesterday(date) {
-            return String(localized: "Yesterday")
         } else {
             return date.formatted(.dateTime.month(.abbreviated).day())
         }
