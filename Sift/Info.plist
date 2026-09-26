@@ -35,10 +35,6 @@
 			</array>
 		</dict>
 	</array>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Sift uses the microphone to let you search articles and feeds with your voice.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Sift uses speech recognition to transcribe your voice searches.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

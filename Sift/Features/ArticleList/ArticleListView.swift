@@ -133,8 +133,8 @@ struct ArticleListView: View {
 
     @State private var searchText = ""
     @State private var isSearching = false
+    @State private var isDictating = false
     @FocusState private var isSearchFocused: Bool
-    @State private var voiceDictation = VoiceDictationManager()
 
     @State private var isFilterActive = false
     @State private var filterConfig = ArticleFilterConfig.defaultConfig
@@ -359,9 +359,23 @@ struct ArticleListView: View {
                     savedFilterConfigData = data
                 }
             }
-            .onDisappear {
-                voiceDictation.stopRecording()
+            #if os(iOS)
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                isDictating = false
             }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UIDictationControllerDidEndNotification"))) { _ in
+                isDictating = false
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UIDictationControllerRecordingDidEndNotification"))) { _ in
+                isDictating = false
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UIDictationControllerDidBeginNotification"))) { _ in
+                isDictating = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UIDictationControllerRecordingDidBeginNotification"))) { _ in
+                isDictating = true
+            }
+            #endif
             .background {
                 keyboardShortcuts
             }
@@ -566,9 +580,9 @@ struct ArticleListView: View {
     @ViewBuilder
     private var floatingDockBar: some View {
         if isSearching {
-            // Live Search Bar Capsule with Mic + Circular Dismiss (xmark) Button
+            // Live Search Bar Capsule with Mic / Clear + Circular Dismiss (xmark) Button
             HStack(spacing: 10) {
-                // Wide Search Capsule with Mic
+                // Wide Search Capsule
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 17, weight: .semibold))
@@ -580,28 +594,32 @@ struct ArticleListView: View {
                         .autocorrectionDisabled()
 
                     if !searchText.isEmpty {
+                        // Clear button appears when text is present (replaces mic)
                         Button {
                             searchText = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 16))
+                                .font(.system(size: 17))
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                    }
-
-                    Button {
-                        voiceDictation.toggleRecording { transcribed in
-                            searchText = transcribed
+                        .transition(.opacity)
+                        .accessibilityLabel("Clear text")
+                    } else {
+                        // Microphone button appears when search field is empty
+                        Button {
+                            toggleSystemKeyboardDictation()
+                        } label: {
+                            Image(systemName: isDictating ? "mic.fill" : "mic")
+                                .font(.system(size: 18, weight: isDictating ? .bold : .regular))
+                                .foregroundStyle(isDictating ? Color.primary : Color.secondary)
                         }
-                    } label: {
-                        Image(systemName: voiceDictation.isRecording ? "mic.fill" : "mic")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(voiceDictation.isRecording ? Color.red : Color.primary)
+                        .buttonStyle(.plain)
+                        .transition(.opacity)
+                        .accessibilityLabel("Dictate search")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dictate search")
                 }
+                .animation(.easeInOut(duration: 0.15), value: searchText.isEmpty)
                 .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
@@ -614,11 +632,14 @@ struct ArticleListView: View {
 
                 // Circular Dismiss Button with X
                 Button {
-                    voiceDictation.stopRecording()
+                    if isDictating {
+                        toggleSystemKeyboardDictation()
+                    }
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         isSearching = false
                         searchText = ""
                         isSearchFocused = false
+                        isDictating = false
                     }
                 } label: {
                     Image(systemName: "xmark")
@@ -787,39 +808,94 @@ struct ArticleListView: View {
 
     /// Screenshot 2 (right): Filter is OFF -> Wide Search capsule with Mic
     private var searchCapsuleButton: some View {
-        Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                isSearching = true
-                isSearchFocused = true
+        HStack(spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isSearching = true
+                    isSearchFocused = true
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    Text("Search")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+                }
+                .contentShape(Rectangle())
             }
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.primary)
+            .buttonStyle(.plain)
 
-                Text("Search")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Image(systemName: "mic")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(.secondary)
+            Button {
+                toggleSystemKeyboardDictation()
+            } label: {
+                Image(systemName: isDictating ? "mic.fill" : "mic")
+                    .font(.system(size: 18, weight: isDictating ? .bold : .regular))
+                    .foregroundStyle(isDictating ? Color.primary : Color.secondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
-            )
-            .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dictate search")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Search")
+        .padding(.leading, 16)
+        .padding(.trailing, 14)
+        .frame(maxWidth: .infinity)
+        .frame(height: 48)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+    }
+
+    private func toggleSystemKeyboardDictation() {
+        if isDictating {
+            isDictating = false
+            if let responder = UIResponder.currentFirstResponder {
+                if responder.responds(to: Selector(("stopDictation"))) {
+                    responder.perform(Selector(("stopDictation")))
+                    return
+                }
+            }
+            if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
+               dictationClass.responds(to: Selector(("sharedInstance"))) {
+                if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
+                    if controller.responds(to: Selector(("stopDictation"))) {
+                        controller.perform(Selector(("stopDictation")))
+                    }
+                }
+            }
+            return
+        }
+
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            isSearching = true
+            isSearchFocused = true
+            isDictating = true
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if let responder = UIResponder.currentFirstResponder {
+                if responder.responds(to: Selector(("startDictation"))) {
+                    responder.perform(Selector(("startDictation")))
+                    return
+                }
+            }
+            if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
+               dictationClass.responds(to: Selector(("sharedInstance"))) {
+                if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
+                    if controller.responds(to: Selector(("startDictation"))) {
+                        controller.perform(Selector(("startDictation")))
+                    }
+                }
+            }
+        }
     }
     #endif
 
@@ -1416,3 +1492,21 @@ struct ArticleRow: View {
         }
     }
 }
+
+#if os(iOS)
+import UIKit
+
+extension UIResponder {
+    private static weak var _currentFirstResponder: UIResponder?
+
+    static var currentFirstResponder: UIResponder? {
+        _currentFirstResponder = nil
+        UIApplication.shared.sendAction(#selector(findFirstResponder(_:)), to: nil, from: nil, for: nil)
+        return _currentFirstResponder
+    }
+
+    @objc private func findFirstResponder(_ sender: Any) {
+        UIResponder._currentFirstResponder = self
+    }
+}
+#endif
