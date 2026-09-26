@@ -44,7 +44,10 @@ struct SettingsView: View {
     @AppStorage(ReadingPreferenceKey.fontSize) private var fontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.serif.rawValue
     @AppStorage(NotificationManager.articleAlertsEnabledKey) private var articleAlertsEnabled: Bool = true
+    @AppStorage("articleRetentionDays") private var articleRetentionDays: Int = 30
 
+    @State private var isPruning: Bool = false
+    @State private var pruningFeedbackMessage: String?
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var opmlStatusMessage: String?
     @State private var isImporting: Bool = false
@@ -199,20 +202,7 @@ struct SettingsView: View {
                 set: { loginItemManager.setLaunchAtLogin(enabled: $0) }
             ))
 
-            Toggle("Refresh While Sift Is Closed", isOn: Binding(
-                get: { launchAgentManager.isEnabled },
-                set: { launchAgentManager.setEnabled($0, intervalMinutes: scheduler.refreshIntervalMinutes > 0 ? scheduler.refreshIntervalMinutes : 15) }
-            ))
-
-            Picker("Preferred Frequency", selection: Binding(
-                get: { scheduler.refreshIntervalMinutes },
-                set: { newInterval in
-                    scheduler.refreshIntervalMinutes = newInterval
-                    if launchAgentManager.isEnabled {
-                        launchAgentManager.setEnabled(true, intervalMinutes: newInterval > 0 ? newInterval : 15)
-                    }
-                }
-            )) {
+            Picker("Refresh Frequency", selection: $scheduler.refreshIntervalMinutes) {
                 Text("Every 5 Minutes").tag(5)
                 Text("Every 15 Minutes").tag(15)
                 Text("Every 30 Minutes").tag(30)
@@ -222,7 +212,7 @@ struct SettingsView: View {
         } header: {
             Text("Background Refresh")
         } footer: {
-            Text("Launch agents handle background updates when Sift is not running.")
+            Text("Sift continues refreshing your feeds while open or running in the menu bar, and schedules background updates using native macOS scheduling.")
         }
         #else
         Section {
@@ -311,12 +301,49 @@ struct SettingsView: View {
         #endif
     }
 
-    // MARK: - Subscriptions
+    // MARK: - Subscriptions & Storage
 
     private var librarySection: some View {
-        Section("Library") {
+        Section("Storage & Retention") {
             LabeledContent("Subscriptions", value: feeds.count.formatted())
             LabeledContent("Stored Articles", value: articles.count.formatted())
+
+            Picker("Keep Read Articles", selection: $articleRetentionDays) {
+                Text("7 Days").tag(7)
+                Text("14 Days").tag(14)
+                Text("30 Days (Recommended)").tag(30)
+                Text("90 Days").tag(90)
+                Text("Keep All").tag(0)
+            }
+
+            Button {
+                Task {
+                    isPruning = true
+                    let pruningService = DataPruningService(modelContainer: modelContext.container)
+                    let result = try? await pruningService.prune(readRetentionDays: articleRetentionDays)
+                    isPruning = false
+                    if let result {
+                        pruningFeedbackMessage = "Cleaned \(result.totalPruned) expired articles."
+                    }
+                }
+            } label: {
+                if isPruning {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Pruning articles…")
+                    }
+                } else {
+                    settingsActionLabel("Clean Old Articles Now", systemImage: "trash")
+                }
+            }
+            .disabled(isPruning)
+        } footer: {
+            if let msg = pruningFeedbackMessage {
+                Text(msg)
+                    .foregroundStyle(Color.siftAccent)
+            } else {
+                Text("Starred articles are never removed. Read articles older than the chosen retention period are automatically cleaned up to keep Sift fast.")
+            }
         }
     }
 

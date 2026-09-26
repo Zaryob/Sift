@@ -5,6 +5,7 @@ import WidgetKit
 public actor FeedRefreshService {
     private let httpClient: FeedHTTPClientProtocol
     private let modelContainer: ModelContainer
+    private let pruningService: DataPruningService
     private var refreshingFeedIDs: Set<UUID> = []
 
     public init(
@@ -12,7 +13,9 @@ public actor FeedRefreshService {
         modelContainer: ModelContainer? = nil
     ) {
         self.httpClient = httpClient
-        self.modelContainer = modelContainer ?? PersistenceController.shared.container
+        let container = modelContainer ?? PersistenceController.shared.container
+        self.modelContainer = container
+        self.pruningService = DataPruningService(modelContainer: container)
     }
 
     /// Refresh a single feed by ID
@@ -144,6 +147,11 @@ public actor FeedRefreshService {
         WidgetSnapshotManager.shared.updateSnapshot(context: context)
         WidgetCenter.shared.reloadAllTimelines()
         refreshBadge(context: context)
+
+        // Automatically prune expired articles according to user retention setting (default 30 days)
+        let retentionDays = UserDefaults.standard.integer(forKey: "articleRetentionDays")
+        let effectiveRetention = retentionDays > 0 ? retentionDays : 30
+        _ = try? await pruningService.prune(readRetentionDays: effectiveRetention)
     }
 
     /// Recomputes the total unread count and updates the app icon / dock badge.
