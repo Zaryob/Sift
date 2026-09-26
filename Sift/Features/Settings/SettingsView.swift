@@ -304,7 +304,7 @@ struct SettingsView: View {
     // MARK: - Subscriptions & Storage
 
     private var librarySection: some View {
-        Section("Storage & Retention") {
+        Section {
             LabeledContent("Subscriptions", value: feeds.count.formatted())
             LabeledContent("Stored Articles", value: articles.count.formatted())
 
@@ -337,6 +337,8 @@ struct SettingsView: View {
                 }
             }
             .disabled(isPruning)
+        } header: {
+            Text("Storage & Retention")
         } footer: {
             if let msg = pruningFeedbackMessage {
                 Text(msg)

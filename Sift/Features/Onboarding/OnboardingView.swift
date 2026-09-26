@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
@@ -106,7 +107,7 @@ struct OnboardingView: View {
                 allowedContentTypes: [.xml, .plainText],
                 allowsMultipleSelection: false
             ) { result in
-                if case .success(let url) = result {
+                if case .success(let urls) = result, let url = urls.first {
                     Task {
                         await viewModel.importOPMLFile(at: url, context: modelContext)
                         dismiss()

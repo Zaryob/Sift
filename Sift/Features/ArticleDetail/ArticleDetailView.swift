@@ -16,6 +16,7 @@ enum DetailViewMode: String, CaseIterable, Identifiable {
 struct ArticleDetailView: View {
     @Bindable var viewModel: AppViewModel
     let article: FeedItem?
+    var onBackToList: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
 
@@ -90,6 +91,18 @@ struct ArticleDetailView: View {
     #if os(macOS)
     @ToolbarContentBuilder
     private func macOSToolbarItems(for article: FeedItem?) -> some ToolbarContent {
+        if let onBackToList {
+            ToolbarItem(placement: .navigation) {
+                Button(action: onBackToList) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.backward")
+                        Text("Articles")
+                    }
+                }
+                .help("Back to Articles")
+            }
+        }
+
         ToolbarItem(placement: .automatic) {
             Picker("View Mode", selection: $viewMode) {
                 ForEach(DetailViewMode.allCases) { mode in

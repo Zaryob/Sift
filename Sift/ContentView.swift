@@ -9,22 +9,44 @@ struct ContentView: View {
     @Query private var feeds: [Feed]
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = false
     @State private var isShowingOnboarding: Bool = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var windowWidth: CGFloat = 1100
     // On iPhone the app should open on something to read, not on a filter picker.
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
 
     var body: some View {
-        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
+        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
             SidebarView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 225, max: 260)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
         } content: {
             ArticleListView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 400)
+                .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 400)
         } detail: {
-            ArticleDetailView(viewModel: viewModel, article: viewModel.selectedArticle)
+            ArticleDetailView(
+                viewModel: viewModel,
+                article: viewModel.selectedArticle,
+                onBackToList: windowWidth < 560 ? {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewModel.selectedArticle = nil
+                        columnVisibility = .doubleColumn
+                    }
+                } : nil
+            )
         }
-        .navigationSplitViewStyle(.balanced)
+        .navigationSplitViewStyle(.prominentDetail)
         #if os(macOS)
-        .frame(minWidth: 760, minHeight: 520)
+        .frame(minWidth: 380, minHeight: 480)
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        handleWidthChange(proxy.size.width)
+                    }
+                    .onChange(of: proxy.size.width) { _, newWidth in
+                        handleWidthChange(newWidth)
+                    }
+            }
+        }
         #endif
         .background(WindowAccessor())
         .sheet(isPresented: $viewModel.isAddingFeed) {
@@ -115,5 +137,29 @@ struct ContentView: View {
         .onChange(of: unreadItems.count) { _, newCount in
             NotificationManager.shared.updateBadgeCount(newCount)
         }
+        .onChange(of: viewModel.selectedArticle?.id) { _, newArticleID in
+            #if os(macOS)
+            if windowWidth < 560 {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    columnVisibility = (newArticleID != nil) ? .detailOnly : .doubleColumn
+                }
+            }
+            #endif
+        }
     }
+
+    #if os(macOS)
+    private func handleWidthChange(_ width: CGFloat) {
+        windowWidth = width
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if width < 560 {
+                columnVisibility = (viewModel.selectedArticle != nil) ? .detailOnly : .doubleColumn
+            } else if width < 900 {
+                columnVisibility = .doubleColumn
+            } else {
+                columnVisibility = .all
+            }
+        }
+    }
+    #endif
 }
