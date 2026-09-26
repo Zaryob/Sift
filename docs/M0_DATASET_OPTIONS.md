@@ -1,0 +1,20 @@
+# M0 external dataset options
+
+These public datasets can provide supplementary regression or pairwise checks. None currently satisfies Sift's full M0 release gate by itself: Sift still needs its own adjudicated sample that includes Turkish, at least 20 publishers, hard negatives, ongoing stories, and the intended feed mix. Do not describe an external benchmark result as Sift user validation.
+
+## Candidates
+
+| Dataset | What it provides | Fit for Sift | Constraints / decision |
+|---|---|---|---|
+| [OG2021 (CLARIN.SI)](https://www.clarin.si/repository/xmlui/handle/11356/1921) | 10,940 articles in 1,350 clusters; nine listed languages; publisher and publication time metadata; manually inspected/annotated coverage of the Tokyo 2021 Olympics. | Best candidate found for supplementary cluster-level regression and temporal replay. It does not include Turkish in its listed languages and is a single event domain, so it cannot establish target-language or general-news quality. The annotation description says one evaluator used translation services. | The repository marks the research corpus **Academic Use**, attribution required, and noncommercial. Do not download, commit, redistribute, or use in a commercial Sift release workflow without confirming rights and suitability. |
+| [SemEval-2022 Task 8](https://zenodo.org/records/6507872) | News article pairs with human ratings across seven similarity dimensions, including whether they cover the same substantive story. The associated task reports nearly 10,000 pairs over 18 language combinations. | Useful as an external pairwise semantic-similarity check or for constructing hard-negative review examples. It is pair-labeled rather than a complete partition of articles into story clusters, so it cannot directly replace the cluster-level M0 score. The dataset description does not establish Turkish coverage. | Data is mainly URLs and labels; page text is generally retrieved from an Internet Archive collection. Check access and rights before any local use. Do not add article text to this repository. |
+| [UA-RU News (European Data Portal)](https://data.europa.eu/data/datasets/fc214973-ce7f-401f-ad6d-2a08fa97cd1d?locale=en) | 4,251 articles from June 2024 grouped into 110 manually curated story clusters, derived from the JRC's media coverage corpus. Two analysts refined thematic groups into coherent story clusters. | Promising supplementary cluster benchmark and may help stress evolving-story boundaries. It is centered on Russia/Ukraine coverage and does not, from the catalog description inspected, prove Turkish representation, a suitable publisher count, or fit to Sift's feed mix. | Verify the actual language distribution, field schema, access terms, and license in the downloadable record before using. No corpus has been downloaded or incorporated here. |
+
+## Recommended use
+
+1. Keep the locally collected, manually adjudicated target corpus as the M0 gate.
+2. If rights and language metadata check out, run OG2021 or UA-RU as **supplementary** regressions to reveal generalization failures outside the target sample.
+3. Use SemEval only for pairwise checks; its pair labels are not story IDs and must not be forced into a cluster partition.
+4. Record dataset version, source, license, date range, language/publisher counts, and sampling rules beside every report. Keep third-party article content out of Git unless explicit redistribution rights allow it.
+
+These candidates were reviewed as data sources, not executed as model evaluations. No score from them is available yet.
