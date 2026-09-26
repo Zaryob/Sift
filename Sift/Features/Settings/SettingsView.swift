@@ -251,7 +251,16 @@ struct SettingsView: View {
     }
 
     private var isNotificationPermissionGranted: Bool {
-        [.authorized, .provisional, .ephemeral].contains(notificationStatus)
+        switch notificationStatus {
+        case .authorized, .provisional:
+            return true
+        #if os(iOS)
+        case .ephemeral:
+            return true
+        #endif
+        default:
+            return false
+        }
     }
 
     /// A real switch: it reflects both Sift's own preference and the system permission, and asks

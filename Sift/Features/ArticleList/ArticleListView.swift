@@ -154,7 +154,11 @@ struct ArticleListView: View {
                 emptyStateView
             }
         }
+        #if os(iOS)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search articles")
+        #else
+        .searchable(text: $searchText, prompt: "Search articles")
+        #endif
         .navigationTitle(titleForSelection)
         .navigationSubtitle(subtitle)
         #if os(iOS)
