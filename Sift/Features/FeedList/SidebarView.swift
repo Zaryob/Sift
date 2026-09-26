@@ -8,7 +8,8 @@ struct SidebarView: View {
     @Bindable var viewModel: AppViewModel
 
     @Query(sort: \Feed.title) private var feeds: [Feed]
-    @Query private var allArticles: [FeedItem]
+    @Query(filter: #Predicate<FeedItem> { !$0.isRead }) private var unreadArticles: [FeedItem]
+    @Query(filter: #Predicate<FeedItem> { $0.isStarred }) private var starredArticles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
 
     @State private var editingFeedForCategory: Feed?
@@ -17,11 +18,11 @@ struct SidebarView: View {
     @State private var collapsedFolders: Set<String> = []
 
     private var unreadCount: Int {
-        allArticles.filter { !$0.isRead }.count
+        unreadArticles.count
     }
 
     private var starredCount: Int {
-        allArticles.filter { $0.isStarred }.count
+        starredArticles.count
     }
 
     private var categorizedFeeds: [String: [Feed]] {
@@ -67,7 +68,7 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $viewModel.selectedSidebarItem) {
             Section("Library") {
-                libraryRow("All Articles", systemImage: "tray.full", item: .all, count: allArticles.isEmpty ? nil : allArticles.count)
+                libraryRow("All Articles", systemImage: "tray.full", item: .all, count: unreadCount > 0 ? unreadCount : nil)
                 libraryRow("Unread", systemImage: "circlebadge", item: .unread, count: unreadCount)
                 libraryRow("Starred", systemImage: "star", item: .starred, count: starredCount)
             }

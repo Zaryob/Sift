@@ -79,8 +79,7 @@ struct ArticleFilterConfig: Codable, Equatable {
 
         if !excludedFeedIDs.isEmpty {
             let count = excludedFeedIDs.count
-            let noun = count == 1 ? String(localized: "feed excluded") : String(localized: "feeds excluded")
-            parts.append("\(count) \(noun)")
+            parts.append(String(localized: "\(count) feeds excluded"))
         }
 
         if parts.isEmpty {
@@ -222,20 +221,39 @@ struct ArticleListView: View {
             return titleMatch || authorMatch || summaryMatch || feedMatch
         }
 
-        switch sortOrder {
-        case .newestFirst:
-            return articles.sorted { $0.publicationDate > $1.publicationDate }
-        case .oldestFirst:
-            return articles.sorted { $0.publicationDate < $1.publicationDate }
-        }
+        let ordered = sortOrder == .oldestFirst ? articles.reversed() : articles
+        return ordered
     }
 
     private var timelineSections: [(section: TimelineSection, articles: [FeedItem])] {
-        let grouped = Dictionary(grouping: filteredArticles) { TimelineSection(for: $0.publicationDate) }
-        return TimelineSection.allCases.compactMap { section in
-            guard let articles = grouped[section], !articles.isEmpty else { return nil }
-            return (section, articles)
+        var today: [FeedItem] = []
+        var yesterday: [FeedItem] = []
+        var thisWeek: [FeedItem] = []
+        var older: [FeedItem] = []
+
+        let calendar = Calendar.current
+        let now = Date()
+        let weekAgo = calendar.date(byAdding: .day, value: -7, to: now) ?? now
+
+        for article in filteredArticles {
+            let date = article.publicationDate
+            if calendar.isDateInToday(date) {
+                today.append(article)
+            } else if calendar.isDateInYesterday(date) {
+                yesterday.append(article)
+            } else if date >= weekAgo {
+                thisWeek.append(article)
+            } else {
+                older.append(article)
+            }
         }
+
+        var result: [(section: TimelineSection, articles: [FeedItem])] = []
+        if !today.isEmpty { result.append((.today, today)) }
+        if !yesterday.isEmpty { result.append((.yesterday, yesterday)) }
+        if !thisWeek.isEmpty { result.append((.thisWeek, thisWeek)) }
+        if !older.isEmpty { result.append((.older, older)) }
+        return result
     }
 
     private var totalUnreadCount: Int {
@@ -424,7 +442,7 @@ struct ArticleListView: View {
         }
         if isFilterActive {
             let count = filteredArticles.count
-            return "\(String(localized: "\(count) articles")) · \(updatedAgoString)"
+            return String(localized: "\(count) articles · \(updatedAgoString)")
         } else {
             return statusText
         }
@@ -444,7 +462,7 @@ struct ArticleListView: View {
             return String(localized: "Updating feeds…")
         }
         let unread = currentFeedTitle == nil ? totalUnreadCount : currentScopeUnreadCount
-        return "\(String(localized: "\(unread) unread")) · \(updatedAgoString)"
+        return String(localized: "\(unread) unread · \(updatedAgoString)")
     }
 
     private var updatedAgoString: String {
@@ -647,7 +665,8 @@ struct ArticleListView: View {
                         .foregroundStyle(Color.siftAccent)
                 }
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.borderless)
             .fixedSize()
 
             Spacer(minLength: 4)
