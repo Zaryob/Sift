@@ -31,7 +31,7 @@ struct AddFeedSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
                     // Single input field
                     inputSection
 
@@ -62,8 +62,8 @@ struct AddFeedSheet: View {
 
                     Spacer(minLength: 12)
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
             }
             .navigationTitle("Add Feed")
             #if os(iOS)
@@ -102,7 +102,7 @@ struct AddFeedSheet: View {
     // MARK: - Input Section
 
     private var inputSection: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
                 .font(.subheadline)
@@ -138,10 +138,10 @@ struct AddFeedSheet: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .background(inputBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func clipboardSuggestionButton(_ candidate: (url: URL, host: String)) -> some View {
@@ -156,8 +156,8 @@ struct AddFeedSheet: View {
                 Text("Use \(candidate.host) from clipboard")
                     .font(.subheadline.weight(.medium))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(Color.siftAccent.opacity(0.12))
             .foregroundStyle(Color.siftAccent)
             .clipShape(Capsule())
@@ -201,7 +201,7 @@ struct AddFeedSheet: View {
     // MARK: - Multiple Choices View
 
     private var multipleChoicesView: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Multiple Feeds Available")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -213,11 +213,11 @@ struct AddFeedSheet: View {
                     Button {
                         selectDiscoveredChoice(choice)
                     } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 10) {
                             Image(systemName: "dot.radiowaves.up.and.right")
                                 .font(.body.weight(.semibold))
                                 .foregroundStyle(Color.siftAccent)
-                                .frame(width: 24)
+                                .frame(width: 20)
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(choice.title)
@@ -236,20 +236,20 @@ struct AddFeedSheet: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.tertiary)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
 
                     if index < choices.count - 1 {
                         Divider()
-                            .padding(.leading, 48)
+                            .padding(.leading, 42)
                     }
                 }
             }
             .background(cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .transition(.opacity)
     }
@@ -257,12 +257,12 @@ struct AddFeedSheet: View {
     // MARK: - Preview Card
 
     private func previewCard(_ preview: FeedPreview) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             // Header: Favicon + Title + Host + Description
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
                 feedFavicon(preview)
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(preview.parsed.title)
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -277,7 +277,7 @@ struct AddFeedSheet: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
-                            .padding(.top, 2)
+                            .padding(.top, 1)
                     }
                 }
 
@@ -307,21 +307,21 @@ struct AddFeedSheet: View {
             if !preview.parsed.items.isEmpty {
                 Divider()
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("Recent Articles")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .textCase(.uppercase)
 
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(preview.parsed.items.prefix(3).enumerated()), id: \.offset) { index, item in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
                                 Circle()
                                     .fill(Color.siftAccent)
-                                    .frame(width: 5, height: 5)
+                                    .frame(width: 4.5, height: 4.5)
                                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] }
 
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: 1) {
                                     Text(item.title.isEmpty ? "Untitled Article" : item.title)
                                         .font(.subheadline)
                                         .foregroundStyle(.primary)
@@ -335,7 +335,7 @@ struct AddFeedSheet: View {
 
                             if index < min(preview.parsed.items.count, 3) - 1 {
                                 Divider()
-                                    .padding(.leading, 13)
+                                    .padding(.leading, 11)
                             }
                         }
                     }
@@ -390,19 +390,19 @@ struct AddFeedSheet: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.secondary.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                 }
             }
         }
-        .padding(16)
+        .padding(14)
         .background(cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
         .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -430,15 +430,15 @@ struct AddFeedSheet: View {
                 faviconPlaceholder
             }
         }
-        .frame(width: 44, height: 44)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(width: 38, height: 38)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var faviconPlaceholder: some View {
         ZStack {
             Color.siftAccent.opacity(0.12)
             Image(systemName: "dot.radiowaves.up.and.right")
-                .font(.headline.weight(.bold))
+                .font(.body.weight(.bold))
                 .foregroundStyle(Color.siftAccent)
         }
     }

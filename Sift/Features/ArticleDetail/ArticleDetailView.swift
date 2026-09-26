@@ -17,6 +17,7 @@ struct ArticleDetailView: View {
     @Bindable var viewModel: AppViewModel
     let article: FeedItem?
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
 
     @AppStorage(ReadingPreferenceKey.fontSize) private var readerFontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var readerFontDesignRaw: String = ReaderFontDesign.serif.rawValue
@@ -53,22 +54,20 @@ struct ArticleDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    appearanceButton
-
-                    if let url = article.originalURL {
-                        OpenOriginalButton(url: url)
-                    }
-
                     Button {
                         article.isStarred.toggle()
                         try? modelContext.save()
                     } label: {
-                        Label(article.isStarred ? "Remove Star" : "Star", systemImage: article.isStarred ? "star.fill" : "star")
-                            .foregroundStyle(article.isStarred ? Color.siftStarred : Color.primary)
+                        Image(systemName: article.isStarred ? "star.fill" : "star")
+                            .foregroundStyle(article.isStarred ? Color.siftStarred : .primary)
                     }
+                    .help(article.isStarred ? "Remove Star" : "Star Article")
 
                     moreMenu(for: article)
                 }
+            }
+            .popover(isPresented: $isShowingAppearancePopover) {
+                ReadingAppearancePopover()
             }
             // Applies to the Open Original button and in-article links: Safari view vs. Safari app.
             .onOpenURL(prefersInApp: openLinksInApp)
@@ -82,36 +81,22 @@ struct ArticleDetailView: View {
         }
     }
 
-    // MARK: - Reader Appearance Button & Popover
-
-    private var appearanceButton: some View {
-        Button {
-            isShowingAppearancePopover.toggle()
-        } label: {
-            Label("Text Size & Font", systemImage: "textformat.size")
-        }
-        .popover(isPresented: $isShowingAppearancePopover, arrowEdge: .bottom) {
-            ReadingAppearancePopover()
-        }
-    }
-
     // MARK: - Reader
 
     private func reader(for article: FeedItem) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 metadataLine(for: article)
 
                 Text(article.title)
-                    .font(.system(size: readerFontSize * 1.5, weight: .bold, design: fontDesign))
-                    .lineSpacing(readerFontSize * 0.16)
+                    .font(.system(size: min(readerFontSize * 1.3, 24), weight: .bold, design: fontDesign))
+                    .lineSpacing(readerFontSize * 0.08)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let imageURLString = article.imageURL, let imageURL = URL(string: imageURLString) {
-                    // The image is an overlay so a .fill image can't widen the column past the screen.
                     Color.clear
                         .frame(maxWidth: .infinity)
-                        .frame(height: 250)
+                        .frame(height: 210)
                         .overlay {
                             AsyncImage(url: imageURL) { phase in
                                 if case .success(let image) = phase {
@@ -123,23 +108,24 @@ struct ArticleDetailView: View {
                                 }
                             }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(.vertical, 2)
                 }
 
                 articleBody(for: article)
             }
             .textSelection(.enabled)
-            .padding(.horizontal, 22)
-            .padding(.top, 14)
-            .padding(.bottom, 48)
-            .frame(maxWidth: 640, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 44)
+            .frame(maxWidth: 600, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
     }
 
     /// Editorial hierarchy: Author/Source · Publication Date · Reading Time
     private func metadataLine(for article: FeedItem) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             if let author = article.author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
                 Text(author)
                     .fontWeight(.medium)
@@ -159,13 +145,13 @@ struct ArticleDetailView: View {
                 Text("\(minutes) min read")
             }
         }
-        .font(.subheadline)
+        .font(.footnote)
         .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
     private func articleBody(for article: FeedItem) -> some View {
-        let spacing = readerFontSize * 0.88
+        let spacing = readerFontSize * 0.75
         if let extracted = article.extractedArticle {
             VStack(alignment: .leading, spacing: spacing) {
                 ForEach(Array(extracted.blocks.enumerated()), id: \.offset) { _, block in
@@ -177,7 +163,7 @@ struct ArticleDetailView: View {
                 ForEach(Array(HTMLSanitizer.paragraphs(from: article.content ?? article.summary ?? "").enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
                         .font(bodyFont)
-                        .lineSpacing(readerFontSize * 0.38)
+                        .lineSpacing(readerFontSize * 0.32)
                 }
 
                 if isLoadingFullText {
@@ -189,7 +175,6 @@ struct ArticleDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 } else if let url = article.originalURL {
-                    // Only when we're stuck with the feed's excerpt; otherwise the toolbar button is enough.
                     Link(destination: url) {
                         Label("Continue reading on \(url.host() ?? "the website")", systemImage: "arrow.up.right")
                             .labelStyle(TrailingIconLabelStyle())
@@ -211,22 +196,22 @@ struct ArticleDetailView: View {
         case .paragraph:
             Text(block.text)
                 .font(bodyFont)
-                .lineSpacing(readerFontSize * 0.38)
+                .lineSpacing(readerFontSize * 0.32)
         case .heading:
             Text(block.text)
-                .font(.system(size: readerFontSize * 1.25, weight: .bold, design: fontDesign))
-                .padding(.top, readerFontSize * 0.5)
-                .padding(.bottom, readerFontSize * 0.08)
+                .font(.system(size: readerFontSize * 1.2, weight: .bold, design: fontDesign))
+                .padding(.top, readerFontSize * 0.4)
+                .padding(.bottom, readerFontSize * 0.06)
         case .quote:
             Text(block.text)
                 .font(.system(size: readerFontSize * 0.96, design: fontDesign).italic())
-                .lineSpacing(readerFontSize * 0.36)
+                .lineSpacing(readerFontSize * 0.32)
                 .foregroundStyle(.secondary)
-                .padding(.leading, 16)
-                .padding(.vertical, 4)
+                .padding(.leading, 14)
+                .padding(.vertical, 3)
                 .overlay(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 1.5)
-                        .fill(Color.primary.opacity(0.18))
+                        .fill(Color.primary.opacity(0.2))
                         .frame(width: 3)
                 }
         case .listItem:
@@ -234,14 +219,14 @@ struct ArticleDetailView: View {
                 Text("•")
                     .foregroundStyle(.secondary)
                 Text(block.text)
-                    .lineSpacing(readerFontSize * 0.32)
+                    .lineSpacing(readerFontSize * 0.28)
             }
             .font(bodyFont)
         case .code:
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(block.text)
                     .font(.system(size: max(12, readerFontSize * 0.82), design: .monospaced))
-                    .padding(12)
+                    .padding(10)
             }
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
@@ -253,16 +238,22 @@ struct ArticleDetailView: View {
     private func moreMenu(for article: FeedItem) -> some View {
         Menu {
             Button {
-                article.isRead.toggle()
-                try? modelContext.save()
+                isShowingAppearancePopover = true
             } label: {
-                Label(article.isRead ? "Mark as Unread" : "Mark as Read", systemImage: article.isRead ? "circlebadge" : "checkmark.circle")
+                Label("Text Size & Font…", systemImage: "textformat.size")
             }
 
             if let url = article.originalURL {
-                ShareLink(item: url) {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                Button {
+                    openURL(url)
+                } label: {
+                    Label("Open in Browser", systemImage: "safari")
                 }
+
+                ShareLink(item: url) {
+                    Label("Share…", systemImage: "square.and.arrow.up")
+                }
+
                 Button {
                     Platform.copyToPasteboard(url.absoluteString)
                 } label: {
@@ -273,12 +264,19 @@ struct ArticleDetailView: View {
             Divider()
 
             Button {
+                article.isRead.toggle()
+                try? modelContext.save()
+            } label: {
+                Label(article.isRead ? "Mark as Unread" : "Mark as Read", systemImage: article.isRead ? "circlebadge" : "checkmark.circle")
+            }
+
+            Button {
                 printArticle(article)
             } label: {
                 Label("Print", systemImage: "printer")
             }
         } label: {
-            Label("More", systemImage: "ellipsis.circle")
+            Image(systemName: "ellipsis.circle")
         }
     }
     #endif
@@ -296,8 +294,15 @@ struct ArticleDetailView: View {
 
             Spacer()
 
-            appearanceButton
-                .help("Reading Appearance")
+            Button {
+                isShowingAppearancePopover.toggle()
+            } label: {
+                Label("Appearance", systemImage: "textformat.size")
+            }
+            .popover(isPresented: $isShowingAppearancePopover) {
+                ReadingAppearancePopover()
+            }
+            .help("Reading Appearance")
 
             Button {
                 article.isStarred.toggle()
@@ -396,7 +401,7 @@ struct ReadingAppearancePopover: View {
     @AppStorage(ReadingPreferenceKey.fontDesign) private var readerFontDesignRaw: String = ReaderFontDesign.serif.rawValue
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Appearance")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -437,22 +442,8 @@ struct ReadingAppearancePopover: View {
             }
             .buttonStyle(.bordered)
         }
-        .padding(16)
-        .frame(width: 220)
-    }
-}
-
-/// Reads `openURL` from its own environment so it picks up `.onOpenURL(prefersInApp:)`.
-private struct OpenOriginalButton: View {
-    let url: URL
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        Button {
-            openURL(url)
-        } label: {
-            Label("Open Original", systemImage: "safari")
-        }
+        .padding(14)
+        .frame(width: 210)
     }
 }
 

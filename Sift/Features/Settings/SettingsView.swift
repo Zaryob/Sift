@@ -62,7 +62,7 @@ struct SettingsView: View {
             return String(localized: "Articles you open in Sift will use this font and size.")
         }
         let excerpt = HTMLSanitizer.stripTags(from: latest.summary ?? latest.content ?? "")
-        return excerpt.isEmpty ? latest.title : String(excerpt.prefix(160))
+        return excerpt.isEmpty ? latest.title : String(excerpt.prefix(120))
     }
 
     var body: some View {
@@ -181,8 +181,10 @@ struct SettingsView: View {
 
             Text(previewText)
                 .font(.system(size: fontSize, design: fontDesign.design))
-                .lineSpacing(fontSize * 0.3)
-                .padding(.vertical, 4)
+                .lineSpacing(fontSize * 0.25)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
+                .padding(.vertical, 2)
         }
     }
 
@@ -202,7 +204,7 @@ struct SettingsView: View {
                 set: { launchAgentManager.setEnabled($0, intervalMinutes: scheduler.refreshIntervalMinutes > 0 ? scheduler.refreshIntervalMinutes : 15) }
             ))
 
-            Picker("Preferred Interval", selection: Binding(
+            Picker("Preferred Frequency", selection: Binding(
                 get: { scheduler.refreshIntervalMinutes },
                 set: { newInterval in
                     scheduler.refreshIntervalMinutes = newInterval
@@ -219,10 +221,12 @@ struct SettingsView: View {
             }
         } header: {
             Text("Background Refresh")
+        } footer: {
+            Text("Launch agents handle background updates when Sift is not running.")
         }
         #else
         Section {
-            Picker("Preferred Interval", selection: $scheduler.refreshIntervalMinutes) {
+            Picker("Preferred Frequency", selection: $scheduler.refreshIntervalMinutes) {
                 Text("Every 15 Minutes").tag(15)
                 Text("Every 30 Minutes").tag(30)
                 Text("Every Hour").tag(60)
@@ -230,6 +234,8 @@ struct SettingsView: View {
             }
         } header: {
             Text("Background Refresh")
+        } footer: {
+            Text("Background updates are scheduled by iOS based on system activity, battery level, and network availability.")
         }
         #endif
     }
@@ -346,7 +352,7 @@ struct SettingsView: View {
                 .foregroundStyle(.primary)
         } icon: {
             Image(systemName: systemImage)
-                .foregroundStyle(Color.siftAccent)
+                .foregroundStyle(.secondary)
         }
     }
 

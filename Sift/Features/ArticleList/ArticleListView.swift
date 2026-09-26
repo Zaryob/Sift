@@ -172,35 +172,10 @@ struct ArticleListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            #if os(iOS)
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                filterMenu
-
-                markAllReadButton
-            }
-            #else
             ToolbarItem(placement: .primaryAction) {
-                filterMenu
+                optionsMenu
             }
-
-            ToolbarItem(placement: .primaryAction) {
-                markAllReadButton
-            }
-            #endif
         }
-        .background {
-            keyboardShortcuts
-        }
-    }
-
-    private var markAllReadButton: some View {
-        Button {
-            isConfirmingMarkAllRead = true
-        } label: {
-            Label("Mark All as Read", systemImage: "checkmark.circle")
-        }
-        .disabled(unreadCount == 0)
-        .help("Mark all articles in this list as read")
         .confirmationDialog(
             "Mark All as Read?",
             isPresented: $isConfirmingMarkAllRead,
@@ -210,7 +185,57 @@ struct ArticleListView: View {
                 viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
             }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Mark all \(unreadCount) articles in this view as read?")
         }
+        .background {
+            keyboardShortcuts
+        }
+    }
+
+    private var isFiltered: Bool {
+        hideRead || timeScope != .anyTime
+    }
+
+    private var optionsMenu: some View {
+        Menu {
+            Section {
+                Button {
+                    isConfirmingMarkAllRead = true
+                } label: {
+                    Label("Mark All as Read", systemImage: "checkmark.circle")
+                }
+                .disabled(unreadCount == 0)
+            }
+
+            Section("Visibility") {
+                Toggle("Hide Read Articles", systemImage: "eye.slash", isOn: $hideRead.animation(.easeInOut(duration: 0.15)))
+            }
+
+            Section("Date Range") {
+                Picker("Date Range", selection: $timeScope.animation(.easeInOut(duration: 0.15))) {
+                    ForEach(TimeScope.allCases) { scope in
+                        Text(scope.rawValue).tag(scope)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+
+            if isFiltered {
+                Section {
+                    Button("Reset Filters", systemImage: "arrow.counterclockwise") {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            hideRead = false
+                            timeScope = .anyTime
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Options", systemImage: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "ellipsis.circle")
+        }
+        .help("View and filter options")
     }
 
     private func articleLink(_ article: FeedItem) -> some View {
@@ -259,37 +284,6 @@ struct ArticleListView: View {
                 }
             }
         }
-    }
-
-    private var isFiltered: Bool {
-        hideRead || timeScope != .anyTime
-    }
-
-    private var filterMenu: some View {
-        Menu {
-            Toggle("Hide Read Articles", systemImage: "circlebadge", isOn: $hideRead.animation(.easeInOut(duration: 0.15)))
-            Section("Published") {
-                Picker("Published", selection: $timeScope.animation(.easeInOut(duration: 0.15))) {
-                    ForEach(TimeScope.allCases) { scope in
-                        Text(scope.rawValue).tag(scope)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-            if isFiltered {
-                Divider()
-                Button("Clear Filters", systemImage: "xmark.circle") {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        hideRead = false
-                        timeScope = .anyTime
-                    }
-                }
-            }
-        } label: {
-            Label("Filter", systemImage: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-        }
-        .help("Filter articles")
     }
 
     private func markSelectedArticleReadIfNeeded() async {
@@ -380,9 +374,9 @@ struct ArticleRow: View {
     let density: ArticleDensity
     var showFeedTitle: Bool = true
 
-    @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
-    @ScaledMetric(relativeTo: .body) private var dotBaselineOffset: CGFloat = 5
-    @ScaledMetric(relativeTo: .body) private var gutter: CGFloat = 14
+    @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 6
+    @ScaledMetric(relativeTo: .body) private var dotBaselineOffset: CGFloat = 4.5
+    @ScaledMetric(relativeTo: .body) private var gutter: CGFloat = 11
 
     private var snippet: String {
         HTMLSanitizer.stripTags(from: article.summary ?? article.content ?? "")
@@ -398,27 +392,26 @@ struct ArticleRow: View {
             unreadIndicator
                 .frame(width: gutter, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: density == .compact ? 2 : 4) {
-                // Read is a quiet completed state, but never muddy:
-                // Unread: semibold, primary, high contrast.
-                // Read: regular, legible foreground with clear internal hierarchy over snippet.
+            VStack(alignment: .leading, spacing: density == .compact ? 2 : 3) {
                 Text(article.title)
-                    .font(.body.weight(article.isRead ? .regular : .semibold))
-                    .foregroundStyle(article.isRead ? Color.primary.opacity(0.68) : Color.primary)
+                    .font(.body.weight(article.isRead ? .regular : .medium))
+                    .foregroundStyle(article.isRead ? Color.secondary : Color.primary)
+                    .lineSpacing(1.5)
                     .lineLimit(density == .compact ? 2 : 3)
 
                 if density == .comfortable, !snippet.isEmpty {
                     Text(snippet)
                         .font(.subheadline)
-                        .foregroundStyle(article.isRead ? .tertiary : .secondary)
+                        .foregroundStyle(.secondary.opacity(article.isRead ? 0.7 : 0.9))
+                        .lineSpacing(1)
                         .lineLimit(2)
                 }
 
                 metadataLine
-                    .padding(.top, density == .compact ? 0 : 2)
+                    .padding(.top, density == .compact ? 0 : 1)
             }
         }
-        .padding(.vertical, density == .compact ? 2 : 6)
+        .padding(.vertical, density == .compact ? 1.5 : 4.5)
     }
 
     @ViewBuilder
@@ -429,7 +422,6 @@ struct ArticleRow: View {
             Circle()
                 .fill(Color.siftAccent)
                 .frame(width: dotSize, height: dotSize)
-                // Center the dot on the title's x-height instead of letting it sit on the baseline.
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + dotBaselineOffset }
         }
     }
@@ -437,7 +429,7 @@ struct ArticleRow: View {
     private var metadataLine: some View {
         HStack(spacing: 5) {
             if showFeedTitle, let feed = article.feed {
-                FeedFaviconView(feed: feed, size: 14)
+                FeedFaviconView(feed: feed, size: 13)
                 Text(feed.title)
                     .fontWeight(.medium)
                     .lineLimit(1)
@@ -463,7 +455,7 @@ struct ArticleRow: View {
             }
         }
         .font(.caption)
-        .foregroundStyle(article.isRead ? .tertiary : .secondary)
+        .foregroundStyle(.secondary)
     }
 
     /// "now", "12m", "4h", "3d", then a short date; static, so the list doesn't tick.

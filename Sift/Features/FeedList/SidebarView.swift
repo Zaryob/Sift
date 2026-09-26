@@ -82,6 +82,24 @@ struct SidebarView: View {
                     feedRow(feed: feed)
                 }
             }
+
+            // Subtle status section to keep empty space balanced and informative
+            Section {
+                HStack(spacing: 8) {
+                    if viewModel.isRefreshing {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("Refreshing feeds…")
+                    } else {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                            .imageScale(.small)
+                        Text(feeds.isEmpty ? "No subscriptions yet" : "\(feeds.count) feeds · \(unreadCount) unread")
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
         }
         .listStyle(.sidebar)
         .navigationTitle("Sift")
@@ -113,13 +131,6 @@ struct SidebarView: View {
             SettingsView()
         }
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Sift")
-                    .font(.siftSerif(.title3, weight: .semibold))
-            }
-            .sharedBackgroundVisibility(.hidden)
-
-            // Leading stays empty: a button there reads as "Back" on a root screen.
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     viewModel.isAddingFeed = true
@@ -188,7 +199,7 @@ struct SidebarView: View {
             }
         }
         .contextMenu {
-            Button("Set Folder...") {
+            Button("Set Folder…") {
                 editingFeedForCategory = feed
                 categoryInputText = feed.category ?? ""
                 showCategoryPrompt = true
