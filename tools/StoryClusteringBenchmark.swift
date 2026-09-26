@@ -1,4 +1,21 @@
 import Foundation
+import CryptoKit
+import Darwin
+
+private struct BenchmarkMetadata: Encodable {
+    let runStartedAt: Date
+    let corpusSHA256: String
+    let articleCount: Int
+    let osVersion: String
+    let hardwareModel: String?
+    let processorCount: Int
+    let totalProcessingMilliseconds: Double
+}
+
+private struct BenchmarkOutput: Encodable {
+    let benchmark: BenchmarkMetadata
+    let clustering: StoryClusteringSpikeResult
+}
 
 private struct CorpusRecord: Decodable {
     let id: UUID
@@ -115,8 +132,11 @@ private enum StoryClusteringBenchmark {
                 return
             }
             let options = try Options(arguments: CommandLine.arguments)
-            let records = try loadCorpus(from: options.input!)
+            let corpusData = try Data(contentsOf: options.input!)
+            let records = try loadCorpus(from: corpusData)
             let spike = StoryClusteringSpike()
+            let runStartedAt = Date()
+            let processingStartedAt = ContinuousClock.now
             let result = await spike.cluster(
                 records.map(\.article),
                 analysisLocale: options.analysisLocale,
@@ -124,6 +144,9 @@ private enum StoryClusteringBenchmark {
                 candidateWindow: options.windowHours * 60 * 60,
                 translationStrategy: options.translationStrategy
             )
+            let processingDuration = processingStartedAt.duration(to: .now)
+            let totalMilliseconds = Double(processingDuration.components.seconds) * 1_000
+                + Double(processingDuration.components.attoseconds) / 1_000_000_000_000_000
 
             let predictionByID = Dictionary(
                 uniqueKeysWithValues: result.assignments.map { ($0.id, $0) }
@@ -143,7 +166,18 @@ private enum StoryClusteringBenchmark {
             }
 
             try writeJSONLines(evaluatorRecords, to: options.evaluatorOutput!)
-            try writeJSON(result, to: options.assignmentsOutput!)
+            try writeJSON(BenchmarkOutput(
+                benchmark: BenchmarkMetadata(
+                    runStartedAt: runStartedAt,
+                    corpusSHA256: SHA256.hash(data: corpusData).map { String(format: "%02x", $0) }.joined(),
+                    articleCount: records.count,
+                    osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+                    hardwareModel: Self.hardwareModel(),
+                    processorCount: ProcessInfo.processInfo.processorCount,
+                    totalProcessingMilliseconds: totalMilliseconds
+                ),
+                clustering: result
+            ), to: options.assignmentsOutput!)
 
             let assignedCount = result.assignments.filter { $0.predictedClusterID != nil }.count
             let unassignedCount = records.count - assignedCount
@@ -163,8 +197,8 @@ private enum StoryClusteringBenchmark {
         }
     }
 
-    private static func loadCorpus(from url: URL) throws -> [CorpusRecord] {
-        let content = try String(contentsOf: url, encoding: .utf8)
+    private static func loadCorpus(from data: Data) throws -> [CorpusRecord] {
+        let content = String(decoding: data, as: UTF8.self)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         var seenIDs = Set<UUID>()
@@ -189,6 +223,17 @@ private enum StoryClusteringBenchmark {
             }
         guard !records.isEmpty else { throw BenchmarkError.usage("Input corpus is empty") }
         return records
+    }
+
+    private static func hardwareModel() -> String? {
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var bytes = [CChar](repeating: 0, count: size)
+        let result = bytes.withUnsafeMutableBufferPointer { buffer in
+            sysctlbyname("hw.model", buffer.baseAddress, &size, nil, 0)
+        }
+        guard result == 0 else { return nil }
+        return String(cString: bytes)
     }
 
     private static func writeJSONLines<T: Encodable>(_ values: [T], to url: URL) throws {
