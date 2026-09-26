@@ -96,7 +96,8 @@ struct SidebarView: View {
                 }
             }
 
-            // Subtle status section
+            #if os(iOS)
+            // Subtle status section on iOS Mailboxes root
             Section {
                 HStack(spacing: 8) {
                     if viewModel.isRefreshing {
@@ -113,34 +114,25 @@ struct SidebarView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             }
+            #endif
         }
         .listStyle(.sidebar)
         .navigationTitle("Sift")
         .refreshable {
             await viewModel.refreshAll(context: modelContext)
         }
-        #if os(macOS)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    viewModel.isAddingFeed = true
-                } label: {
-                    Label("Add Feed", systemImage: "plus")
+        .alert("Set Folder / Category", isPresented: $showCategoryPrompt) {
+            TextField("Folder Name (e.g. Tech, News)", text: $categoryInputText)
+            Button("Save") {
+                if let feed = editingFeedForCategory {
+                    viewModel.updateFeedCategory(feed, category: categoryInputText, context: modelContext)
                 }
-                .help("Add New RSS Feed")
             }
-
-            ToolbarItem {
-                Button {
-                    viewModel.refreshAllFeeds(context: modelContext)
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .disabled(viewModel.isRefreshing)
-                .help("Refresh All Feeds")
-            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter a folder name for this feed or leave empty to remove from folder.")
         }
-        #else
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -161,88 +153,87 @@ struct SidebarView: View {
             SettingsView()
         }
         #endif
-        .alert("Set Folder / Category", isPresented: $showCategoryPrompt) {
-            TextField("Folder Name (e.g. Tech, News)", text: $categoryInputText)
-            Button("Save") {
-                if let feed = editingFeedForCategory {
-                    viewModel.updateFeedCategory(feed, category: categoryInputText, context: modelContext)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Enter a folder name for this feed or leave empty to remove from folder.")
-        }
-    }
-
-    private func libraryRow(_ title: LocalizedStringKey, systemImage: String, item: SidebarItem, count: Int?) -> some View {
-        Button {
-            viewModel.selectedSidebarItem = item
-        } label: {
-            HStack {
-                Label(title, systemImage: systemImage)
-                    .foregroundStyle(.primary)
-                Spacer()
-                if let count {
-                    countText(count)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
-    private func countText(_ count: Int) -> some View {
-        if count > 0 {
-            Text(count, format: .number)
-                .font(.subheadline)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+    private func libraryRow(_ title: String, systemImage: String, item: SidebarItem, count: Int?) -> some View {
+        Label {
+            HStack {
+                Text(title)
+                Spacer()
+                if let count, count > 0 {
+                    countText(count)
+                }
+            }
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(iconColor(for: item))
+        }
+        .tag(item)
+    }
+
+    private func iconColor(for item: SidebarItem) -> Color {
+        switch item {
+        case .all:
+            return Color.siftAccent
+        case .unread:
+            return Color.blue
+        case .starred:
+            return Color.siftStarred
+        case .feed:
+            return Color.secondary
         }
     }
 
+    @ViewBuilder
     private func feedRow(feed: Feed) -> some View {
-        Button {
-            viewModel.selectedSidebarItem = .feed(feed.id)
-        } label: {
+        Label {
             HStack {
-                FeedFaviconView(feed: feed, size: 20, cornerRadius: 5)
                 Text(feed.title)
                     .lineLimit(1)
-                    .foregroundStyle(.primary)
                 Spacer()
-                countText(feed.unreadCount)
+                if feed.unreadCount > 0 {
+                    countText(feed.unreadCount)
+                }
             }
-            .contentShape(Rectangle())
+        } icon: {
+            FeedFaviconView(feed: feed, size: 16, cornerRadius: 4)
         }
-        .buttonStyle(.plain)
+        .tag(SidebarItem.feed(feed.id))
         .contextMenu {
-            Button("Set Folder…") {
+            Button {
                 editingFeedForCategory = feed
                 categoryInputText = feed.category ?? ""
                 showCategoryPrompt = true
+            } label: {
+                Label("Edit Folder…", systemImage: "folder.badge.gearshape")
             }
-            Divider()
-            Button("Refresh Feed") {
-                Task {
-                    try? await FeedRefreshService().refreshFeed(id: feed.id)
+
+            if feed.category != nil {
+                Button {
+                    viewModel.updateFeedCategory(feed, category: nil, context: modelContext)
+                } label: {
+                    Label("Remove from Folder", systemImage: "folder.badge.minus")
                 }
             }
-            if let siteURLStr = feed.siteURL, let url = URL(string: siteURLStr) {
-                Button("Visit Website") {
-                    Platform.openURL(url)
-                }
-            }
-            Button("Copy Feed URL") {
-                Platform.copyToPasteboard(feed.url)
-            }
+
             Divider()
-            Button("Delete Feed", role: .destructive) {
+
+            Button(role: .destructive) {
                 viewModel.deleteFeed(feed, context: modelContext)
+            } label: {
+                Label("Delete Feed", systemImage: "trash")
             }
         }
     }
+
+    private func countText(_ count: Int) -> some View {
+        Text("\(count)")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+    }
 }
+
 
 struct FeedFaviconView: View {
     let feed: Feed?

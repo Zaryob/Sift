@@ -31,53 +31,79 @@ struct ArticleDetailView: View {
     }
 
     var body: some View {
-        if let article {
-            Group {
-                if viewMode == .web, let url = article.originalURL {
-                    WebView(url: url)
-                } else {
-                    reader(for: article)
-                }
-            }
-            .navigationTitle(article.feed?.title ?? "")
-            .task(id: article.id) {
-                isLoadingFullText = article.extractedArticleData == nil
-                await viewModel.loadFullTextIfNeeded(for: article, context: modelContext)
-                isLoadingFullText = false
-            }
-            .popover(isPresented: $isShowingAppearancePopover) {
-                ReadingAppearancePopover()
-            }
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button {
-                        article.isStarred.toggle()
-                        try? modelContext.save()
-                    } label: {
-                        Image(systemName: article.isStarred ? "star.fill" : "star")
-                            .foregroundStyle(article.isStarred ? Color.siftStarred : .primary)
+        Group {
+            if let article {
+                Group {
+                    if viewMode == .web, let url = article.originalURL {
+                        WebView(url: url)
+                    } else {
+                        reader(for: article)
                     }
-                    .help(article.isStarred ? "Remove Star" : "Star Article")
-
-                    moreMenu(for: article)
                 }
+                .navigationTitle(article.feed?.title ?? "")
+                .task(id: article.id) {
+                    isLoadingFullText = article.extractedArticleData == nil
+                    await viewModel.loadFullTextIfNeeded(for: article, context: modelContext)
+                    isLoadingFullText = false
+                }
+                .popover(isPresented: $isShowingAppearancePopover) {
+                    ReadingAppearancePopover()
+                }
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            article.isStarred.toggle()
+                            try? modelContext.save()
+                        } label: {
+                            Image(systemName: article.isStarred ? "star.fill" : "star")
+                                .foregroundStyle(article.isStarred ? Color.siftStarred : .primary)
+                        }
+                        .help(article.isStarred ? "Remove Star" : "Star Article")
+
+                        moreMenu(for: article)
+                    }
+                }
+                .onOpenURL(prefersInApp: openLinksInApp)
+                #endif
+            } else {
+                emptyState
             }
-            // Applies to the Open Original button and in-article links: Safari view vs. Safari app.
-            .onOpenURL(prefersInApp: openLinksInApp)
-            #else
-            .toolbar {
-                macOSToolbarItems(for: article)
-            }
-            #endif
-        } else {
-            ContentUnavailableView(
-                "No Article Selected",
-                systemImage: "doc.text",
-                description: Text("Select an article from the list to read it.")
-            )
         }
+        #if os(macOS)
+        .toolbar {
+            macOSToolbarItems(for: article)
+        }
+        #endif
+    }
+
+    // MARK: - Empty State
+
+    @ViewBuilder
+    private var emptyState: some View {
+        #if os(macOS)
+        VStack(spacing: 8) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(.tertiary)
+
+            Text("No Article Selected")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Text("Select an article from the list to read it.")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #else
+        ContentUnavailableView(
+            "No Article Selected",
+            systemImage: "doc.text",
+            description: Text("Select an article from the list to read it.")
+        )
+        #endif
     }
 
     // MARK: - Reader
@@ -87,31 +113,72 @@ struct ArticleDetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 #if os(macOS)
                 // macOS Apple Mail style message header
-                HStack(alignment: .top, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
                     if let feed = article.feed {
-                        FeedFaviconView(feed: feed, size: 38, cornerRadius: 8)
+                        FeedFaviconView(feed: feed, size: 34, cornerRadius: 7)
+                    } else {
+                        FeedFaviconView(title: article.feed?.title ?? article.author ?? "Feed", size: 34, cornerRadius: 7)
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        // Line 1: Sender / Feed Name + Tag + Timestamp
                         HStack(alignment: .firstTextBaseline) {
                             Text(article.feed?.title ?? article.author ?? "Feed")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: 13.5, weight: .semibold))
                                 .foregroundStyle(.primary)
 
                             Spacer()
 
-                            Text(article.publicationDate.formatted(date: .abbreviated, time: .shortened))
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                if let category = article.feed?.category, !category.isEmpty {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "folder")
+                                            .font(.system(size: 10))
+                                        Text(category)
+                                            .font(.system(size: 11.5))
+                                    }
+                                    .foregroundStyle(.secondary)
+                                }
+
+                                Text(article.publicationDate.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
 
-                        Text(article.title)
-                            .font(.system(size: 18, weight: .bold, design: fontDesign))
+                        // Line 2: Subject / Article Title (Clean San Francisco System font, matching Apple Mail)
+                        Text(article.title.isEmpty ? "Untitled" : article.title)
+                            .font(.system(size: 15.5, weight: .bold))
                             .foregroundStyle(.primary)
                             .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        metadataLine(for: article)
+                        // Line 3: Author / Reading Time metadata (No redundant feed name!)
+                        HStack(spacing: 6) {
+                            if let author = article.author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
+                                Text("By \(author)")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Text("·")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            if let minutes = article.knownReadingMinutes {
+                                Text("\(minutes) min read")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                Text("·")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            Text(article.publicationDate, format: .dateTime.day().month(.wide).year())
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 1)
                     }
                 }
                 .padding(.bottom, 4)
@@ -275,24 +342,28 @@ struct ArticleDetailView: View {
         }
     }
 
-    // MARK: - Actions
-
     #if os(iOS)
+    @ViewBuilder
     private func moreMenu(for article: FeedItem) -> some View {
         Menu {
             Button {
                 isShowingAppearancePopover = true
             } label: {
-                Label("Text Size & Font…", systemImage: "textformat.size")
+                Label("Reading Appearance", systemImage: "textformat.size")
             }
 
-            if let url = article.originalURL {
-                Button {
-                    openURL(url)
-                } label: {
-                    Label("Open in Browser", systemImage: "safari")
-                }
+            Divider()
 
+            Button {
+                article.isRead.toggle()
+                try? modelContext.save()
+            } label: {
+                Label(article.isRead ? "Mark as Unread" : "Mark as Read", systemImage: article.isRead ? "circle" : "checkmark.circle")
+            }
+
+            Divider()
+
+            if let url = article.originalURL {
                 ShareLink(item: url) {
                     Label("Share…", systemImage: "square.and.arrow.up")
                 }
@@ -302,21 +373,18 @@ struct ArticleDetailView: View {
                 } label: {
                     Label("Copy Link", systemImage: "link")
                 }
-            }
 
-            Divider()
-
-            Button {
-                article.isRead.toggle()
-                try? modelContext.save()
-            } label: {
-                Label(article.isRead ? "Mark as Unread" : "Mark as Read", systemImage: article.isRead ? "circlebadge" : "checkmark.circle")
+                Button {
+                    openURL(url)
+                } label: {
+                    Label("Open in Safari", systemImage: "safari")
+                }
             }
 
             Button {
                 printArticle(article)
             } label: {
-                Label("Print", systemImage: "printer")
+                Label("Print…", systemImage: "printer")
             }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -326,8 +394,8 @@ struct ArticleDetailView: View {
 
     #if os(macOS)
     @ToolbarContentBuilder
-    private func macOSToolbarItems(for article: FeedItem) -> some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
+    private func macOSToolbarItems(for article: FeedItem?) -> some ToolbarContent {
+        ToolbarItem(placement: .principal) {
             Picker("View Mode", selection: $viewMode) {
                 ForEach(DetailViewMode.allCases) { mode in
                     Text(mode.rawValue).tag(mode)
@@ -335,49 +403,67 @@ struct ArticleDetailView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 140)
+            .disabled(article == nil)
         }
 
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                article.isStarred.toggle()
-                try? modelContext.save()
-            } label: {
-                Image(systemName: article.isStarred ? "star.fill" : "star")
-                    .foregroundStyle(article.isStarred ? Color.siftStarred : .secondary)
-            }
-            .help(article.isStarred ? "Remove Star (S)" : "Star Article (S)")
-        }
+            ControlGroup {
+                Button {
+                    if let article {
+                        article.isRead.toggle()
+                        try? modelContext.save()
+                    }
+                } label: {
+                    Label(article?.isRead == true ? "Mark as Unread" : "Mark as Read",
+                          systemImage: article?.isRead == true ? "envelope.badge" : "envelope.open")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(minWidth: 30, minHeight: 30)
+                }
+                .help(article?.isRead == true ? "Mark as Unread (M)" : "Mark as Read (M)")
+                .disabled(article == nil)
 
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                viewModel.openArticleExternally(article)
-            } label: {
-                Image(systemName: "safari")
-                    .foregroundStyle(.secondary)
+                Button {
+                    if let article {
+                        article.isStarred.toggle()
+                        try? modelContext.save()
+                    }
+                } label: {
+                    Label(article?.isStarred == true ? "Unstar" : "Star",
+                          systemImage: article?.isStarred == true ? "star.fill" : "star")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(minWidth: 30, minHeight: 30)
+                }
+                .foregroundStyle(article?.isStarred == true ? Color.siftStarred : .secondary)
+                .help(article?.isStarred == true ? "Remove Star (S)" : "Star Article (S)")
+                .disabled(article == nil)
+
             }
-            .help("Open in Browser (O)")
+        }
+        .visibilityPriority(.high)
+
+        ToolbarItem(placement: .automatic) {
+            Button {
+                isShowingAppearancePopover = true
+            } label: {
+                Label("Reading Appearance", systemImage: "textformat.size")
+            }
+            .help("Reading Appearance")
+            .disabled(article == nil)
         }
 
         ToolbarItem(placement: .primaryAction) {
             Menu {
-                Button {
-                    isShowingAppearancePopover = true
-                } label: {
-                    Label("Reading Appearance…", systemImage: "textformat.size")
+                if let article, article.originalURL != nil {
+                    Button {
+                        viewModel.openArticleExternally(article)
+                    } label: {
+                        Label("Open in Browser", systemImage: "safari")
+                    }
+
+                    Divider()
                 }
 
-                Divider()
-
-                Button {
-                    article.isRead.toggle()
-                    try? modelContext.save()
-                } label: {
-                    Label(article.isRead ? "Mark as Unread" : "Mark as Read", systemImage: article.isRead ? "circle" : "checkmark.circle")
-                }
-
-                Divider()
-
-                if let url = article.originalURL {
+                if let url = article?.originalURL {
                     ShareLink(item: url) {
                         Label("Share…", systemImage: "square.and.arrow.up")
                     }
@@ -390,9 +476,20 @@ struct ArticleDetailView: View {
                 }
 
                 Button {
-                    printArticle(article)
+                    if let article {
+                        printArticle(article)
+                    }
                 } label: {
                     Label("Print…", systemImage: "printer")
+                }
+                .disabled(article == nil)
+
+                Divider()
+
+                Button {
+                    viewModel.isShowingSettings = true
+                } label: {
+                    Label("Settings…", systemImage: "gearshape")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -439,6 +536,7 @@ struct ArticleDetailView: View {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 }
+
 
 /// Floating popover for in-article typography and appearance adjustments
 struct ReadingAppearancePopover: View {

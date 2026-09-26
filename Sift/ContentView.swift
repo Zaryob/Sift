@@ -15,7 +15,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } content: {
             ArticleListView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 280, ideal: 350, max: 480)
+                .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 480)
         } detail: {
             ArticleDetailView(viewModel: viewModel, article: viewModel.selectedArticle)
         }

@@ -310,11 +310,20 @@ struct ArticleListView: View {
                                     .listRowSeparator(.visible)
                             }
                         } header: {
+                            #if os(macOS)
+                            Text(group.section.rawValue)
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
+                                .padding(.top, 6)
+                                .padding(.bottom, 2)
+                            #else
                             Text(group.section.rawValue)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(.secondary)
                                 .textCase(nil)
                                 .padding(.top, 4)
+                            #endif
                         }
                     }
                 }
@@ -559,12 +568,27 @@ struct ArticleListView: View {
         #else
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
-                withAnimation {
+                viewModel.isAddingFeed = true
+            } label: {
+                Label("Add Feed", systemImage: "plus")
+            }
+            .help("Add New RSS Feed (⌘N)")
+
+            Button {
+                viewModel.refreshAllFeeds(context: modelContext)
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .disabled(viewModel.isRefreshing)
+            .help("Refresh Feeds (⌘R)")
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
                     isFilterActive.toggle()
                 }
             } label: {
                 Image(systemName: isFilterActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                    .foregroundStyle(isFilterActive ? Color.siftAccent : Color.primary)
+                    .foregroundStyle(isFilterActive ? Color.siftAccent : .secondary)
             }
             .help(isFilterActive ? "Turn Filter Off" : "Turn Filter On")
             .contextMenu {
@@ -902,10 +926,16 @@ struct ArticleListView: View {
                 }
             }
         } label: {
+            #if os(macOS)
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+            #else
             Image(systemName: "ellipsis")
                 .font(.system(size: 16, weight: .medium))
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
+            #endif
         }
         .buttonStyle(.plain)
         .help("Options")
@@ -1491,8 +1521,9 @@ struct ArticleRow: View {
                                 }
                             } label: {
                                 Image(systemName: article.isStarred ? "star.fill" : "star")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13, weight: .medium))
                                     .foregroundStyle(article.isStarred ? Color.siftStarred : .secondary)
+                                    .frame(width: 28, height: 28)
                             }
                             .buttonStyle(.plain)
                             .help(article.isStarred ? "Unstar" : "Star")
@@ -1503,23 +1534,32 @@ struct ArticleRow: View {
                                     try? modelContext.save()
                                 }
                             } label: {
-                                Image(systemName: article.isRead ? "circle" : "checkmark.circle")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Color.secondary)
+                                Image(systemName: article.isRead ? "circle" : "circle.fill")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(article.isRead ? Color.secondary : Color.siftAccent)
+                                    .frame(width: 28, height: 28)
                             }
                             .buttonStyle(.plain)
                             .help(article.isRead ? "Mark as Unread" : "Mark as Read")
                         }
                         .transition(.opacity)
                     } else {
-                        Text(formattedTime(for: article.publicationDate))
-                            .font(.system(size: 11.5, weight: .regular))
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            if let category = article.feed?.category, !category.isEmpty {
+                                Text(category)
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.tertiary)
+                            }
 
-                        if article.isStarred {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(Color.siftStarred)
+                            Text(formattedTime(for: article.publicationDate))
+                                .font(.system(size: 11.5, weight: .regular))
+                                .foregroundStyle(.secondary)
+
+                            if article.isStarred {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Color.siftStarred)
+                            }
                         }
                     }
                 }
@@ -1551,8 +1591,10 @@ struct ArticleRow: View {
 
     private func formattedTime(for date: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(date) || calendar.isDateInYesterday(date) {
+        if calendar.isDateInToday(date) {
             return date.formatted(date: .omitted, time: .shortened)
+        } else if calendar.isDateInYesterday(date) {
+            return String(localized: "Yesterday")
         } else {
             return date.formatted(.dateTime.month(.abbreviated).day())
         }
