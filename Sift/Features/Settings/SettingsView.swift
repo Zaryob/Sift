@@ -42,7 +42,7 @@ struct SettingsView: View {
     @AppStorage(ReadingPreferenceKey.markReadBehavior) private var markReadRaw: String = MarkReadBehavior.whenOpened.rawValue
     @AppStorage(ReadingPreferenceKey.openLinksInApp) private var openLinksInApp: Bool = true
     @AppStorage(ReadingPreferenceKey.fontSize) private var fontSize: Double = 16.0
-    @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.system.rawValue
+    @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.serif.rawValue
     @AppStorage(NotificationManager.articleAlertsEnabledKey) private var articleAlertsEnabled: Bool = true
 
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
@@ -53,7 +53,7 @@ struct SettingsView: View {
     @State private var exportDocument: OPMLFileDocument?
 
     private var fontDesign: ReaderFontDesign {
-        ReaderFontDesign(rawValue: fontDesignRaw) ?? .system
+        ReaderFontDesign(rawValue: fontDesignRaw) ?? .serif
     }
 
     /// Preview with the reader's own latest article rather than a sample sentence.
