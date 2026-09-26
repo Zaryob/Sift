@@ -31,20 +31,117 @@ private enum TimelineSection: String, CaseIterable {
     }
 }
 
+// MARK: - Article Filter Configuration (Apple Mail Style)
+
+struct ArticleFilterConfig: Codable, Equatable {
+    var includeUnread: Bool = true
+    var includeStarred: Bool = false
+    var onlyWithMedia: Bool = false
+    var onlyToday: Bool = false
+    var onlyVIPFeeds: Bool = false
+    var excludedFeedIDs: Set<UUID> = []
+
+    static let defaultConfig = ArticleFilterConfig(
+        includeUnread: true,
+        includeStarred: false,
+        onlyWithMedia: false,
+        onlyToday: false,
+        onlyVIPFeeds: false,
+        excludedFeedIDs: []
+    )
+
+    var isDefault: Bool {
+        self == Self.defaultConfig
+    }
+
+    var summaryText: String {
+        var parts: [String] = []
+        if includeUnread && includeStarred {
+            parts.append(String(localized: "Unread, Starred"))
+        } else if includeUnread {
+            parts.append(String(localized: "Unread"))
+        } else if includeStarred {
+            parts.append(String(localized: "Starred"))
+        }
+
+        if onlyToday {
+            parts.append(String(localized: "Today"))
+        }
+
+        if onlyWithMedia {
+            parts.append(String(localized: "With Media"))
+        }
+
+        if onlyVIPFeeds {
+            parts.append(String(localized: "VIP Feeds"))
+        }
+
+        if !excludedFeedIDs.isEmpty {
+            let count = excludedFeedIDs.count
+            let noun = count == 1 ? String(localized: "feed excluded") : String(localized: "feeds excluded")
+            parts.append("\(count) \(noun)")
+        }
+
+        if parts.isEmpty {
+            return String(localized: "All Articles")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    func matches(_ article: FeedItem, vipFeedIDs: Set<UUID>) -> Bool {
+        if let feedID = article.feed?.id, excludedFeedIDs.contains(feedID) {
+            return false
+        }
+
+        if includeUnread || includeStarred {
+            let matchesUnread = includeUnread && !article.isRead
+            let matchesStarred = includeStarred && article.isStarred
+            if !matchesUnread && !matchesStarred {
+                return false
+            }
+        }
+
+        if onlyToday {
+            if !Calendar.current.isDateInToday(article.publicationDate) {
+                return false
+            }
+        }
+
+        if onlyWithMedia {
+            guard let imageURL = article.imageURL, !imageURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return false
+            }
+        }
+
+        if onlyVIPFeeds {
+            guard let feedID = article.feed?.id, vipFeedIDs.contains(feedID) else {
+                return false
+            }
+        }
+
+        return true
+    }
+}
+
+// MARK: - Article List View
+
 struct ArticleListView: View {
     @Bindable var viewModel: AppViewModel
     @Query(sort: \FeedItem.publicationDate, order: .reverse) private var allArticles: [FeedItem]
-    @Query private var feeds: [Feed]
+    @Query(sort: \Feed.title) private var feeds: [Feed]
     @Environment(\.modelContext) private var modelContext
 
     @State private var searchText = ""
-    @State private var activeScope: ArticleScope = .all
-    @State private var hideRead = false
-    @State private var sortOrder: ArticleSortOrder = .newestFirst
+    @State private var isFilterActive = false
+    @State private var filterConfig = ArticleFilterConfig.defaultConfig
+    @State private var isShowingFilters = false
     @State private var isConfirmingMarkAllRead = false
     @State private var showToast = false
-    @State private var isShowingFilters = false
-    @State private var excludedFeedIDs: Set<UUID> = []
+    @State private var sortOrder: ArticleSortOrder = .newestFirst
+    @State private var hideRead = false
+
+    @AppStorage("vipFeedIDs") private var vipFeedIDsRaw: String = ""
+    @AppStorage("articleFilterConfigData") private var savedFilterConfigData: Data = Data()
 
     @AppStorage(ReadingPreferenceKey.density) private var densityRaw: String = ArticleDensity.comfortable.rawValue
     @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showFeedIcons: Bool = true
@@ -59,28 +156,47 @@ struct ArticleListView: View {
         MarkReadBehavior(rawValue: markReadRaw) ?? .whenOpened
     }
 
+    private var vipFeedIDs: Set<UUID> {
+        get {
+            Set(vipFeedIDsRaw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+        }
+        set {
+            vipFeedIDsRaw = newValue.map(\.uuidString).joined(separator: ",")
+        }
+    }
+
+    private var vipFeedIDsBinding: Binding<Set<UUID>> {
+        Binding(
+            get: {
+                Set(vipFeedIDsRaw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+            },
+            set: { newSet in
+                vipFeedIDsRaw = newSet.map(\.uuidString).joined(separator: ",")
+            }
+        )
+    }
+
     // MARK: - Filtered Articles
 
-    private var sourceArticles: [FeedItem] {
+    private var baseArticles: [FeedItem] {
         if case .feed(let feedID) = viewModel.selectedSidebarItem {
             return allArticles.filter { $0.feed?.id == feedID }
         }
-
-        let scopedArticles = switch activeScope {
-        case .all:
-            allArticles
+        switch viewModel.selectedSidebarItem {
         case .unread:
-            allArticles.filter { !$0.isRead }
+            return allArticles.filter { !$0.isRead }
         case .starred:
-            allArticles.filter { $0.isStarred }
-        case .today:
-            allArticles.filter { Calendar.current.isDateInToday($0.publicationDate) }
+            return allArticles.filter { $0.isStarred }
+        case .all, .none, .feed:
+            return allArticles
         }
+    }
 
-        return scopedArticles.filter { article in
-            guard let feedID = article.feed?.id else { return true }
-            return !excludedFeedIDs.contains(feedID)
+    private var sourceArticles: [FeedItem] {
+        if isFilterActive {
+            return baseArticles.filter { filterConfig.matches($0, vipFeedIDs: vipFeedIDs) }
         }
+        return baseArticles
     }
 
     private var filteredArticles: [FeedItem] {
@@ -116,7 +232,16 @@ struct ArticleListView: View {
     }
 
     private var currentScopeUnreadCount: Int {
-        sourceArticles.filter { !$0.isRead }.count
+        baseArticles.filter { !$0.isRead }.count
+    }
+
+    private var currentScopeTitle: String {
+        switch viewModel.selectedSidebarItem {
+        case .unread: return String(localized: "Unread")
+        case .starred: return String(localized: "Starred")
+        case .all, .none: return String(localized: "All Articles")
+        case .feed(let id): return feeds.first(where: { $0.id == id })?.title ?? String(localized: "Feed")
+        }
     }
 
     private var currentFeedTitle: String? {
@@ -126,24 +251,20 @@ struct ArticleListView: View {
         return nil
     }
 
+    private var rowInsets: EdgeInsets {
+        let vertical: CGFloat = switch density {
+        case .compact: 8
+        case .comfortable: 11
+        case .spacious: 14
+        }
+        return EdgeInsets(top: vertical, leading: 16, bottom: vertical, trailing: 16)
+    }
+
     // MARK: - Body
 
     var body: some View {
         ZStack(alignment: .bottom) {
             List(selection: $viewModel.selectedArticle) {
-                // The title and status live in the navigation bar (so search can slot in under the
-                // large title); only the scope chips are list content, and only on the home timeline.
-                #if os(iOS)
-                if currentFeedTitle == nil {
-                    Section {
-                        filterBarView
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                }
-                #endif
-
                 if let currentFeed = selectedFeedItem, let error = currentFeed.refreshError {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle")
@@ -165,12 +286,7 @@ struct ArticleListView: View {
                         Section {
                             ForEach(group.articles) { article in
                                 articleRowLink(article)
-                                    .listRowInsets(EdgeInsets(
-                                        top: density == .compact ? 8 : (density == .spacious ? 14 : 11),
-                                        leading: 16,
-                                        bottom: density == .compact ? 8 : (density == .spacious ? 14 : 11),
-                                        trailing: 16
-                                    ))
+                                    .listRowInsets(rowInsets)
                                     .listRowSeparator(.visible)
                             }
                         } header: {
@@ -191,14 +307,12 @@ struct ArticleListView: View {
             .task(id: viewModel.selectedArticle?.id) {
                 await markSelectedArticleReadIfNeeded()
             }
-            .navigationTitle(currentFeedTitle ?? "Sift")
-            .navigationSubtitle(statusText)
+            .navigationTitle(currentNavTitle)
+            .navigationSubtitle(currentNavSubtitle)
             #if os(iOS)
-            // On iPhone, toolbar placement gives search the same bottom-bar presentation as Mail.
             .searchable(text: $searchText, placement: .toolbar, prompt: "Search articles, feeds…")
-            .searchToolbarBehavior(hasActiveFilters ? .minimize : .automatic)
+            .searchToolbarBehavior(isFilterActive ? .minimize : .automatic)
             .searchPresentationToolbarBehavior(.avoidHidingContent)
-            // The standard back button (to Sidebar/"Sift") remains visible while searching.
             .navigationBarTitleDisplayMode(.large)
             .navigationDestination(isPresented: $viewModel.isShowingSettings) {
                 SettingsView()
@@ -208,15 +322,6 @@ struct ArticleListView: View {
             #endif
             .toolbar {
                 toolbarItems
-            }
-            .onChange(of: viewModel.selectedSidebarItem) { _, item in
-                // Library rows selected from the Sidebar map onto the home scopes.
-                switch item {
-                case .all: activeScope = .all
-                case .unread: activeScope = .unread
-                case .starred: activeScope = .starred
-                case .feed, .none: break
-                }
             }
             .confirmationDialog(
                 "Mark All as Read?",
@@ -233,10 +338,20 @@ struct ArticleListView: View {
             }
             .sheet(isPresented: $isShowingFilters) {
                 ArticleFiltersSheet(
-                    activeScope: $activeScope,
-                    excludedFeedIDs: $excludedFeedIDs,
+                    filterConfig: $filterConfig,
+                    vipFeedIDs: vipFeedIDsBinding,
                     feeds: feeds
                 )
+            }
+            .onAppear {
+                if let decoded = try? JSONDecoder().decode(ArticleFilterConfig.self, from: savedFilterConfigData) {
+                    filterConfig = decoded
+                }
+            }
+            .onChange(of: filterConfig) { _, newValue in
+                if let data = try? JSONEncoder().encode(newValue) {
+                    savedFilterConfigData = data
+                }
             }
             .background {
                 keyboardShortcuts
@@ -252,6 +367,22 @@ struct ArticleListView: View {
         }
     }
 
+    private var currentNavTitle: String {
+        currentFeedTitle ?? currentScopeTitle
+    }
+
+    private var currentNavSubtitle: String {
+        if viewModel.isRefreshing {
+            return String(localized: "Updating feeds…")
+        }
+        if isFilterActive {
+            let count = filteredArticles.count
+            return "\(currentScopeTitle) · \(count) \(filterConfig.summaryText)"
+        } else {
+            return statusText
+        }
+    }
+
     private var selectedFeedItem: Feed? {
         if case .feed(let id) = viewModel.selectedSidebarItem {
             return feeds.first(where: { $0.id == id })
@@ -261,7 +392,6 @@ struct ArticleListView: View {
 
     // MARK: - Status
 
-    /// "46 unread · Updated just now"; inside a feed, the unread count is that feed's.
     private var statusText: String {
         if viewModel.isRefreshing {
             return String(localized: "Updating feeds…")
@@ -286,82 +416,6 @@ struct ArticleListView: View {
         }
     }
 
-    // MARK: - Filter Bar (Apple Mail category pills)
-
-    private var filterBarView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(ArticleScope.allCases) { scope in
-                    filterChip(for: scope)
-                }
-            }
-        }
-    }
-
-    private func filterChip(for scope: ArticleScope) -> some View {
-        let isSelected = activeScope == scope
-        let selectionColor: Color = switch scope {
-        case .all: .primary
-        case .unread: .blue
-        case .starred: .pink
-        case .today: .green
-        }
-        let symbolName: String = switch scope {
-        case .all: "tray.full"
-        case .unread: "circle.fill"
-        case .starred: "star.fill"
-        case .today: "calendar"
-        }
-        let count: Int? = {
-            switch scope {
-            case .all: return nil
-            case .unread: return totalUnreadCount > 0 ? totalUnreadCount : nil
-            case .starred:
-                let sc = allArticles.filter { $0.isStarred }.count
-                return sc > 0 ? sc : nil
-            case .today:
-                let tc = allArticles.filter { Calendar.current.isDateInToday($0.publicationDate) }.count
-                return tc > 0 ? tc : nil
-            }
-        }()
-
-        return Button {
-            withAnimation(.smooth(duration: 0.24)) {
-                activeScope = scope
-            }
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: symbolName)
-                    .font(.system(size: 16, weight: .semibold))
-
-                if isSelected {
-                    Text(scope.rawValue)
-                        .font(.system(size: 16, weight: .semibold))
-
-                    if let count {
-                        Text(count.formatted())
-                            .font(.system(size: 13, weight: .medium).monospacedDigit())
-                            .opacity(0.85)
-                    }
-                }
-            }
-            .frame(minWidth: 24)
-            .padding(.horizontal, isSelected ? 16 : 12)
-            .padding(.vertical, 11)
-            .background {
-                if isSelected {
-                    Capsule()
-                        .fill(selectionColor)
-                } else {
-                    Capsule()
-                        .fill(Color.secondary.opacity(0.12))
-                }
-            }
-            .foregroundStyle(isSelected ? AnyShapeStyle(.background) : AnyShapeStyle(.secondary))
-        }
-        .buttonStyle(.plain)
-    }
-
     // MARK: - Article Row Link
 
     private func articleRowLink(_ article: FeedItem) -> some View {
@@ -371,8 +425,6 @@ struct ArticleListView: View {
                 density: density,
                 showFeedIcon: showFeedIcons,
                 showPreview: showArticlePreviews,
-                // In a single feed the source is already the nav title; repeating it on every
-                // row is just noise, so the row can spend that space on the article itself.
                 showSource: currentFeedTitle == nil
             )
         }
@@ -473,21 +525,76 @@ struct ArticleListView: View {
             }
         }
 
-        ToolbarItem(placement: .bottomBar) {
+        ToolbarItemGroup(placement: .bottomBar) {
             Button {
-                isShowingFilters = true
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isFilterActive.toggle()
+                }
             } label: {
-                ArticleFilterToolbarLabel(
-                    isActive: hasActiveFilters,
-                    summary: filterSummaryText
-                )
+                filterButtonIcon
             }
-            .accessibilityLabel("Article Filters")
+            .accessibilityLabel(isFilterActive ? "Turn filter off" : "Turn filter on")
+            .contextMenu {
+                Button {
+                    isShowingFilters = true
+                } label: {
+                    Label("Filter Options…", systemImage: "slider.horizontal.3")
+                }
+                if isFilterActive {
+                    Button(role: .destructive) {
+                        withAnimation {
+                            isFilterActive = false
+                        }
+                    } label: {
+                        Label("Turn Filter Off", systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                }
+            }
+
+            Spacer()
+
+            if isFilterActive {
+                Button {
+                    isShowingFilters = true
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("Filtered by:")
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(.secondary)
+                        Text(filterConfig.summaryText)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.blue)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Filtered by \(filterConfig.summaryText). Tap to edit filters.")
+            } else {
+                Text(statusText)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
         }
 
         DefaultToolbarItem(kind: .search, placement: .bottomBar)
         #else
         ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                withAnimation {
+                    isFilterActive.toggle()
+                }
+            } label: {
+                Image(systemName: isFilterActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                    .foregroundStyle(isFilterActive ? Color.blue : Color.primary)
+            }
+            .help(isFilterActive ? "Turn Filter Off" : "Turn Filter On")
+            .contextMenu {
+                Button("Filter Options…") {
+                    isShowingFilters = true
+                }
+            }
+
             Button {
                 viewModel.isAddingFeed = true
             } label: {
@@ -497,6 +604,20 @@ struct ArticleListView: View {
             moreOptionsMenu
         }
         #endif
+    }
+
+    @ViewBuilder
+    private var filterButtonIcon: some View {
+        if isFilterActive {
+            Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                .font(.system(size: 22))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, Color.blue)
+        } else {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 22))
+                .foregroundStyle(.blue)
+        }
     }
 
     private var moreOptionsMenu: some View {
@@ -554,16 +675,6 @@ struct ArticleListView: View {
         }
         .buttonStyle(.plain)
         .help("Options")
-    }
-
-    private var filterSummaryText: String {
-        guard !excludedFeedIDs.isEmpty else { return activeScope.rawValue }
-        let noun = excludedFeedIDs.count == 1 ? "feed" : "feeds"
-        return "\(activeScope.rawValue) · \(excludedFeedIDs.count) \(noun) excluded"
-    }
-
-    private var hasActiveFilters: Bool {
-        activeScope != .all || !excludedFeedIDs.isEmpty
     }
 
     // MARK: - Undo Toast
@@ -655,7 +766,34 @@ struct ArticleListView: View {
                 .padding(.top, 6)
             }
             .frame(maxWidth: .infinity)
-        } else if activeScope == .unread || hideRead {
+        } else if isFilterActive {
+            VStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .font(.system(size: 38))
+                    .foregroundStyle(Color.siftAccent)
+                    .padding(.bottom, 4)
+
+                Text("No Articles Match Filter")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text("Try adjusting your filters or turn off filtering to see all articles.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+
+                Button("Turn Off Filter") {
+                    withAnimation {
+                        isFilterActive = false
+                    }
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color.siftAccent)
+                .padding(.top, 6)
+            }
+            .frame(maxWidth: .infinity)
+        } else if case .unread = viewModel.selectedSidebarItem, currentScopeUnreadCount == 0 {
             VStack(spacing: 8) {
                 Image(systemName: "checkmark.circle")
                     .font(.system(size: 38))
@@ -672,7 +810,7 @@ struct ArticleListView: View {
 
                 Button("View All Articles") {
                     withAnimation {
-                        activeScope = .all
+                        viewModel.selectedSidebarItem = .all
                         hideRead = false
                     }
                 }
@@ -681,7 +819,7 @@ struct ArticleListView: View {
                 .padding(.top, 6)
             }
             .frame(maxWidth: .infinity)
-        } else if activeScope == .starred {
+        } else if case .starred = viewModel.selectedSidebarItem {
             VStack(spacing: 8) {
                 Image(systemName: "star")
                     .font(.system(size: 38))
@@ -748,133 +886,218 @@ struct ArticleListView: View {
     }
 }
 
-#if os(iOS)
-private struct ArticleFilterToolbarLabel: View {
-    let isActive: Bool
-    let summary: String
+// MARK: - Article Filters Sheet (Apple Mail Style)
 
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "line.3.horizontal.decrease")
-                .font(.system(size: isActive ? 17 : 17, weight: .semibold))
-                .foregroundStyle(isActive ? Color.white : Color.primary)
-                .frame(width: isActive ? 40 : 20, height: isActive ? 40 : 20)
-                .background {
-                    Circle()
-                        .fill(
-                            isActive
-                                ? AnyShapeStyle(LinearGradient(
-                                    colors: [.cyan, .blue],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ))
-                                : AnyShapeStyle(.clear)
-                        )
-                }
-
-            if isActive {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Filtered by")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(summary)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.blue)
-                        .lineLimit(1)
-                }
-            }
-        }
-        .frame(minWidth: isActive ? 170 : 20, alignment: .leading)
-    }
-}
-
-private struct ArticleFiltersSheet: View {
-    @Binding var activeScope: ArticleScope
-    @Binding var excludedFeedIDs: Set<UUID>
+struct ArticleFiltersSheet: View {
+    @Binding var filterConfig: ArticleFilterConfig
+    @Binding var vipFeedIDs: Set<UUID>
     let feeds: [Feed]
-
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Include Articles") {
-                    filterRow(scope: .all, title: "All Articles", systemImage: "tray.full")
-                    filterRow(scope: .unread, title: "Unread", systemImage: "envelope.badge")
-                    filterRow(scope: .starred, title: "Starred", systemImage: "star")
-                    filterRow(scope: .today, title: "Published Today", systemImage: "calendar")
+            List {
+                if !feeds.isEmpty {
+                    Section {
+                        ForEach(feeds) { feed in
+                            feedRow(feed)
+                        }
+                    } header: {
+                        Text("Include Articles From")
+                    }
                 }
 
-                if !feeds.isEmpty {
-                    Section("Include Feeds From") {
-                        ForEach(feeds) { feed in
-                            Button {
-                                toggleFeed(feed.id)
-                            } label: {
-                                HStack {
-                                    Label(feed.title, systemImage: "dot.radiowaves.left.and.right")
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                    if !excludedFeedIDs.contains(feed.id) {
-                                        Image(systemName: "checkmark")
-                                            .fontWeight(.semibold)
-                                            .foregroundStyle(.blue)
-                                    }
-                                }
+                Section {
+                    unreadRow
+                    starredRow
+                } header: {
+                    Text("Include")
+                }
+
+                Section {
+                    Toggle(isOn: $filterConfig.onlyWithMedia) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "paperclip")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.blue)
+                                .frame(width: 24)
+                            Text("Only Articles with Media")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.primary)
+                        }
+                    }
+
+                    Toggle(isOn: $filterConfig.onlyVIPFeeds) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.yellow)
+                                .frame(width: 24)
+                            Text("Only from VIP Feeds")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.primary)
+                        }
+                    }
+
+                    Toggle(isOn: $filterConfig.onlyToday) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.blue)
+                                .frame(width: 24)
+                            Text("Only Articles Sent Today")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+
+                if !filterConfig.isDefault {
+                    Section {
+                        Button("Reset Filters", role: .destructive) {
+                            withAnimation {
+                                filterConfig = .defaultConfig
                             }
                         }
                     }
                 }
-
-                if activeScope != .all || !excludedFeedIDs.isEmpty {
-                    Section {
-                        Button("Clear All Filters", role: .destructive) {
-                            activeScope = .all
-                            excludedFeedIDs.removeAll()
-                        }
-                    }
-                }
             }
-            .navigationTitle("Filters")
+            #if os(iOS)
+            .listStyle(.insetGrouped)
             .navigationBarTitleDisplayMode(.inline)
+            #else
+            .listStyle(.inset)
+            #endif
+            .navigationTitle("Filters")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", systemImage: "checkmark") {
+                    Button {
                         dismiss()
+                    } label: {
+                        #if os(iOS)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.blue, in: Circle())
+                        #else
+                        Text("Done")
+                        #endif
                     }
-                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Done")
                 }
             }
         }
-        .presentationDetents([.large])
+        #if os(iOS)
+        .presentationDetents([.medium, .large])
+        #else
+        .frame(minWidth: 440, minHeight: 520)
+        #endif
     }
 
-    private func filterRow(scope: ArticleScope, title: LocalizedStringKey, systemImage: String) -> some View {
-        Button {
-            activeScope = scope
+    private func feedRow(_ feed: Feed) -> some View {
+        let isIncluded = !filterConfig.excludedFeedIDs.contains(feed.id)
+        let isVIP = vipFeedIDs.contains(feed.id)
+
+        return Button {
+            if isIncluded {
+                filterConfig.excludedFeedIDs.insert(feed.id)
+            } else {
+                filterConfig.excludedFeedIDs.remove(feed.id)
+            }
         } label: {
-            HStack {
-                Label(title, systemImage: systemImage)
+            HStack(spacing: 12) {
+                FeedFaviconView(feed: feed, size: 24, cornerRadius: 5)
+
+                Text(feed.title)
+                    .font(.system(size: 16))
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+
                 Spacer()
-                if activeScope == scope {
+
+                Button {
+                    if isVIP {
+                        vipFeedIDs.remove(feed.id)
+                    } else {
+                        vipFeedIDs.insert(feed.id)
+                    }
+                } label: {
+                    Image(systemName: isVIP ? "star.fill" : "star")
+                        .font(.system(size: 14))
+                        .foregroundStyle(isVIP ? Color.yellow : Color.secondary.opacity(0.35))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(isVIP ? "Remove VIP" : "Mark as VIP Feed")
+
+                if isIncluded {
                     Image(systemName: "checkmark")
-                        .fontWeight(.semibold)
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.blue)
                 }
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
-    private func toggleFeed(_ id: UUID) {
-        if excludedFeedIDs.contains(id) {
-            excludedFeedIDs.remove(id)
-        } else {
-            excludedFeedIDs.insert(id)
+    private var unreadRow: some View {
+        Button {
+            filterConfig.includeUnread.toggle()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "envelope.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.blue)
+                    .frame(width: 24)
+
+                Text("Unread")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                if filterConfig.includeUnread {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.blue)
+                }
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+    }
+
+    private var starredRow: some View {
+        Button {
+            filterConfig.includeStarred.toggle()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "flag.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.orange)
+                    .frame(width: 24)
+
+                Text("Starred")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                if filterConfig.includeStarred {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.blue)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
-#endif
 
 // MARK: - Article Row (Apple Mail Density & Layout)
 
