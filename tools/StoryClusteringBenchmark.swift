@@ -24,7 +24,7 @@ private struct CorpusRecord: Decodable {
     let fullText: String?
     let publisherKey: String
     let publishedAt: Date
-    let goldStoryID: String
+    let goldStoryID: String?
 
     var article: StoryClusteringArticle {
         StoryClusteringArticle(
@@ -49,6 +49,7 @@ private struct Options {
     var input: URL?
     var evaluatorOutput: URL?
     var assignmentsOutput: URL?
+    var assignmentsToStandardOutput = false
     var analysisLocale = "en"
     var threshold: Double?
     var windowHours = 72.0
@@ -63,9 +64,18 @@ private struct Options {
             }
             let value = arguments[index + 1]
             switch flag {
-            case "--input": input = URL(fileURLWithPath: value)
-            case "--evaluator-output": evaluatorOutput = URL(fileURLWithPath: value)
-            case "--assignments-output": assignmentsOutput = URL(fileURLWithPath: value)
+            case "--input": input = value == "-" ? URL(fileURLWithPath: "/dev/stdin") : URL(fileURLWithPath: value)
+            case "--evaluator-output":
+                guard value != "-" else {
+                    throw BenchmarkError.usage("--evaluator-output must be a file path")
+                }
+                evaluatorOutput = URL(fileURLWithPath: value)
+            case "--assignments-output":
+                if value == "-" {
+                    assignmentsToStandardOutput = true
+                } else {
+                    assignmentsOutput = URL(fileURLWithPath: value)
+                }
             case "--locale": analysisLocale = value
             case "--threshold":
                 guard let parsed = Double(value), (0...1).contains(parsed) else {
@@ -88,10 +98,13 @@ private struct Options {
             index += 2
         }
 
-        guard input != nil, evaluatorOutput != nil, assignmentsOutput != nil, threshold != nil else {
+        guard input != nil, (assignmentsOutput != nil || assignmentsToStandardOutput), threshold != nil else {
             throw BenchmarkError.usage(
-                "Required: --input corpus.jsonl --evaluator-output predictions.jsonl --assignments-output assignments.json --threshold value"
+                "Required: --input corpus.jsonl|- --assignments-output assignments.json|- --threshold value"
             )
+        }
+        if evaluatorOutput != nil, assignmentsToStandardOutput {
+            throw BenchmarkError.usage("--assignments-output - cannot be combined with --evaluator-output")
         }
     }
 }
@@ -112,14 +125,17 @@ private enum BenchmarkError: Error, CustomStringConvertible {
     static let help = """
     Usage:
       StoryClusteringBenchmark \
-        --input corpus.jsonl \
-        --evaluator-output predictions.jsonl \
+        --input corpus.jsonl|- \
         --assignments-output assignments.json \
-        --threshold value [--locale en] [--window-hours 72] \
+        --threshold value [--evaluator-output predictions.jsonl] \
+        [--locale en] [--window-hours 72] \
         [--translation-strategy lowLatency|highFidelity]
 
     Corpus JSONL fields: id (UUID), title, optional summary/fullText,
-    publisherKey, publishedAt (ISO-8601), and manually assigned goldStoryID.
+    publisherKey, publishedAt (ISO-8601), and optional manually assigned goldStoryID.
+    Omit goldStoryID and --evaluator-output for an unscored shadow preview.
+    Use --input - to read JSONL from stdin and --assignments-output - to write
+    assignments JSON to stdout. Preview output contains IDs and assignments, not text.
     """
 }
 
@@ -132,8 +148,21 @@ private enum StoryClusteringBenchmark {
                 return
             }
             let options = try Options(arguments: CommandLine.arguments)
-            let corpusData = try Data(contentsOf: options.input!)
+            let corpusData = options.input?.path == "/dev/stdin"
+                ? FileHandle.standardInput.readDataToEndOfFile()
+                : try Data(contentsOf: options.input!)
             let records = try loadCorpus(from: corpusData)
+            if options.evaluatorOutput != nil {
+                for (offset, record) in records.enumerated() {
+                    guard let goldStoryID = record.goldStoryID,
+                          !goldStoryID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        throw BenchmarkError.invalidRecord(
+                            line: offset + 1,
+                            reason: "--evaluator-output requires a non-empty goldStoryID on every row"
+                        )
+                    }
+                }
+            }
             let spike = StoryClusteringSpike()
             let runStartedAt = Date()
             let processingStartedAt = ContinuousClock.now
@@ -151,22 +180,24 @@ private enum StoryClusteringBenchmark {
             let predictionByID = Dictionary(
                 uniqueKeysWithValues: result.assignments.map { ($0.id, $0) }
             )
-            let evaluatorRecords = records.map { record -> EvaluatorRecord in
-                let assignment = predictionByID[record.id]
-                // Keep failed/unsupported rows in scoring as singleton clusters so
-                // dropping hard language cases cannot inflate benchmark quality.
-                let predictedClusterID = assignment?.predictedClusterID
-                    ?? "unassigned-\(record.id.uuidString.lowercased())"
-                return EvaluatorRecord(
-                    articleID: record.id.uuidString.lowercased(),
-                    goldStoryID: record.goldStoryID,
-                    predictedClusterID: predictedClusterID,
-                    language: assignment?.detectedLanguage ?? "und"
-                )
+            if let evaluatorOutput = options.evaluatorOutput {
+                let evaluatorRecords = records.map { record -> EvaluatorRecord in
+                    let assignment = predictionByID[record.id]
+                    // Keep failed/unsupported rows in scoring as singleton clusters so
+                    // dropping hard language cases cannot inflate benchmark quality.
+                    let predictedClusterID = assignment?.predictedClusterID
+                        ?? "unassigned-\(record.id.uuidString.lowercased())"
+                    return EvaluatorRecord(
+                        articleID: record.id.uuidString.lowercased(),
+                        goldStoryID: record.goldStoryID!,
+                        predictedClusterID: predictedClusterID,
+                        language: assignment?.detectedLanguage ?? "und"
+                    )
+                }
+                try writeJSONLines(evaluatorRecords, to: evaluatorOutput)
             }
 
-            try writeJSONLines(evaluatorRecords, to: options.evaluatorOutput!)
-            try writeJSON(BenchmarkOutput(
+            let output = BenchmarkOutput(
                 benchmark: BenchmarkMetadata(
                     runStartedAt: runStartedAt,
                     corpusSHA256: SHA256.hash(data: corpusData).map { String(format: "%02x", $0) }.joined(),
@@ -177,7 +208,12 @@ private enum StoryClusteringBenchmark {
                     totalProcessingMilliseconds: totalMilliseconds
                 ),
                 clustering: result
-            ), to: options.assignmentsOutput!)
+            )
+            if options.assignmentsToStandardOutput {
+                try writeJSONToStandardOutput(output)
+            } else {
+                try writeJSON(output, to: options.assignmentsOutput!)
+            }
 
             let assignedCount = result.assignments.filter { $0.predictedClusterID != nil }.count
             let unassignedCount = records.count - assignedCount
@@ -186,8 +222,11 @@ private enum StoryClusteringBenchmark {
                 "assigned \(assignedCount)/\(records.count), unassigned \(unassignedCount).\n"
             ).utf8))
             if unassignedCount > 0 {
+                let explanation = options.evaluatorOutput == nil
+                    ? "Inspect assignments for readiness and reasons."
+                    : "Unassigned rows remain singleton predictions in the evaluator file. Inspect assignments for readiness and reasons."
                 FileHandle.standardError.write(Data(
-                    "Unassigned rows remain singleton predictions in the evaluator file. Inspect assignments.json for readiness and reasons.\n"
+                    "\(explanation)\n"
                         .utf8
                 ))
             }
@@ -210,9 +249,6 @@ private enum StoryClusteringBenchmark {
                     let record = try decoder.decode(CorpusRecord.self, from: Data(line.utf8))
                     guard seenIDs.insert(record.id).inserted else {
                         throw BenchmarkError.invalidRecord(line: offset + 1, reason: "duplicate id \(record.id)")
-                    }
-                    guard !record.goldStoryID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                        throw BenchmarkError.invalidRecord(line: offset + 1, reason: "goldStoryID is empty")
                     }
                     return record
                 } catch let error as BenchmarkError {
@@ -247,5 +283,12 @@ private enum StoryClusteringBenchmark {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(value).write(to: url, options: .atomic)
+    }
+
+    private static func writeJSONToStandardOutput<T: Encodable>(_ value: T) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try FileHandle.standardOutput.write(contentsOf: encoder.encode(value))
+        try FileHandle.standardOutput.write(contentsOf: Data("\n".utf8))
     }
 }

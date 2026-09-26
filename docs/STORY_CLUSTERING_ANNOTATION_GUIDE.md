@@ -91,3 +91,23 @@ calibration set, write down the false-merge acceptance bound and selected pipeli
 settings before scoring the holdout, and report the holdout once. Never split articles
 from the same gold story across calibration and holdout, or use a tuned holdout score
 as an unbiased quality estimate.
+
+## Unlabeled shadow preview
+
+Use the same native spike to inspect candidate assignments from live RSS items or
+other unannotated material. `goldStoryID` is optional when no evaluator output is
+requested. The runner accepts JSONL on stdin and can write its machine-readable
+assignments to stdout, so feed contents and predictions do not need to be saved to
+files:
+
+```sh
+feed-fetcher | /tmp/StoryClusteringBenchmark \
+  --input - --assignments-output - \
+  --locale en --threshold 0.82 --window-hours 72 \
+  --translation-strategy highFidelity
+```
+
+This is a qualitative shadow preview, not a benchmark: without manually assigned
+`goldStoryID` values, the output cannot establish pairwise F1 or false-merge rate.
+Choose thresholds from the labeled calibration set, not by tuning against a live
+personal feed. The result contains article IDs and assignments, not article text.
