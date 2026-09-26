@@ -19,8 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = NotificationManager.shared
         NotificationManager.shared.requestAuthorization()
 
-        // Synchronize launchd background daemon and timers whenever a new app version or build runs
-        LaunchAgentManager.shared.syncOnLaunch()
+        // Synchronize background feed scheduler
         BackgroundFeedScheduler.shared.syncOnLaunch()
     }
 
@@ -68,9 +67,10 @@ struct SiftApp: App {
                 exit(0)
             }
         }
-        #endif
+        #else
         _ = NotificationManager.shared
         NotificationManager.shared.requestAuthorization()
+        #endif
     }
 
     var body: some Scene {

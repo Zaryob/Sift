@@ -31,8 +31,13 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         }
     }
 
+    private var isRequestingAuth = false
+
     public func requestAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+        guard !isRequestingAuth else { return }
+        isRequestingAuth = true
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
+            self?.isRequestingAuth = false
             if let error = error {
                 print("Notification permission error: \(error)")
             } else {
