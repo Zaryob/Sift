@@ -134,6 +134,7 @@ struct ArticleListView: View {
     @State private var searchText = ""
     @State private var isSearching = false
     @FocusState private var isSearchFocused: Bool
+    @State private var voiceDictation = VoiceDictationManager()
 
     @State private var isFilterActive = false
     @State private var filterConfig = ArticleFilterConfig.defaultConfig
@@ -358,6 +359,9 @@ struct ArticleListView: View {
                     savedFilterConfigData = data
                 }
             }
+            .onDisappear {
+                voiceDictation.stopRecording()
+            }
             .background {
                 keyboardShortcuts
             }
@@ -562,11 +566,12 @@ struct ArticleListView: View {
     @ViewBuilder
     private var floatingDockBar: some View {
         if isSearching {
-            // Live Search Bar Capsule
+            // Live Search Bar Capsule with Mic + Circular Dismiss (xmark) Button
             HStack(spacing: 10) {
+                // Wide Search Capsule with Mic
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(.secondary)
 
                     TextField("Search", text: $searchText)
@@ -584,6 +589,18 @@ struct ArticleListView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    Button {
+                        voiceDictation.toggleRecording { transcribed in
+                            searchText = transcribed
+                        }
+                    } label: {
+                        Image(systemName: voiceDictation.isRecording ? "mic.fill" : "mic")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(voiceDictation.isRecording ? Color.red : Color.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dictate search")
                 }
                 .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity)
@@ -595,17 +612,33 @@ struct ArticleListView: View {
                 )
                 .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
 
-                Button("Cancel") {
+                // Circular Dismiss Button with X
+                Button {
+                    voiceDictation.stopRecording()
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         isSearching = false
                         searchText = ""
                         isSearchFocused = false
                     }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .frame(width: 48, height: 48)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                        )
+                        .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
                 }
-                .font(.system(size: 17))
-                .foregroundStyle(Color.accentColor)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss search")
             }
-            .transition(.opacity)
+            .transition(.asymmetric(
+                insertion: .scale(scale: 0.95).combined(with: .opacity),
+                removal: .scale(scale: 0.95).combined(with: .opacity)
+            ))
         } else {
             HStack(spacing: 10) {
                 if isFilterActive {
@@ -752,7 +785,7 @@ struct ArticleListView: View {
         }
     }
 
-    /// Screenshot 2 (right): Filter is OFF -> Wide Search capsule
+    /// Screenshot 2 (right): Filter is OFF -> Wide Search capsule with Mic
     private var searchCapsuleButton: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -770,6 +803,10 @@ struct ArticleListView: View {
                     .foregroundStyle(.secondary)
 
                 Spacer()
+
+                Image(systemName: "mic")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
