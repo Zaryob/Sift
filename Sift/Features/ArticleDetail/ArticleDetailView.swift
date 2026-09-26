@@ -395,7 +395,7 @@ struct ArticleDetailView: View {
     #if os(macOS)
     @ToolbarContentBuilder
     private func macOSToolbarItems(for article: FeedItem?) -> some ToolbarContent {
-        ToolbarItem(placement: .principal) {
+        ToolbarItem(placement: .automatic) {
             Picker("View Mode", selection: $viewMode) {
                 ForEach(DetailViewMode.allCases) { mode in
                     Text(mode.rawValue).tag(mode)
@@ -441,18 +441,17 @@ struct ArticleDetailView: View {
         }
         .visibilityPriority(.high)
 
-        ToolbarItem(placement: .automatic) {
-            Button {
-                isShowingAppearancePopover = true
-            } label: {
-                Label("Reading Appearance", systemImage: "textformat.size")
-            }
-            .help("Reading Appearance")
-            .disabled(article == nil)
-        }
-
         ToolbarItem(placement: .primaryAction) {
             Menu {
+                Button {
+                    isShowingAppearancePopover = true
+                } label: {
+                    Label("Reading Appearance", systemImage: "textformat.size")
+                }
+                .disabled(article == nil)
+
+                Divider()
+
                 if let article, article.originalURL != nil {
                     Button {
                         viewModel.openArticleExternally(article)

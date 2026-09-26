@@ -12,15 +12,16 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             SidebarView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 225, max: 260)
         } content: {
             ArticleListView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 480)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 400)
         } detail: {
             ArticleDetailView(viewModel: viewModel, article: viewModel.selectedArticle)
         }
+        .navigationSplitViewStyle(.balanced)
         #if os(macOS)
-        .frame(minWidth: 880, minHeight: 520)
+        .frame(minWidth: 760, minHeight: 520)
         #endif
         .background(WindowAccessor())
         .sheet(isPresented: $viewModel.isAddingFeed) {

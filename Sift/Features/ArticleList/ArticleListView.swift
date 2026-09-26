@@ -566,38 +566,62 @@ struct ArticleListView: View {
             }
         }
         #else
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItem(placement: .automatic) {
             Button {
                 viewModel.isAddingFeed = true
             } label: {
                 Label("Add Feed", systemImage: "plus")
             }
             .help("Add New RSS Feed (⌘N)")
+        }
+        .visibilityPriority(.high)
 
-            Button {
-                viewModel.refreshAllFeeds(context: modelContext)
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .disabled(viewModel.isRefreshing)
-            .help("Refresh Feeds (⌘R)")
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isFilterActive.toggle()
+        ToolbarItem(placement: .automatic) {
+            Menu {
+                Button {
+                    viewModel.refreshAllFeeds(context: modelContext)
+                } label: {
+                    Label("Refresh Feeds", systemImage: "arrow.clockwise")
                 }
-            } label: {
-                Image(systemName: isFilterActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                    .foregroundStyle(isFilterActive ? Color.siftAccent : .secondary)
-            }
-            .help(isFilterActive ? "Turn Filter Off" : "Turn Filter On")
-            .contextMenu {
-                Button("Filter Options…") {
+                .disabled(viewModel.isRefreshing)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isFilterActive.toggle()
+                    }
+                } label: {
+                    Label(
+                        isFilterActive ? "Turn Filter Off" : "Turn Filter On",
+                        systemImage: isFilterActive
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle"
+                    )
+                }
+
+                Button("Filter Options…", systemImage: "slider.horizontal.3") {
                     isShowingFilters = true
                 }
-            }
 
-            moreOptionsMenu
+                Divider()
+
+                Button {
+                    isConfirmingMarkAllRead = true
+                } label: {
+                    Label("Mark All as Read", systemImage: "checkmark.circle")
+                }
+                .disabled(currentScopeUnreadCount == 0)
+
+                Divider()
+
+                Button {
+                    viewModel.isShowingSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+            } label: {
+                Label("Article List Actions", systemImage: "ellipsis.circle")
+            }
+            .help("Article List Actions")
         }
         #endif
     }
@@ -1490,16 +1514,16 @@ struct ArticleRow: View {
     #if os(macOS)
     private var macOSMailRow: some View {
         HStack(alignment: .top, spacing: 8) {
-            // Unread dot
-            ZStack(alignment: .top) {
-                if !article.isRead {
-                    Circle()
-                        .fill(Color.siftAccent)
-                        .frame(width: 6, height: 6)
-                        .padding(.top, 4)
-                }
+            // Center the unread state against the complete row instead of the sender line.
+            VStack {
+                Spacer(minLength: 0)
+                Circle()
+                    .fill(article.isRead ? Color.clear : Color.siftAccent)
+                    .frame(width: 8, height: 8)
+                Spacer(minLength: 0)
             }
-            .frame(width: 7)
+            .frame(width: 10)
+            .accessibilityHidden(true)
 
             // Content: Line 1 (Sender + Time/Hover Actions), Line 2 (Subject/Title), Line 3 (Snippet)
             VStack(alignment: .leading, spacing: density == .compact ? 1 : 2) {
@@ -1512,56 +1536,51 @@ struct ArticleRow: View {
 
                     Spacer(minLength: 6)
 
-                    if isHovered {
+                    ZStack(alignment: .trailing) {
                         HStack(spacing: 4) {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    article.isStarred.toggle()
-                                    try? modelContext.save()
-                                }
-                            } label: {
-                                Image(systemName: article.isStarred ? "star.fill" : "star")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(article.isStarred ? Color.siftStarred : .secondary)
-                                    .frame(width: 28, height: 28)
-                            }
-                            .buttonStyle(.plain)
-                            .help(article.isStarred ? "Unstar" : "Star")
-
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    article.isRead.toggle()
-                                    try? modelContext.save()
-                                }
-                            } label: {
-                                Image(systemName: article.isRead ? "circle" : "circle.fill")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(article.isRead ? Color.secondary : Color.siftAccent)
-                                    .frame(width: 28, height: 28)
-                            }
-                            .buttonStyle(.plain)
-                            .help(article.isRead ? "Mark as Unread" : "Mark as Read")
-                        }
-                        .transition(.opacity)
-                    } else {
-                        HStack(spacing: 4) {
-                            if let category = article.feed?.category, !category.isEmpty {
-                                Text(category)
-                                    .font(.system(size: 10.5))
-                                    .foregroundStyle(.tertiary)
-                            }
-
                             Text(formattedTime(for: article.publicationDate))
                                 .font(.system(size: 11.5, weight: .regular))
                                 .foregroundStyle(.secondary)
 
                             if article.isStarred {
                                 Image(systemName: "star.fill")
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(Color.siftStarred)
                             }
                         }
+                        .opacity(isHovered ? 0 : 1)
+
+                        HStack(spacing: 2) {
+                            Button {
+                                article.isStarred.toggle()
+                                try? modelContext.save()
+                            } label: {
+                                Image(systemName: article.isStarred ? "star.fill" : "star")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(article.isStarred ? Color.siftStarred : .secondary)
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(article.isStarred ? "Remove Star" : "Star Article")
+
+                            Button {
+                                article.isRead.toggle()
+                                try? modelContext.save()
+                            } label: {
+                                Image(systemName: article.isRead ? "circle" : "circle.fill")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(article.isRead ? Color.secondary : Color.siftAccent)
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(article.isRead ? "Mark as Unread" : "Mark as Read")
+                        }
+                        .opacity(isHovered ? 1 : 0)
                     }
+                    .frame(width: 68, height: 32, alignment: .trailing)
+                    .animation(.easeInOut(duration: 0.12), value: isHovered)
                 }
 
                 // Line 2: Article Title (Subject)
