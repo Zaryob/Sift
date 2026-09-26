@@ -38,7 +38,7 @@ struct SettingsView: View {
     @Environment(\.openURL) private var openURL
 
     @AppStorage(ReadingPreferenceKey.density) private var densityRaw: String = ArticleDensity.comfortable.rawValue
-    @AppStorage(ReadingPreferenceKey.markReadOnOpen) private var markReadOnOpen: Bool = true
+    @AppStorage(ReadingPreferenceKey.markReadBehavior) private var markReadRaw: String = MarkReadBehavior.whenOpened.rawValue
     @AppStorage(ReadingPreferenceKey.openLinksInApp) private var openLinksInApp: Bool = true
     @AppStorage(ReadingPreferenceKey.fontSize) private var fontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.system.rawValue
@@ -130,7 +130,11 @@ struct SettingsView: View {
                     Text(density.rawValue).tag(density.rawValue)
                 }
             }
-            Toggle("Mark as Read When Opened", isOn: $markReadOnOpen)
+            Picker("Mark as Read", selection: $markReadRaw) {
+                ForEach(MarkReadBehavior.allCases) { behavior in
+                    Text(behavior.rawValue).tag(behavior.rawValue)
+                }
+            }
             #if os(iOS)
             Toggle("Open Links in Sift", isOn: $openLinksInApp)
             #endif

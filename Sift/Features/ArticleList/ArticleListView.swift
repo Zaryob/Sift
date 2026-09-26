@@ -1,33 +1,17 @@
 import SwiftUI
 import SwiftData
 
-enum ArticleFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case unread = "Unread"
-    case starred = "Starred"
-
-    var id: String { rawValue }
-
-    var icon: String {
-        switch self {
-        case .all: return "tray.full"
-        case .unread: return "circlebadge"
-        case .starred: return "star"
-        }
-    }
-}
-
-/// Time is a scope over whatever the sidebar selected, not a sibling of Library/Feeds.
+/// A publication-date range applied on top of whatever the sidebar selected.
 enum TimeScope: String, CaseIterable, Identifiable {
-    case latest = "Latest"
+    case anyTime = "Any Time"
     case today = "Today"
-    case week = "This Week"
+    case week = "Past 7 Days"
 
     var id: String { rawValue }
 
     func includes(_ date: Date) -> Bool {
         switch self {
-        case .latest:
+        case .anyTime:
             return true
         case .today:
             return Calendar.current.isDateInToday(date)
@@ -61,10 +45,15 @@ struct ArticleListView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var searchText = ""
-    @State private var filterMode: ArticleFilter = .all
-    @State private var timeScope: TimeScope = .latest
-    @AppStorage(ReadingPreferenceKey.markReadOnOpen) private var markReadOnOpen: Bool = true
+    @State private var hideRead = false
+    @State private var timeScope: TimeScope = .anyTime
+    @State private var isConfirmingMarkAllRead = false
+    @AppStorage(ReadingPreferenceKey.markReadBehavior) private var markReadRaw: String = MarkReadBehavior.whenOpened.rawValue
     @AppStorage(ReadingPreferenceKey.density) private var densityRaw: String = ArticleDensity.comfortable.rawValue
+
+    private var markReadBehavior: MarkReadBehavior {
+        MarkReadBehavior(rawValue: markReadRaw) ?? .whenOpened
+    }
 
     private var density: ArticleDensity {
         ArticleDensity(rawValue: densityRaw) ?? .comfortable
@@ -91,17 +80,7 @@ struct ArticleListView: View {
 
     private var filteredArticles: [FeedItem] {
         sourceArticles.filter { article in
-            let matchesFilter: Bool
-            switch filterMode {
-            case .all:
-                matchesFilter = true
-            case .unread:
-                matchesFilter = !article.isRead
-            case .starred:
-                matchesFilter = article.isStarred
-            }
-
-            guard matchesFilter, timeScope.includes(article.publicationDate) else { return false }
+            guard !(hideRead && article.isRead), timeScope.includes(article.publicationDate) else { return false }
 
             if searchText.isEmpty { return true }
             let query = searchText.lowercased()
@@ -135,15 +114,14 @@ struct ArticleListView: View {
             return "Refreshing…"
         }
         var parts: [String] = []
-        if filterMode != .all { parts.append(filterMode.rawValue) }
-        if timeScope != .latest { parts.append(timeScope.rawValue) }
-        let unread = filteredArticles.filter { !$0.isRead }.count
-        parts.append(unread > 0 ? "\(unread) unread" : "All caught up")
+        if timeScope != .anyTime { parts.append(timeScope.rawValue) }
+        if hideRead { parts.append("Unread only") }
+        parts.append(unreadCount > 0 ? "\(unreadCount) unread" : "All caught up")
         return parts.joined(separator: " · ")
     }
 
-    private var hasUnread: Bool {
-        filteredArticles.contains { !$0.isRead }
+    private var unreadCount: Int {
+        filteredArticles.filter { !$0.isRead }.count
     }
 
     var body: some View {
@@ -168,11 +146,8 @@ struct ArticleListView: View {
         .refreshable {
             await viewModel.refreshAll(context: modelContext)
         }
-        .onChange(of: viewModel.selectedArticle) { _, newArticle in
-            if markReadOnOpen, let article = newArticle, !article.isRead {
-                article.isRead = true
-                try? modelContext.save()
-            }
+        .task(id: viewModel.selectedArticle?.id) {
+            await markSelectedArticleReadIfNeeded()
         }
         .overlay {
             if filteredArticles.isEmpty {
@@ -184,28 +159,34 @@ struct ArticleListView: View {
         .navigationSubtitle(subtitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarTitleMenu {
-            scopeMenuContent
-            Divider()
-            markAllReadButton
-        }
-        #else
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    scopeMenuContent
-                } label: {
-                    Label("Filter", systemImage: isScoped ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                }
-                .help("Filter articles by status and time")
+                filterMenu
             }
 
             ToolbarItem(placement: .primaryAction) {
-                markAllReadButton
-                    .help("Mark All Filtered Articles as Read")
+                Button {
+                    isConfirmingMarkAllRead = true
+                } label: {
+                    Label("Mark All as Read", systemImage: "checkmark.circle")
+                }
+                .disabled(unreadCount == 0)
+                .help("Mark all articles in this list as read")
+                .confirmationDialog(
+                    "Mark \(unreadCount) articles as read?",
+                    isPresented: $isConfirmingMarkAllRead,
+                    titleVisibility: .visible
+                ) {
+                    Button("Mark \(unreadCount) as Read", role: .destructive) {
+                        viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Only articles in “\(titleForSelection)” with the current filters are affected.")
+                }
             }
         }
-        #endif
         .background {
             keyboardShortcuts
         }
@@ -223,7 +204,7 @@ struct ArticleListView: View {
             } label: {
                 Label(article.isRead ? "Mark Unread" : "Mark Read", systemImage: article.isRead ? "circlebadge" : "checkmark")
             }
-            .tint(Color.accentColor)
+            .tint(Color.siftAccent)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
@@ -255,39 +236,51 @@ struct ArticleListView: View {
         }
     }
 
-    private var isScoped: Bool {
-        filterMode != .all || timeScope != .latest
+    private var isFiltered: Bool {
+        hideRead || timeScope != .anyTime
     }
 
-    @ViewBuilder
-    private var scopeMenuContent: some View {
-        Section("Show") {
-            Picker("Show", selection: $filterMode.animation(.easeInOut(duration: 0.15))) {
-                ForEach(ArticleFilter.allCases) { filter in
-                    Text(filter.rawValue).tag(filter)
+    private var filterMenu: some View {
+        Menu {
+            Toggle("Hide Read Articles", systemImage: "circlebadge", isOn: $hideRead.animation(.easeInOut(duration: 0.15)))
+            Section("Published") {
+                Picker("Published", selection: $timeScope.animation(.easeInOut(duration: 0.15))) {
+                    ForEach(TimeScope.allCases) { scope in
+                        Text(scope.rawValue).tag(scope)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+            if isFiltered {
+                Divider()
+                Button("Clear Filters", systemImage: "xmark.circle") {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        hideRead = false
+                        timeScope = .anyTime
+                    }
                 }
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        }
-        Section("Time") {
-            Picker("Time", selection: $timeScope.animation(.easeInOut(duration: 0.15))) {
-                ForEach(TimeScope.allCases) { scope in
-                    Text(scope.rawValue).tag(scope)
-                }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        }
-    }
-
-    private var markAllReadButton: some View {
-        Button {
-            viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
         } label: {
-            Label("Mark All as Read", systemImage: "checkmark.circle")
+            Label("Filter", systemImage: isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
         }
-        .disabled(!hasUnread)
+        .help("Filter articles")
+    }
+
+    private func markSelectedArticleReadIfNeeded() async {
+        guard let article = viewModel.selectedArticle, !article.isRead else { return }
+        switch markReadBehavior {
+        case .manually:
+            return
+        case .afterDelay:
+            // Cancelled automatically if the selection changes (e.g. the user backs out quickly).
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, viewModel.selectedArticle?.id == article.id else { return }
+        case .whenOpened:
+            break
+        }
+        article.isRead = true
+        try? modelContext.save()
     }
 
     private var keyboardShortcuts: some View {
@@ -321,7 +314,9 @@ struct ArticleListView: View {
             }
             .keyboardShortcut("r", modifiers: [.command])
             Button("") {
-                viewModel.markAllAsRead(in: filteredArticles, context: modelContext)
+                if unreadCount > 0 {
+                    isConfirmingMarkAllRead = true
+                }
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
         }
@@ -333,13 +328,13 @@ struct ArticleListView: View {
     private var emptyStateView: some View {
         if !searchText.isEmpty {
             ContentUnavailableView.search(text: searchText)
-        } else if filterMode == .unread || viewModel.selectedSidebarItem == .unread {
+        } else if hideRead || viewModel.selectedSidebarItem == .unread {
             ContentUnavailableView(
                 "All Caught Up",
                 systemImage: "checkmark.circle",
                 description: Text("Nothing new to sift through.")
             )
-        } else if filterMode == .starred || viewModel.selectedSidebarItem == .starred {
+        } else if viewModel.selectedSidebarItem == .starred {
             ContentUnavailableView(
                 "No Starred Articles",
                 systemImage: "star",
@@ -349,7 +344,7 @@ struct ArticleListView: View {
             ContentUnavailableView(
                 "No Articles",
                 systemImage: "doc.text",
-                description: Text(timeScope == .latest ? "Pull to refresh or add a feed." : "Nothing published in this time range.")
+                description: Text(timeScope == .anyTime ? "Pull to refresh or add a feed." : "Nothing published in this time range.")
             )
         }
     }
@@ -381,15 +376,17 @@ struct ArticleRow: View {
                 .frame(width: gutter, alignment: .leading)
 
             VStack(alignment: .leading, spacing: density == .compact ? 2 : 4) {
+                // Read is a state, not "disabled": weight and color step down, but never below
+                // .secondary so read rows keep legible contrast.
                 Text(article.title)
-                    .font(.siftSerif(.body, weight: article.isRead ? .regular : .semibold))
+                    .font(.body.weight(article.isRead ? .regular : .semibold))
                     .foregroundStyle(article.isRead ? .secondary : .primary)
                     .lineLimit(density == .compact ? 2 : 3)
 
                 if density == .comfortable, !snippet.isEmpty {
                     Text(snippet)
                         .font(.subheadline)
-                        .foregroundStyle(article.isRead ? .tertiary : .secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
 
@@ -406,7 +403,7 @@ struct ArticleRow: View {
             Color.clear.frame(width: dotSize, height: dotSize)
         } else {
             Circle()
-                .fill(Color.accentColor)
+                .fill(Color.siftAccent)
                 .frame(width: dotSize, height: dotSize)
                 // Center the dot on the title's x-height instead of letting it sit on the baseline.
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + dotBaselineOffset }
@@ -418,12 +415,12 @@ struct ArticleRow: View {
             if let feed = article.feed {
                 FeedFaviconView(feed: feed, size: 14)
                 Text(feed.title)
-                    .foregroundStyle(.secondary)
+                    .fontWeight(.medium)
                     .lineLimit(1)
             }
 
             Text("·")
-            Text(article.publicationDate, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+            Text(Self.compactAge(of: article.publicationDate))
 
             if density == .comfortable, let minutes = readingMinutes {
                 Text("·")
@@ -437,6 +434,23 @@ struct ArticleRow: View {
             }
         }
         .font(.caption)
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(.secondary)
+    }
+
+    /// "now", "12m", "4h", "3d", then a short date; static, so the list doesn't tick.
+    static func compactAge(of date: Date, now: Date = .now) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        switch seconds {
+        case ..<60:
+            return String(localized: "now")
+        case ..<3_600:
+            return "\(Int(seconds / 60))m"
+        case ..<86_400:
+            return "\(Int(seconds / 3_600))h"
+        case ..<604_800:
+            return "\(Int(seconds / 86_400))d"
+        default:
+            return date.formatted(.dateTime.month(.abbreviated).day())
+        }
     }
 }
