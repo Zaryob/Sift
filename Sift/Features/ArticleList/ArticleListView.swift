@@ -132,6 +132,9 @@ struct ArticleListView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var searchText = ""
+    @State private var isSearching = false
+    @FocusState private var isSearchFocused: Bool
+
     @State private var isFilterActive = false
     @State private var filterConfig = ArticleFilterConfig.defaultConfig
     @State private var isShowingFilters = false
@@ -309,16 +312,18 @@ struct ArticleListView: View {
             }
             .navigationTitle(currentNavTitle)
             .navigationSubtitle(currentNavSubtitle)
-            #if os(iOS)
-            .searchable(text: $searchText, placement: .toolbar, prompt: "Search articles, feeds…")
-            .searchToolbarBehavior(isFilterActive ? .minimize : .automatic)
-            .searchPresentationToolbarBehavior(.avoidHidingContent)
+            #if os(macOS)
+            .searchable(text: $searchText, prompt: "Search articles, feeds…")
+            #else
             .navigationBarTitleDisplayMode(.large)
             .navigationDestination(isPresented: $viewModel.isShowingSettings) {
                 SettingsView()
             }
-            #else
-            .searchable(text: $searchText, prompt: "Search articles, feeds…")
+            .safeAreaInset(edge: .bottom) {
+                floatingDockBar
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+            }
             #endif
             .toolbar {
                 toolbarItems
@@ -361,7 +366,7 @@ struct ArticleListView: View {
             if showToast, let message = viewModel.toastMessage {
                 undoToastView(message)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 72)
                     .padding(.horizontal, 20)
             }
         }
@@ -514,70 +519,15 @@ struct ArticleListView: View {
                     viewModel.isAddingFeed = true
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
-                .contentShape(Rectangle())
                 .help("Add Feed")
 
                 moreOptionsMenu
             }
         }
-
-        ToolbarItemGroup(placement: .bottomBar) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isFilterActive.toggle()
-                }
-            } label: {
-                filterButtonIcon
-            }
-            .accessibilityLabel(isFilterActive ? "Turn filter off" : "Turn filter on")
-            .contextMenu {
-                Button {
-                    isShowingFilters = true
-                } label: {
-                    Label("Filter Options…", systemImage: "slider.horizontal.3")
-                }
-                if isFilterActive {
-                    Button(role: .destructive) {
-                        withAnimation {
-                            isFilterActive = false
-                        }
-                    } label: {
-                        Label("Turn Filter Off", systemImage: "line.3.horizontal.decrease.circle")
-                    }
-                }
-            }
-
-            Spacer()
-
-            if isFilterActive {
-                Button {
-                    isShowingFilters = true
-                } label: {
-                    HStack(spacing: 3) {
-                        Text("Filtered by:")
-                            .font(.system(size: 13, weight: .regular))
-                            .foregroundStyle(.secondary)
-                        Text(filterConfig.summaryText)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.blue)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Filtered by \(filterConfig.summaryText). Tap to edit filters.")
-            } else {
-                Text(statusText)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
-
-        DefaultToolbarItem(kind: .search, placement: .bottomBar)
         #else
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
@@ -606,19 +556,235 @@ struct ArticleListView: View {
         #endif
     }
 
+    // MARK: - Floating Dock Bar (Apple Mail iOS 18 Native Style)
+
+    #if os(iOS)
     @ViewBuilder
-    private var filterButtonIcon: some View {
-        if isFilterActive {
-            Image(systemName: "line.3.horizontal.decrease.circle.fill")
-                .font(.system(size: 22))
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.white, Color.blue)
+    private var floatingDockBar: some View {
+        if isSearching {
+            // Live Search Bar Capsule
+            HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    TextField("Search", text: $searchText)
+                        .font(.system(size: 17))
+                        .focused($isSearchFocused)
+                        .autocorrectionDisabled()
+
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
+                .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+
+                Button("Cancel") {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isSearching = false
+                        searchText = ""
+                        isSearchFocused = false
+                    }
+                }
+                .font(.system(size: 17))
+                .foregroundStyle(Color.accentColor)
+            }
+            .transition(.opacity)
         } else {
-            Image(systemName: "line.3.horizontal.decrease.circle")
-                .font(.system(size: 22))
-                .foregroundStyle(.blue)
+            HStack(spacing: 10) {
+                if isFilterActive {
+                    // State 1: Filter Active -> Expanded filter capsule on left
+                    filterActiveCapsule
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.9, anchor: .leading).combined(with: .opacity),
+                            removal: .scale(scale: 0.9, anchor: .leading).combined(with: .opacity)
+                        ))
+
+                    Spacer(minLength: 0)
+
+                    // State 1: Collapsed search circle on right
+                    searchCircleButton
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.9, anchor: .trailing).combined(with: .opacity),
+                            removal: .scale(scale: 0.9, anchor: .trailing).combined(with: .opacity)
+                        ))
+                } else {
+                    // State 2: Filter Inactive -> Collapsed filter circle on left
+                    filterInactiveCircle
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.9, anchor: .leading).combined(with: .opacity),
+                            removal: .scale(scale: 0.9, anchor: .leading).combined(with: .opacity)
+                        ))
+
+                    // State 2: Expanded search capsule on right
+                    searchCapsuleButton
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.9, anchor: .trailing).combined(with: .opacity),
+                            removal: .scale(scale: 0.9, anchor: .trailing).combined(with: .opacity)
+                        ))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isFilterActive)
         }
     }
+
+    /// Screenshot 1 (left): Filter is ON -> Capsule with blue circle toggle button + "Filtered by \n Unread ⌄"
+    private var filterActiveCapsule: some View {
+        HStack(spacing: 10) {
+            // Blue circle toggle button with dark funnel lines
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isFilterActive = false
+                }
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.12, green: 0.62, blue: 1.0))
+                        .frame(width: 36, height: 36)
+
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color.black.opacity(0.85))
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Turn filter off")
+
+            // Label: "Filtered by \n Unread ⌄"
+            Button {
+                isShowingFilters = true
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Filtered by")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    HStack(spacing: 3) {
+                        Text(filterConfig.summaryText)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.12, green: 0.62, blue: 1.0))
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color(red: 0.12, green: 0.62, blue: 1.0))
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Filtered by \(filterConfig.summaryText). Tap to change filters.")
+        }
+        .padding(.leading, 6)
+        .padding(.trailing, 16)
+        .frame(height: 48)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+        )
+        .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+    }
+
+    /// Screenshot 1 (right): Filter is ON -> Collapsed search circle
+    private var searchCircleButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isSearching = true
+                isSearchFocused = true
+            }
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 48, height: 48)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
+                .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search")
+    }
+
+    /// Screenshot 2 (left): Filter is OFF -> Collapsed filter circle with white funnel
+    private var filterInactiveCircle: some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isFilterActive = true
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 48, height: 48)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(
+                    Circle()
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+                )
+                .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Turn filter on")
+        .contextMenu {
+            Button {
+                isShowingFilters = true
+            } label: {
+                Label("Filter Options…", systemImage: "slider.horizontal.3")
+            }
+        }
+    }
+
+    /// Screenshot 2 (right): Filter is OFF -> Wide Search capsule
+    private var searchCapsuleButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isSearching = true
+                isSearchFocused = true
+            }
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                Text("Search")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search")
+    }
+    #endif
 
     private var moreOptionsMenu: some View {
         Menu {

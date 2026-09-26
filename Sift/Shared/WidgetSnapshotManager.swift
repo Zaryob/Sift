@@ -50,11 +50,22 @@ public final class WidgetSnapshotManager {
             }
             
             let snapshots = items.prefix(10).map { item in
-                ArticleSnapshot(
+                let rawText = (item.summary?.isEmpty == false ? item.summary : item.content)
+                let cleanedSnippet: String? = rawText.flatMap { text in
+                    let stripped = HTMLSanitizer.stripTags(from: text)
+                        .replacingOccurrences(of: "\n", with: " ")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !stripped.isEmpty else { return nil }
+                    return String(stripped.prefix(180))
+                }
+
+                return ArticleSnapshot(
                     id: item.id,
                     title: item.title,
                     feedTitle: item.feed?.title ?? "Feed",
-                    date: item.publicationDate
+                    date: item.publicationDate,
+                    summary: cleanedSnippet,
+                    isRead: item.isRead
                 )
             }
             if !snapshots.isEmpty {
