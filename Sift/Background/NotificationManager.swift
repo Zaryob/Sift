@@ -148,18 +148,11 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     private func createNotificationAttachment(from faviconURL: URL?) async -> UNNotificationAttachment? {
         let tempDir = FileManager.default.temporaryDirectory
 
-        // 1. Try to download and convert remote favicon
-        if let faviconURL = faviconURL {
-            let sessionConfig = URLSessionConfiguration.ephemeral
-            sessionConfig.timeoutIntervalForRequest = 2.5
-            let session = URLSession(configuration: sessionConfig)
-
-            if let (data, response) = try? await session.data(from: faviconURL),
-               let httpResp = response as? HTTPURLResponse,
-               (200...299).contains(httpResp.statusCode),
-               !data.isEmpty {
-
-                let fileURL = tempDir.appendingPathComponent("notif_\(UUID().uuidString).png")
+        // 1. Try to load or download favicon via local FaviconManager cache
+        if let faviconURL = faviconURL,
+           let data = await FaviconManager.shared.faviconData(for: faviconURL),
+           !data.isEmpty {
+            let fileURL = tempDir.appendingPathComponent("notif_\(UUID().uuidString).png")
                 #if os(macOS)
                 if let image = NSImage(data: data),
                    let tiffData = image.tiffRepresentation,
@@ -179,7 +172,6 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                     }
                 }
                 #endif
-            }
         }
 
         // 2. Fallback to application brand icon as attachment if favicon is not available

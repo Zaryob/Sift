@@ -434,23 +434,7 @@ struct AddFeedSheet: View {
             iconURLString: preview.parsed.iconURL
         )
 
-        return Group {
-            if let faviconURL {
-                AsyncImage(url: faviconURL) { phase in
-                    if case .success(let image) = phase {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    } else {
-                        faviconPlaceholder
-                    }
-                }
-            } else {
-                faviconPlaceholder
-            }
-        }
-        .frame(width: 38, height: 38)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        return FeedFaviconView(url: faviconURL, size: 38, cornerRadius: 8)
     }
 
     private var faviconPlaceholder: some View {

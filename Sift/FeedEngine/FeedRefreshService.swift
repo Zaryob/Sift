@@ -87,6 +87,11 @@ public actor FeedRefreshService {
                 try context.save()
 
                 let faviconURL = FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
+                if let faviconURL {
+                    Task { @MainActor in
+                        _ = await FaviconManager.shared.fetchFavicon(for: faviconURL)
+                    }
+                }
 
                 // Post an individual notification for each newly arrived article (up to 5 to avoid notification flood)
                 for newArticle in newlyInserted.prefix(5) {
