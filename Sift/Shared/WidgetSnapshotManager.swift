@@ -4,7 +4,7 @@ import SwiftData
 import Darwin
 #endif
 
-public final class WidgetSnapshotManager {
+nonisolated public final class WidgetSnapshotManager: @unchecked Sendable {
     public static let shared = WidgetSnapshotManager()
     
     /// Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
@@ -43,9 +43,9 @@ public final class WidgetSnapshotManager {
         )
         
         do {
-            var items: [FeedItem] = (try? context.fetch(descriptor)) ?? []
+            var items: [FeedItem] = try context.fetch(descriptor)
             if items.isEmpty {
-                items = (try? context.fetch(FetchDescriptor<FeedItem>())) ?? []
+                items = try context.fetch(FetchDescriptor<FeedItem>())
                 items.sort { $0.publicationDate > $1.publicationDate }
             }
             

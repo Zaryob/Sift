@@ -17,7 +17,7 @@ public enum FeedParserError: Error, LocalizedError, Equatable {
     }
 }
 
-public final class FeedParser: NSObject, XMLParserDelegate {
+nonisolated public final class FeedParser: NSObject, XMLParserDelegate {
     private enum FeedType {
         case unknown
         case rss
@@ -93,7 +93,11 @@ public final class FeedParser: NSObject, XMLParserDelegate {
         }
     }()
 
-    public func parse(data: Data) throws -> ParsedFeed {
+    nonisolated public override init() {
+        super.init()
+    }
+
+    nonisolated public func parse(data: Data) throws -> ParsedFeed {
         guard !data.isEmpty else {
             throw FeedParserError.emptyData
         }

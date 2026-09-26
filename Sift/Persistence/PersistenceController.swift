@@ -1,12 +1,10 @@
 import Foundation
 import SwiftData
 
-public final class PersistenceController {
+nonisolated public final class PersistenceController: @unchecked Sendable {
     public static let appGroupID = "group.io.github.zaryob.sift"
 
-    public static let shared: PersistenceController = {
-        PersistenceController()
-    }()
+    public static let shared = PersistenceController()
 
     public let container: ModelContainer
 

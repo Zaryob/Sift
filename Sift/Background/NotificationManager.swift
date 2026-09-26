@@ -1,12 +1,12 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 #if os(macOS)
 import AppKit
 #else
 import UIKit
 #endif
 
-public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
+nonisolated public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     public static let shared = NotificationManager()
     
     public static let openArticleNotification = Notification.Name("SiftOpenArticleNotification")
@@ -23,7 +23,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     }
 
     /// Updates the unread count badge shown on the app icon (iOS Home Screen / macOS Dock).
-    public func updateBadgeCount(_ count: Int) {
+    nonisolated public func updateBadgeCount(_ count: Int) {
         UNUserNotificationCenter.current().setBadgeCount(count) { error in
             if let error = error {
                 print("Failed to set badge count: \(error)")
@@ -65,14 +65,15 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo
+        let articleIDStr = response.notification.request.content.userInfo["articleID"] as? String
+        let feedIDStr = response.notification.request.content.userInfo["feedID"] as? String
         DispatchQueue.main.async {
             Platform.showMainWindow()
             
-            if let articleIDStr = userInfo["articleID"] as? String,
+            if let articleIDStr,
                let url = URL(string: "rssreader://article/\(articleIDStr)") {
                 NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
-            } else if let feedIDStr = userInfo["feedID"] as? String,
+            } else if let feedIDStr,
                       let url = URL(string: "rssreader://feed/\(feedIDStr)") {
                 NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
             }
@@ -81,7 +82,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     }
 
     /// Sends an individual notification for a single newly arrived article
-    public func sendArticleNotification(
+    nonisolated public func sendArticleNotification(
         articleTitle: String,
         feedTitle: String,
         articleID: UUID,
@@ -176,7 +177,10 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
 
         // 2. Fallback to application brand icon as attachment if favicon is not available
         #if os(macOS)
-        if let appIcon = NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName),
+        let appIcon = await MainActor.run {
+            NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName)
+        }
+        if let appIcon,
            let tiffData = appIcon.tiffRepresentation,
            let bitmapRep = NSBitmapImageRep(data: tiffData),
            let pngData = bitmapRep.representation(using: .png, properties: [:]) {

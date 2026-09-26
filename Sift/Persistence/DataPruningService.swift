@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 
 /// Represents the summary result of a data pruning operation.
-public struct PruningResult: Equatable, Sendable {
+nonisolated public struct PruningResult: Equatable, Sendable {
     public let readPrunedCount: Int
     public let unreadPrunedCount: Int
     public var totalPruned: Int { readPrunedCount + unreadPrunedCount }

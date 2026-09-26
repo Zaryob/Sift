@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ParsedFeed: Equatable {
+nonisolated public struct ParsedFeed: Equatable, Sendable {
     public var title: String
     var siteURL: String?
     var feedDescription: String?
@@ -22,7 +22,7 @@ public struct ParsedFeed: Equatable {
     }
 }
 
-public struct ParsedItem: Equatable {
+nonisolated public struct ParsedItem: Equatable, Sendable {
     public var guid: String?
     public var title: String
     public var link: String?

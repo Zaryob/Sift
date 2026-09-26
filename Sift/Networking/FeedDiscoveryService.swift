@@ -1,6 +1,6 @@
 import Foundation
 
-public struct DiscoveredFeed: Hashable {
+nonisolated public struct DiscoveredFeed: Hashable, Sendable {
     public let title: String
     public let url: URL
 
@@ -10,10 +10,10 @@ public struct DiscoveredFeed: Hashable {
     }
 }
 
-public final class FeedDiscoveryService {
+nonisolated public final class FeedDiscoveryService: Sendable {
     private let httpClient: FeedHTTPClientProtocol
 
-    public init(httpClient: FeedHTTPClientProtocol = FeedHTTPClient()) {
+    nonisolated public init(httpClient: FeedHTTPClientProtocol = FeedHTTPClient()) {
         self.httpClient = httpClient
     }
 

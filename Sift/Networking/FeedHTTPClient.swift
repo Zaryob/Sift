@@ -5,7 +5,7 @@ public enum FeedFetchResult {
     case notModified
 }
 
-public protocol FeedHTTPClientProtocol {
+public protocol FeedHTTPClientProtocol: Sendable {
     func fetchFeed(
         from url: URL,
         etag: String?,
@@ -13,10 +13,10 @@ public protocol FeedHTTPClientProtocol {
     ) async throws -> FeedFetchResult
 }
 
-public final class FeedHTTPClient: FeedHTTPClientProtocol {
+nonisolated public final class FeedHTTPClient: FeedHTTPClientProtocol, @unchecked Sendable {
     private let session: URLSession
 
-    public init(session: URLSession? = nil) {
+    nonisolated public init(session: URLSession? = nil) {
         if let session = session {
             self.session = session
         } else {

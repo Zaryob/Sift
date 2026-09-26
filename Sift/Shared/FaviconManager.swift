@@ -108,14 +108,14 @@ public final class FaviconManager: ObservableObject {
                   let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode),
                   let image = PlatformImage(data: data) else {
-                await MainActor.run {
+                _ = await MainActor.run {
                     self?.failedURLs.insert(urlString)
                 }
                 return nil
             }
 
             // Save to disk & memory cache
-            await MainActor.run {
+            _ = await MainActor.run {
                 self?.saveToDisk(data: data, key: key)
                 self?.memoryCache.setObject(image, forKey: key as NSString)
                 self?.objectWillChange.send()

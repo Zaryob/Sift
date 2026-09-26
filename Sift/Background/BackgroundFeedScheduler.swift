@@ -102,10 +102,18 @@ public final class BackgroundFeedScheduler: ObservableObject {
         guard refreshIntervalMinutes > 0 else { return }
         let request = BGAppRefreshTaskRequest(identifier: Self.backgroundTaskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: TimeInterval(refreshIntervalMinutes * 60))
-        do {
-            try BGTaskScheduler.shared.submit(request)
-        } catch {
-            print("[BackgroundFeedScheduler] Failed to schedule BGAppRefreshTask: \(error)")
+        if #available(iOS 27.0, *) {
+            BGTaskScheduler.shared.submitTaskRequest(request) { error in
+                if let error = error {
+                    print("[BackgroundFeedScheduler] Failed to schedule BGAppRefreshTask: \(error)")
+                }
+            }
+        } else {
+            do {
+                try BGTaskScheduler.shared.submit(request)
+            } catch {
+                print("[BackgroundFeedScheduler] Failed to schedule BGAppRefreshTask: \(error)")
+            }
         }
     }
 

@@ -1880,7 +1880,7 @@ final class DictationObserver: ObservableObject {
         checkDictationState()
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.checkDictationState()
             }
         }
