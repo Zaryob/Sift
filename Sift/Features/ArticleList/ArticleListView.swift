@@ -263,12 +263,21 @@ struct ArticleListView: View {
     }
 
     private var rowInsets: EdgeInsets {
+        #if os(macOS)
+        let vertical: CGFloat = switch density {
+        case .compact: 6
+        case .comfortable: 8
+        case .spacious: 12
+        }
+        return EdgeInsets(top: vertical, leading: 14, bottom: vertical, trailing: 14)
+        #else
         let vertical: CGFloat = switch density {
         case .compact: 8
         case .comfortable: 11
         case .spacious: 14
         }
         return EdgeInsets(top: vertical, leading: 16, bottom: vertical, trailing: 16)
+        #endif
     }
 
     // MARK: - Body
@@ -460,7 +469,7 @@ struct ArticleListView: View {
             } label: {
                 Label(article.isRead ? "Unread" : "Read", systemImage: article.isRead ? "circle.fill" : "checkmark")
             }
-            .tint(.blue)
+            .tint(Color.siftAccent)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
@@ -473,12 +482,14 @@ struct ArticleListView: View {
             }
             .tint(Color.siftStarred)
 
+            #if os(iOS)
             Button {
                 viewModel.openArticleExternally(article)
             } label: {
                 Label("Browser", systemImage: "safari")
             }
             .tint(.gray)
+            #endif
         }
         .contextMenu {
             Button {
@@ -553,19 +564,13 @@ struct ArticleListView: View {
                 }
             } label: {
                 Image(systemName: isFilterActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                    .foregroundStyle(isFilterActive ? Color.blue : Color.primary)
+                    .foregroundStyle(isFilterActive ? Color.siftAccent : Color.primary)
             }
             .help(isFilterActive ? "Turn Filter Off" : "Turn Filter On")
             .contextMenu {
                 Button("Filter Options…") {
                     isShowingFilters = true
                 }
-            }
-
-            Button {
-                viewModel.isAddingFeed = true
-            } label: {
-                Label("Add Feed", systemImage: "plus")
             }
 
             moreOptionsMenu
@@ -694,10 +699,9 @@ struct ArticleListView: View {
         }
     }
 
-    /// Screenshot 1 (left): Filter is ON -> Capsule with blue circle toggle button + "Filtered by \n Unread ⌄"
+    /// Filter is ON -> Capsule with siftAccent circle toggle button + "Filtered by \n Unread ⌵"
     private var filterActiveCapsule: some View {
         HStack(spacing: 10) {
-            // Blue circle toggle button with dark funnel lines
             Button {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                     isFilterActive = false
@@ -705,18 +709,18 @@ struct ArticleListView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(Color(red: 0.12, green: 0.62, blue: 1.0))
+                        .fill(Color.siftAccent)
                         .frame(width: 36, height: 36)
 
                     Image(systemName: "line.3.horizontal.decrease")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color.black.opacity(0.85))
+                        .foregroundStyle(Color.white)
                 }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Turn filter off")
 
-            // Label: "Filtered by \n Unread ⌄"
+            // Label: "Filtered by \n Unread ⌵"
             Button {
                 isShowingFilters = true
             } label: {
@@ -728,11 +732,11 @@ struct ArticleListView: View {
                     HStack(spacing: 3) {
                         Text(filterConfig.summaryText)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color(red: 0.12, green: 0.62, blue: 1.0))
+                            .foregroundStyle(Color.siftAccent)
 
                         Image(systemName: "chevron.down")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(Color(red: 0.12, green: 0.62, blue: 1.0))
+                            .foregroundStyle(Color.siftAccent)
                     }
                 }
             }
@@ -750,7 +754,7 @@ struct ArticleListView: View {
         .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
     }
 
-    /// Screenshot 1 (right): Filter is ON -> Collapsed search circle
+    /// Filter is ON -> Collapsed search circle
     private var searchCircleButton: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -773,7 +777,7 @@ struct ArticleListView: View {
         .accessibilityLabel("Search")
     }
 
-    /// Screenshot 2 (left): Filter is OFF -> Collapsed filter circle with white funnel
+    /// Filter is OFF -> Collapsed filter circle
     private var filterInactiveCircle: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -802,7 +806,7 @@ struct ArticleListView: View {
         }
     }
 
-    /// Screenshot 2 (right): Filter is OFF -> Wide Search capsule (no mic when search is closed)
+    /// Filter is OFF -> Wide Search capsule
     private var searchCapsuleButton: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -1149,7 +1153,7 @@ struct ArticleFiltersSheet: View {
                         HStack(spacing: 12) {
                             Image(systemName: "paperclip")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(Color.siftAccent)
                                 .frame(width: 24)
                             Text("Only Articles with Media")
                                 .font(.system(size: 16))
@@ -1161,7 +1165,7 @@ struct ArticleFiltersSheet: View {
                         HStack(spacing: 12) {
                             Image(systemName: "star.fill")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.yellow)
+                                .foregroundStyle(Color.siftStarred)
                                 .frame(width: 24)
                             Text("Only from VIP Feeds")
                                 .font(.system(size: 16))
@@ -1173,7 +1177,7 @@ struct ArticleFiltersSheet: View {
                         HStack(spacing: 12) {
                             Image(systemName: "calendar")
                                 .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(Color.siftAccent)
                                 .frame(width: 24)
                             Text("Only Articles Sent Today")
                                 .font(.system(size: 16))
@@ -1209,7 +1213,7 @@ struct ArticleFiltersSheet: View {
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 28, height: 28)
-                            .background(Color.blue, in: Circle())
+                            .background(Color.siftAccent, in: Circle())
                         #else
                         Text("Done")
                         #endif
@@ -1256,7 +1260,7 @@ struct ArticleFiltersSheet: View {
                 } label: {
                     Image(systemName: isVIP ? "star.fill" : "star")
                         .font(.system(size: 14))
-                        .foregroundStyle(isVIP ? Color.yellow : Color.secondary.opacity(0.35))
+                        .foregroundStyle(isVIP ? Color.siftStarred : Color.secondary.opacity(0.35))
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
@@ -1266,7 +1270,7 @@ struct ArticleFiltersSheet: View {
                 if isIncluded {
                     Image(systemName: "checkmark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Color.siftAccent)
                 }
             }
             .contentShape(Rectangle())
@@ -1281,7 +1285,7 @@ struct ArticleFiltersSheet: View {
             HStack(spacing: 12) {
                 Image(systemName: "envelope.fill")
                     .font(.system(size: 16))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Color.siftAccent)
                     .frame(width: 24)
 
                 Text("Unread")
@@ -1293,7 +1297,7 @@ struct ArticleFiltersSheet: View {
                 if filterConfig.includeUnread {
                     Image(systemName: "checkmark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Color.siftAccent)
                 }
             }
             .contentShape(Rectangle())
@@ -1306,9 +1310,9 @@ struct ArticleFiltersSheet: View {
             filterConfig.includeStarred.toggle()
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "flag.fill")
+                Image(systemName: "star.fill")
                     .font(.system(size: 16))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.siftStarred)
                     .frame(width: 24)
 
                 Text("Starred")
@@ -1320,7 +1324,7 @@ struct ArticleFiltersSheet: View {
                 if filterConfig.includeStarred {
                     Image(systemName: "checkmark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(Color.siftAccent)
                 }
             }
             .contentShape(Rectangle())
@@ -1329,7 +1333,7 @@ struct ArticleFiltersSheet: View {
     }
 }
 
-// MARK: - Article Row (Apple Mail Density & Layout)
+// MARK: - Article Row (Apple Mail Native: iOS & macOS)
 
 struct ArticleRow: View {
     let article: FeedItem
@@ -1339,6 +1343,7 @@ struct ArticleRow: View {
     /// False inside a single feed's list, where the feed name is already the screen's nav title.
     var showSource: Bool = true
 
+    #if os(iOS)
     private var iconSize: CGFloat {
         switch density {
         case .compact: return 30
@@ -1346,6 +1351,10 @@ struct ArticleRow: View {
         case .spacious: return 40
         }
     }
+    #else
+    @State private var isHovered: Bool = false
+    @Environment(\.modelContext) private var modelContext
+    #endif
 
     private var snippet: String {
         HTMLSanitizer.stripTags(from: article.summary ?? article.content ?? "")
@@ -1357,6 +1366,17 @@ struct ArticleRow: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        iosMailRow
+        #else
+        macOSMailRow
+        #endif
+    }
+
+    // MARK: - iOS Apple Mail Row (100% faithful to IMG_0295)
+
+    #if os(iOS)
+    private var iosMailRow: some View {
         HStack(alignment: .top, spacing: 8) {
             // Unread dot
             ZStack(alignment: .top) {
@@ -1433,6 +1453,101 @@ struct ArticleRow: View {
                 .foregroundStyle(Color.siftStarred)
         }
     }
+    #endif
+
+    // MARK: - macOS Apple Mail Row (100% faithful to macOS Apple Mail)
+
+    #if os(macOS)
+    private var macOSMailRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            // Unread dot
+            ZStack(alignment: .top) {
+                if !article.isRead {
+                    Circle()
+                        .fill(Color.siftAccent)
+                        .frame(width: 6, height: 6)
+                        .padding(.top, 4)
+                }
+            }
+            .frame(width: 7)
+
+            // Content: Line 1 (Sender + Time/Hover Actions), Line 2 (Subject/Title), Line 3 (Snippet)
+            VStack(alignment: .leading, spacing: density == .compact ? 1 : 2) {
+                // Line 1: Feed name + Date/Time (or hover buttons)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(feedTitle)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(article.isRead ? Color.primary.opacity(0.8) : Color.primary)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 6)
+
+                    if isHovered {
+                        HStack(spacing: 4) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    article.isStarred.toggle()
+                                    try? modelContext.save()
+                                }
+                            } label: {
+                                Image(systemName: article.isStarred ? "star.fill" : "star")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(article.isStarred ? Color.siftStarred : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help(article.isStarred ? "Unstar" : "Star")
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    article.isRead.toggle()
+                                    try? modelContext.save()
+                                }
+                            } label: {
+                                Image(systemName: article.isRead ? "circle" : "checkmark.circle")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help(article.isRead ? "Mark as Unread" : "Mark as Read")
+                        }
+                        .transition(.opacity)
+                    } else {
+                        Text(formattedTime(for: article.publicationDate))
+                            .font(.system(size: 11.5, weight: .regular))
+                            .foregroundStyle(.secondary)
+
+                        if article.isStarred {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color.siftStarred)
+                        }
+                    }
+                }
+
+                // Line 2: Article Title (Subject)
+                Text(article.title.isEmpty ? "Untitled" : article.title)
+                    .font(.system(size: 13, weight: article.isRead ? .regular : .medium))
+                    .foregroundStyle(article.isRead ? Color.primary.opacity(0.85) : Color.primary)
+                    .lineLimit(density == .compact ? 1 : 2)
+
+                // Line 3: Snippet Preview
+                if showPreview, !snippet.isEmpty, density != .compact {
+                    Text(snippet)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(density == .spacious ? 2 : 1)
+                        .padding(.top, 0.5)
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+    #endif
 
     private func formattedTime(for date: Date) -> String {
         let calendar = Calendar.current
@@ -1611,3 +1726,4 @@ extension UIResponder {
     }
 }
 #endif
+

@@ -55,10 +55,19 @@ struct SidebarView: View {
         )
     }
 
+    private var statusSubtitle: String {
+        if feeds.isEmpty {
+            return String(localized: "No subscriptions yet")
+        }
+        let feedText = feeds.count == 1 ? String(localized: "1 feed") : "\(feeds.count) \(String(localized: "feeds"))"
+        let unreadText = unreadCount == 1 ? String(localized: "1 unread") : "\(unreadCount) \(String(localized: "unread"))"
+        return "\(feedText) · \(unreadText)"
+    }
+
     var body: some View {
         List(selection: $viewModel.selectedSidebarItem) {
             Section("Library") {
-                libraryRow("All Articles", systemImage: "tray.full", item: .all, count: nil)
+                libraryRow("All Articles", systemImage: "tray.full", item: .all, count: allArticles.isEmpty ? nil : allArticles.count)
                 libraryRow("Unread", systemImage: "circlebadge", item: .unread, count: unreadCount)
                 libraryRow("Starred", systemImage: "star", item: .starred, count: starredCount)
             }
@@ -98,7 +107,7 @@ struct SidebarView: View {
                         Image(systemName: "checkmark.circle")
                             .foregroundStyle(.secondary)
                             .imageScale(.small)
-                        Text(feeds.isEmpty ? "No subscriptions yet" : "\(feeds.count) feeds · \(unreadCount) unread")
+                        Text(statusSubtitle)
                     }
                 }
                 .font(.footnote)
@@ -112,14 +121,16 @@ struct SidebarView: View {
         }
         #if os(macOS)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     viewModel.isAddingFeed = true
                 } label: {
                     Label("Add Feed", systemImage: "plus")
                 }
                 .help("Add New RSS Feed")
+            }
 
+            ToolbarItem {
                 Button {
                     viewModel.refreshAllFeeds(context: modelContext)
                 } label: {

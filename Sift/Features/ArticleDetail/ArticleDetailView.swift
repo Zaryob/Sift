@@ -32,12 +32,7 @@ struct ArticleDetailView: View {
 
     var body: some View {
         if let article {
-            VStack(spacing: 0) {
-                #if os(macOS)
-                headerBar(for: article)
-                Divider()
-                #endif
-
+            Group {
                 if viewMode == .web, let url = article.originalURL {
                     WebView(url: url)
                 } else {
@@ -49,6 +44,9 @@ struct ArticleDetailView: View {
                 isLoadingFullText = article.extractedArticleData == nil
                 await viewModel.loadFullTextIfNeeded(for: article, context: modelContext)
                 isLoadingFullText = false
+            }
+            .popover(isPresented: $isShowingAppearancePopover) {
+                ReadingAppearancePopover()
             }
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -66,11 +64,12 @@ struct ArticleDetailView: View {
                     moreMenu(for: article)
                 }
             }
-            .popover(isPresented: $isShowingAppearancePopover) {
-                ReadingAppearancePopover()
-            }
             // Applies to the Open Original button and in-article links: Safari view vs. Safari app.
             .onOpenURL(prefersInApp: openLinksInApp)
+            #else
+            .toolbar {
+                macOSToolbarItems(for: article)
+            }
             #endif
         } else {
             ContentUnavailableView(
@@ -85,18 +84,61 @@ struct ArticleDetailView: View {
 
     private func reader(for article: FeedItem) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                metadataLine(for: article)
+            VStack(alignment: .leading, spacing: 18) {
+                #if os(macOS)
+                // macOS Apple Mail style message header
+                HStack(alignment: .top, spacing: 14) {
+                    if let feed = article.feed {
+                        FeedFaviconView(feed: feed, size: 38, cornerRadius: 8)
+                    }
 
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(article.feed?.title ?? article.author ?? "Feed")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+
+                            Spacer()
+
+                            Text(article.publicationDate.formatted(date: .abbreviated, time: .shortened))
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text(article.title)
+                            .font(.system(size: 18, weight: .bold, design: fontDesign))
+                            .foregroundStyle(.primary)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        metadataLine(for: article)
+                    }
+                }
+                .padding(.bottom, 4)
+
+                Divider()
+                    .opacity(0.35)
+                #else
+                // Editorial Headline: Primary focus, refined semibold serif
                 Text(article.title)
-                    .font(.system(size: min(readerFontSize * 1.3, 24), weight: .bold, design: fontDesign))
-                    .lineSpacing(readerFontSize * 0.08)
+                    .font(.system(size: min(readerFontSize * 1.25, 23), weight: .semibold, design: fontDesign))
+                    .lineSpacing(readerFontSize * 0.12)
                     .fixedSize(horizontal: false, vertical: true)
 
+                // Editorial metadata line with clear separation
+                VStack(alignment: .leading, spacing: 10) {
+                    metadataLine(for: article)
+                    Divider()
+                        .opacity(0.4)
+                }
+                .padding(.bottom, 2)
+                #endif
+
+                // Hero Image
                 if let imageURLString = article.imageURL, let imageURL = URL(string: imageURLString) {
                     Color.clear
                         .frame(maxWidth: .infinity)
-                        .frame(height: 210)
+                        .frame(height: 220)
                         .overlay {
                             AsyncImage(url: imageURL) { phase in
                                 if case .success(let image) = phase {
@@ -108,17 +150,18 @@ struct ArticleDetailView: View {
                                 }
                             }
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .padding(.vertical, 2)
                 }
 
+                // Body text
                 articleBody(for: article)
             }
             .textSelection(.enabled)
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 44)
-            .frame(maxWidth: 600, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.top, 20)
+            .padding(.bottom, 48)
+            .frame(maxWidth: 620, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
     }
@@ -282,79 +325,81 @@ struct ArticleDetailView: View {
     #endif
 
     #if os(macOS)
-    private func headerBar(for article: FeedItem) -> some View {
-        HStack(spacing: 12) {
+    @ToolbarContentBuilder
+    private func macOSToolbarItems(for article: FeedItem) -> some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
             Picker("View Mode", selection: $viewMode) {
                 ForEach(DetailViewMode.allCases) { mode in
                     Text(mode.rawValue).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
-            .frame(maxWidth: 160)
+            .frame(width: 140)
+        }
 
-            Spacer()
-
-            Button {
-                isShowingAppearancePopover.toggle()
-            } label: {
-                Label("Appearance", systemImage: "textformat.size")
-            }
-            .popover(isPresented: $isShowingAppearancePopover) {
-                ReadingAppearancePopover()
-            }
-            .help("Reading Appearance")
-
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 article.isStarred.toggle()
                 try? modelContext.save()
             } label: {
-                Label(article.isStarred ? "Starred" : "Star", systemImage: article.isStarred ? "star.fill" : "star")
-                    .foregroundStyle(article.isStarred ? Color.siftStarred : Color.secondary)
+                Image(systemName: article.isStarred ? "star.fill" : "star")
+                    .foregroundStyle(article.isStarred ? Color.siftStarred : .secondary)
             }
-            .help(article.isStarred ? "Remove Star" : "Star Article")
+            .help(article.isStarred ? "Remove Star (S)" : "Star Article (S)")
+        }
 
-            Button {
-                article.isRead.toggle()
-                try? modelContext.save()
-            } label: {
-                Label(article.isRead ? "Mark Unread" : "Mark Read", systemImage: article.isRead ? "circle" : "checkmark.circle")
-            }
-            .help(article.isRead ? "Mark as Unread" : "Mark as Read")
-
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 viewModel.openArticleExternally(article)
             } label: {
-                Label("Open in Browser", systemImage: "safari")
+                Image(systemName: "safari")
+                    .foregroundStyle(.secondary)
             }
-            .help("Open the original article in your browser")
+            .help("Open in Browser (O)")
+        }
 
+        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button {
-                    printArticle(article)
+                    isShowingAppearancePopover = true
                 } label: {
-                    Label("Print Article", systemImage: "printer")
+                    Label("Reading Appearance…", systemImage: "textformat.size")
                 }
 
+                Divider()
+
+                Button {
+                    article.isRead.toggle()
+                    try? modelContext.save()
+                } label: {
+                    Label(article.isRead ? "Mark as Unread" : "Mark as Read", systemImage: article.isRead ? "circle" : "checkmark.circle")
+                }
+
+                Divider()
+
                 if let url = article.originalURL {
+                    ShareLink(item: url) {
+                        Label("Share…", systemImage: "square.and.arrow.up")
+                    }
+
                     Button {
                         Platform.copyToPasteboard(url.absoluteString)
                     } label: {
                         Label("Copy Link", systemImage: "link")
                     }
+                }
 
-                    Divider()
-
-                    ShareLink(item: url) {
-                        Label("Share…", systemImage: "square.and.arrow.up")
-                    }
+                Button {
+                    printArticle(article)
+                } label: {
+                    Label("Print…", systemImage: "printer")
                 }
             } label: {
-                Label("More", systemImage: "ellipsis.circle")
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(.secondary)
             }
+            .help("More Actions")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.bar)
     }
     #endif
 
@@ -459,6 +504,7 @@ private struct TrailingIconLabelStyle: LabelStyle {
 
 extension FeedItem {
     var originalURL: URL? {
-        link.flatMap(URL.init(string:))
+        guard let link else { return nil }
+        return URL(string: link)
     }
 }

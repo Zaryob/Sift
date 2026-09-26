@@ -60,7 +60,25 @@ struct AddFeedSheet: View {
                         previewCard(preview)
                     }
 
-                    Spacer(minLength: 12)
+                    // Helpful discovery helper when empty
+                    if inputURL.isEmpty && clipboardCandidate == nil {
+                        VStack(spacing: 8) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 24))
+                                .foregroundStyle(Color.siftAccent.opacity(0.8))
+                                .padding(.top, 6)
+                            Text("Enter a website URL or RSS feed link")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Text("Sift discovers the feed automatically and generates a live preview.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.vertical, 16)
+                    }
+
+                    Spacer(minLength: 8)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
@@ -88,7 +106,8 @@ struct AddFeedSheet: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 460, idealWidth: 480, minHeight: 420)
+        .frame(width: 480)
+        .frame(minHeight: (selectedPreview != nil || !choices.isEmpty) ? 360 : 210, maxHeight: 540)
         #else
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
