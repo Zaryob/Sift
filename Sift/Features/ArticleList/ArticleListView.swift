@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import SwiftData
 
@@ -133,8 +134,14 @@ struct ArticleListView: View {
 
     @State private var searchText = ""
     @State private var isSearching = false
-    @State private var isDictating = false
     @FocusState private var isSearchFocused: Bool
+
+    #if os(iOS)
+    @ObservedObject private var dictationObserver = DictationObserver.shared
+    private var isDictating: Bool { dictationObserver.isDictating }
+    #else
+    private var isDictating: Bool { false }
+    #endif
 
     @State private var isFilterActive = false
     @State private var filterConfig = ArticleFilterConfig.defaultConfig
@@ -359,23 +366,15 @@ struct ArticleListView: View {
                     savedFilterConfigData = data
                 }
             }
-            #if os(iOS)
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                isDictating = false
+            .onChange(of: isSearching) { _, searching in
+                #if os(iOS)
+                if searching {
+                    DictationObserver.shared.startPolling()
+                } else {
+                    DictationObserver.shared.stopPolling()
+                }
+                #endif
             }
-            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UIDictationControllerDidEndNotification"))) { _ in
-                isDictating = false
-            }
-            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UIDictationControllerRecordingDidEndNotification"))) { _ in
-                isDictating = false
-            }
-            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UIDictationControllerDidBeginNotification"))) { _ in
-                isDictating = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("UIDictationControllerRecordingDidBeginNotification"))) { _ in
-                isDictating = true
-            }
-            #endif
             .background {
                 keyboardShortcuts
             }
@@ -632,14 +631,11 @@ struct ArticleListView: View {
 
                 // Circular Dismiss Button with X
                 Button {
-                    if isDictating {
-                        toggleSystemKeyboardDictation()
-                    }
+                    DictationObserver.shared.stopDictation()
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         isSearching = false
                         searchText = ""
                         isSearchFocused = false
-                        isDictating = false
                     }
                 } label: {
                     Image(systemName: "xmark")
@@ -806,95 +802,50 @@ struct ArticleListView: View {
         }
     }
 
-    /// Screenshot 2 (right): Filter is OFF -> Wide Search capsule with Mic
+    /// Screenshot 2 (right): Filter is OFF -> Wide Search capsule (no mic when search is closed)
     private var searchCapsuleButton: some View {
-        HStack(spacing: 0) {
-            Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    isSearching = true
-                    isSearchFocused = true
-                }
-            } label: {
-                HStack(spacing: 9) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.primary)
-
-                    Text("Search")
-                        .font(.system(size: 17, weight: .regular))
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-                }
-                .contentShape(Rectangle())
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isSearching = true
+                isSearchFocused = true
             }
-            .buttonStyle(.plain)
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.primary)
 
-            Button {
-                toggleSystemKeyboardDictation()
-            } label: {
-                Image(systemName: isDictating ? "mic.fill" : "mic")
-                    .font(.system(size: 18, weight: isDictating ? .bold : .regular))
-                    .foregroundStyle(isDictating ? Color.primary : Color.secondary)
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
+                Text("Search")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dictate search")
+            .padding(.leading, 16)
+            .padding(.trailing, 14)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
+            )
+            .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+            .contentShape(Capsule())
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 14)
-        .frame(maxWidth: .infinity)
-        .frame(height: 48)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(
-            Capsule()
-                .stroke(Color.primary.opacity(0.12), lineWidth: 0.5)
-        )
-        .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search")
     }
 
     private func toggleSystemKeyboardDictation() {
         if isDictating {
-            isDictating = false
-            if let responder = UIResponder.currentFirstResponder {
-                if responder.responds(to: Selector(("stopDictation"))) {
-                    responder.perform(Selector(("stopDictation")))
-                    return
-                }
+            DictationObserver.shared.stopDictation()
+        } else {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isSearching = true
+                isSearchFocused = true
             }
-            if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
-               dictationClass.responds(to: Selector(("sharedInstance"))) {
-                if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
-                    if controller.responds(to: Selector(("stopDictation"))) {
-                        controller.perform(Selector(("stopDictation")))
-                    }
-                }
-            }
-            return
-        }
-
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            isSearching = true
-            isSearchFocused = true
-            isDictating = true
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            if let responder = UIResponder.currentFirstResponder {
-                if responder.responds(to: Selector(("startDictation"))) {
-                    responder.perform(Selector(("startDictation")))
-                    return
-                }
-            }
-            if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
-               dictationClass.responds(to: Selector(("sharedInstance"))) {
-                if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
-                    if controller.responds(to: Selector(("startDictation"))) {
-                        controller.perform(Selector(("startDictation")))
-                    }
-                }
-            }
+            DictationObserver.shared.startDictation()
         }
     }
     #endif
@@ -1495,6 +1446,156 @@ struct ArticleRow: View {
 
 #if os(iOS)
 import UIKit
+
+@MainActor
+final class DictationObserver: ObservableObject {
+    static let shared = DictationObserver()
+
+    @Published var isDictating: Bool = false
+    private var timer: Timer?
+
+    private init() {
+        startObserving()
+    }
+
+    func startObserving() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(checkDictationState),
+            name: UITextInputMode.currentInputModeDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardHide),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(checkDictationState),
+            name: UITextField.textDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDictationBegin),
+            name: Notification.Name("UIDictationControllerDidBeginNotification"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDictationBegin),
+            name: Notification.Name("UIDictationControllerRecordingDidBeginNotification"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDictationEnd),
+            name: Notification.Name("UIDictationControllerDidEndNotification"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDictationEnd),
+            name: Notification.Name("UIDictationControllerRecordingDidEndNotification"),
+            object: nil
+        )
+    }
+
+    func startPolling() {
+        checkDictationState()
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.checkDictationState()
+            }
+        }
+    }
+
+    func stopPolling() {
+        timer?.invalidate()
+        timer = nil
+        isDictating = false
+    }
+
+    func startDictation() {
+        isDictating = true
+        startPolling()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if let responder = UIResponder.currentFirstResponder {
+                if responder.responds(to: Selector(("startDictation"))) {
+                    responder.perform(Selector(("startDictation")))
+                    return
+                }
+            }
+            if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
+               dictationClass.responds(to: Selector(("sharedInstance"))) {
+                if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
+                    if controller.responds(to: Selector(("startDictation"))) {
+                        controller.perform(Selector(("startDictation")))
+                    }
+                }
+            }
+        }
+    }
+
+    func stopDictation() {
+        isDictating = false
+        if let responder = UIResponder.currentFirstResponder {
+            if responder.responds(to: Selector(("stopDictation"))) {
+                responder.perform(Selector(("stopDictation")))
+                return
+            }
+        }
+        if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
+           dictationClass.responds(to: Selector(("sharedInstance"))) {
+            if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
+                if controller.responds(to: Selector(("stopDictation"))) {
+                    controller.perform(Selector(("stopDictation")))
+                }
+            }
+        }
+    }
+
+    @objc func handleKeyboardHide() {
+        isDictating = false
+    }
+
+    @objc func handleDictationBegin() {
+        isDictating = true
+    }
+
+    @objc func handleDictationEnd() {
+        isDictating = false
+    }
+
+    @objc func checkDictationState() {
+        var active = false
+
+        // Check 1: UIDictationController state
+        if let cls = NSClassFromString("UIDictationController") as? NSObject.Type,
+           cls.responds(to: Selector(("sharedInstance"))),
+           let instance = cls.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
+            if let state = instance.value(forKey: "state") as? Int, state != 0 {
+                active = true
+            }
+        }
+
+        // Check 2: Responder textInputMode
+        if !active, let mode = UIResponder.currentFirstResponder?.textInputMode {
+            let className = String(describing: type(of: mode))
+            let lang = mode.primaryLanguage ?? ""
+            if className.localizedCaseInsensitiveContains("dictation") || lang.localizedCaseInsensitiveContains("dictation") {
+                active = true
+            }
+        }
+
+        if isDictating != active {
+            isDictating = active
+        }
+    }
+}
 
 extension UIResponder {
     private static weak var _currentFirstResponder: UIResponder?
