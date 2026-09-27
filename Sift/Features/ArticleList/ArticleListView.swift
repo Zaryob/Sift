@@ -193,6 +193,9 @@ struct ArticleListView: View {
             return allArticles.filter { $0.feed?.id == feedID }
         }
         switch viewModel.selectedSidebarItem {
+        case .today:
+            let calendar = Calendar.current
+            return allArticles.filter { calendar.isDateInToday($0.publicationDate) }
         case .unread:
             return allArticles.filter { !$0.isRead }
         case .starred:
@@ -266,6 +269,7 @@ struct ArticleListView: View {
 
     private var currentScopeTitle: String {
         switch viewModel.selectedSidebarItem {
+        case .today: return String(localized: "Today")
         case .unread: return String(localized: "Unread")
         case .starred: return String(localized: "Starred")
         case .all, .none: return String(localized: "All Articles")
@@ -467,17 +471,17 @@ struct ArticleListView: View {
 
     private var updatedAgoString: String {
         guard let last = viewModel.lastRefreshedAt else {
-            return "Updated recently"
+            return String(localized: "Updated recently")
         }
         let seconds = Date().timeIntervalSince(last)
         if seconds < 60 {
-            return "Updated just now"
+            return String(localized: "Updated just now")
         } else if seconds < 3600 {
             let mins = Int(seconds / 60)
-            return "Updated \(mins)m ago"
+            return String(localized: "Updated \(mins)m ago")
         } else {
             let hours = Int(seconds / 3600)
-            return "Updated \(hours)h ago"
+            return String(localized: "Updated \(hours)h ago")
         }
     }
 
@@ -1880,7 +1884,7 @@ final class DictationObserver: ObservableObject {
     func startPolling() {
         checkDictationState()
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.checkDictationState()
             }
@@ -1894,46 +1898,18 @@ final class DictationObserver: ObservableObject {
     }
 
     func startDictation() {
-        isDictating = true
+        // App Store Safe: Dictation is invoked natively via system keyboard microphone.
+        // We only observe whether dictation mode is active.
         startPolling()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            if let responder = UIResponder.currentFirstResponder {
-                if responder.responds(to: Selector(("startDictation"))) {
-                    responder.perform(Selector(("startDictation")))
-                    return
-                }
-            }
-            if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
-               dictationClass.responds(to: Selector(("sharedInstance"))) {
-                if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
-                    if controller.responds(to: Selector(("startDictation"))) {
-                        controller.perform(Selector(("startDictation")))
-                    }
-                }
-            }
-        }
     }
 
     func stopDictation() {
-        isDictating = false
-        if let responder = UIResponder.currentFirstResponder {
-            if responder.responds(to: Selector(("stopDictation"))) {
-                responder.perform(Selector(("stopDictation")))
-                return
-            }
-        }
-        if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
-           dictationClass.responds(to: Selector(("sharedInstance"))) {
-            if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
-                if controller.responds(to: Selector(("stopDictation"))) {
-                    controller.perform(Selector(("stopDictation")))
-                }
-            }
-        }
+        stopPolling()
     }
 
     @objc func handleKeyboardHide() {
         isDictating = false
+        stopPolling()
     }
 
     @objc func handleDictationBegin() {
@@ -1947,17 +1923,8 @@ final class DictationObserver: ObservableObject {
     @objc func checkDictationState() {
         var active = false
 
-        // Check 1: UIDictationController state
-        if let cls = NSClassFromString("UIDictationController") as? NSObject.Type,
-           cls.responds(to: Selector(("sharedInstance"))),
-           let instance = cls.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
-            if let state = instance.value(forKey: "state") as? Int, state != 0 {
-                active = true
-            }
-        }
-
-        // Check 2: Responder textInputMode
-        if !active, let mode = UIResponder.currentFirstResponder?.textInputMode {
+        // Public App Store-safe check: Responder textInputMode
+        if let mode = UIResponder.currentFirstResponder?.textInputMode {
             let className = String(describing: type(of: mode))
             let lang = mode.primaryLanguage ?? ""
             if className.localizedCaseInsensitiveContains("dictation") || lang.localizedCaseInsensitiveContains("dictation") {

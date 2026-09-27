@@ -8,6 +8,7 @@ struct SidebarView: View {
     @Bindable var viewModel: AppViewModel
 
     @Query(sort: \Feed.title) private var feeds: [Feed]
+    @Query(sort: \FeedItem.publicationDate, order: .reverse) private var allArticles: [FeedItem]
     @Query(filter: #Predicate<FeedItem> { !$0.isRead }) private var unreadArticles: [FeedItem]
     @Query(filter: #Predicate<FeedItem> { $0.isStarred }) private var starredArticles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
@@ -16,6 +17,11 @@ struct SidebarView: View {
     @State private var categoryInputText: String = ""
     @State private var showCategoryPrompt: Bool = false
     @State private var collapsedFolders: Set<String> = []
+
+    private var todayCount: Int {
+        let calendar = Calendar.current
+        return allArticles.filter { calendar.isDateInToday($0.publicationDate) }.count
+    }
 
     private var unreadCount: Int {
         unreadArticles.count
@@ -69,6 +75,7 @@ struct SidebarView: View {
         List(selection: $viewModel.selectedSidebarItem) {
             Section("Library") {
                 libraryRow("All Articles", systemImage: "tray.full", item: .all, count: unreadCount > 0 ? unreadCount : nil)
+                libraryRow("Today", systemImage: "sun.max", item: .today, count: todayCount > 0 ? todayCount : nil)
                 libraryRow("Unread", systemImage: "circlebadge", item: .unread, count: unreadCount)
                 libraryRow("Starred", systemImage: "star", item: .starred, count: starredCount)
             }
@@ -177,6 +184,8 @@ struct SidebarView: View {
         switch item {
         case .all:
             return Color.siftAccent
+        case .today:
+            return Color.orange
         case .unread:
             return Color.blue
         case .starred:
@@ -193,6 +202,12 @@ struct SidebarView: View {
                 Text(feed.title)
                     .lineLimit(1)
                 Spacer()
+                if feed.refreshError != nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .help(feed.refreshError ?? "")
+                }
                 if feed.unreadCount > 0 {
                     countText(feed.unreadCount)
                 }

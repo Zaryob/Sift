@@ -46,8 +46,9 @@ struct MenuBarExtraView: View {
 
                 ForEach(unreadArticles.prefix(6)) { item in
                     Button {
-                        if let link = item.link, let url = URL(string: link) {
-                            NSWorkspace.shared.open(url)
+                        WindowActionTarget.shared.showMainWindow()
+                        if let url = URL(string: "rssreader://article/\(item.id.uuidString)") {
+                            NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
                         }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
