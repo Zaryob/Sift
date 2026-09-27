@@ -38,17 +38,20 @@ public actor WidgetSnapshotManager {
     }
 
     public func updateSnapshot(context: ModelContext) {
-        let descriptor = FetchDescriptor<FeedItem>(
+        var descriptor = FetchDescriptor<FeedItem>(
             sortBy: [
                 SortDescriptor(\.publicationDate, order: .reverse),
                 SortDescriptor(\.discoveredDate, order: .reverse)
             ]
         )
+        descriptor.fetchLimit = 10
 
         do {
             var items: [FeedItem] = try context.fetch(descriptor)
             if items.isEmpty {
-                items = try context.fetch(FetchDescriptor<FeedItem>())
+                var fallbackDescriptor = FetchDescriptor<FeedItem>()
+                fallbackDescriptor.fetchLimit = 10
+                items = try context.fetch(fallbackDescriptor)
                 items.sort { $0.publicationDate > $1.publicationDate }
             }
 

@@ -19,7 +19,7 @@ public actor FeedRefreshService {
     }
 
     /// Refresh a single feed by ID
-    public func refreshFeed(id feedID: UUID) async throws {
+    public func refreshFeed(id feedID: UUID, updateWidgetAndBadge: Bool = true) async throws {
         guard !refreshingFeedIDs.contains(feedID) else {
             return
         }
@@ -105,12 +105,14 @@ public actor FeedRefreshService {
                 }
             }
 
-            // Update Widget snapshot and notify WidgetKit for every feed check
-            await WidgetSnapshotManager.shared.updateSnapshot(context: context)
-            await MainActor.run {
-                WidgetCenter.shared.reloadAllTimelines()
+            // Update Widget snapshot and notify WidgetKit only if requested (e.g. single feed refresh from UI)
+            if updateWidgetAndBadge {
+                await WidgetSnapshotManager.shared.updateSnapshot(context: context)
+                await MainActor.run {
+                    WidgetCenter.shared.reloadAllTimelines()
+                }
+                refreshBadge(context: context)
             }
-            refreshBadge(context: context)
 
         } catch {
             feed.refreshError = error.localizedDescription
@@ -142,7 +144,7 @@ public actor FeedRefreshService {
                 activeCount += 1
                 group.addTask {
                     do {
-                        try await self.refreshFeed(id: feedID)
+                        try await self.refreshFeed(id: feedID, updateWidgetAndBadge: false)
                     } catch {
                         print("Feed refresh failed for \(feedID): \(error)")
                     }

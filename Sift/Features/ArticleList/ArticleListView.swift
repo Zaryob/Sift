@@ -213,15 +213,18 @@ struct ArticleListView: View {
     }
 
     private var filteredArticles: [FeedItem] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isSearching = !trimmed.isEmpty
+
         let articles = sourceArticles.filter { article in
             if hideRead && article.isRead { return false }
-            if searchText.isEmpty { return true }
-            let query = searchText.lowercased()
-            let titleMatch = article.title.lowercased().contains(query)
-            let authorMatch = article.author?.lowercased().contains(query) ?? false
-            let summaryMatch = article.summary?.lowercased().contains(query) ?? false
-            let feedMatch = article.feed?.title.lowercased().contains(query) ?? false
-            return titleMatch || authorMatch || summaryMatch || feedMatch
+            if !isSearching { return true }
+            if article.title.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let author = article.author, author.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let snippet = article.snippet, snippet.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let summary = article.summary, summary.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let feedTitle = article.feed?.title, feedTitle.localizedCaseInsensitiveContains(trimmed) { return true }
+            return false
         }
 
         let ordered = sortOrder == .oldestFirst ? articles.reversed() : articles
@@ -236,13 +239,15 @@ struct ArticleListView: View {
 
         let calendar = Calendar.current
         let now = Date()
-        let weekAgo = calendar.date(byAdding: .day, value: -7, to: now) ?? now
+        let startOfToday = calendar.startOfDay(for: now)
+        let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday) ?? startOfToday
+        let weekAgo = calendar.date(byAdding: .day, value: -7, to: startOfToday) ?? startOfToday
 
         for article in filteredArticles {
             let date = article.publicationDate
-            if calendar.isDateInToday(date) {
+            if date >= startOfToday {
                 today.append(article)
-            } else if calendar.isDateInYesterday(date) {
+            } else if date >= startOfYesterday {
                 yesterday.append(article)
             } else if date >= weekAgo {
                 thisWeek.append(article)
@@ -1651,7 +1656,10 @@ struct ArticleRow: View {
     #endif
 
     private var snippet: String {
-        HTMLSanitizer.stripTags(from: article.summary ?? article.content ?? "")
+        if let snippet = article.snippet, !snippet.isEmpty {
+            return snippet
+        }
+        return HTMLSanitizer.stripTags(from: article.summary ?? article.content ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

@@ -467,9 +467,13 @@ struct ArticleBodyContentView: View {
     let readerFontSize: Double
     let fontDesign: Font.Design
     let isLoadingFullText: Bool
+    @State private var cachedParagraphs: [String] = []
 
     private var paragraphs: [String] {
-        HTMLSanitizer.paragraphs(from: article.content ?? article.summary ?? "")
+        if !cachedParagraphs.isEmpty {
+            return cachedParagraphs
+        }
+        return HTMLSanitizer.paragraphs(from: article.content ?? article.summary ?? "")
     }
 
     var body: some View {
@@ -507,6 +511,9 @@ struct ArticleBodyContentView: View {
                     .font(.body.weight(.medium))
                     .padding(.top, 4)
                 }
+            }
+            .task(id: article.id) {
+                cachedParagraphs = HTMLSanitizer.paragraphs(from: article.content ?? article.summary ?? "")
             }
         }
     }

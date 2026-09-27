@@ -301,6 +301,7 @@ public final class AppViewModel {
         article.extractionAttemptedAt = Date()
         if let result, let data = try? JSONEncoder().encode(result) {
             article.extractedArticleData = data
+            article.readingMinutes = result.readingMinutes
             if article.imageURL == nil {
                 article.imageURL = result.leadImageURL
             }

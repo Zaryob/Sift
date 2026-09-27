@@ -8,7 +8,6 @@ struct SidebarView: View {
     @Bindable var viewModel: AppViewModel
 
     @Query(sort: \Feed.title) private var feeds: [Feed]
-    @Query(sort: \FeedItem.publicationDate, order: .reverse) private var allArticles: [FeedItem]
     @Query(filter: #Predicate<FeedItem> { !$0.isRead }) private var unreadArticles: [FeedItem]
     @Query(filter: #Predicate<FeedItem> { $0.isStarred }) private var starredArticles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
@@ -19,8 +18,8 @@ struct SidebarView: View {
     @State private var collapsedFolders: Set<String> = []
 
     private var todayCount: Int {
-        let calendar = Calendar.current
-        return allArticles.filter { calendar.isDateInToday($0.publicationDate) }.count
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        return unreadArticles.filter { $0.publicationDate >= startOfToday }.count
     }
 
     private var unreadCount: Int {

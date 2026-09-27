@@ -15,7 +15,7 @@ public struct FeedFaviconView: View {
         self.title = feed?.title ?? ""
         self.size = size
         self.cornerRadius = cornerRadius ?? size * 0.22
-        let cached = feed.flatMap { FaviconManager.shared.cachedImage(for: $0) }
+        let cached = feed.flatMap { FaviconManager.shared.memoryCachedImage(for: $0) }
         self._image = State(initialValue: cached)
     }
 
@@ -25,7 +25,7 @@ public struct FeedFaviconView: View {
         self.title = ""
         self.size = size
         self.cornerRadius = cornerRadius ?? size * 0.22
-        let cached = url.flatMap { FaviconManager.shared.cachedImage(for: $0) }
+        let cached = url.flatMap { FaviconManager.shared.memoryCachedImage(for: $0) }
         self._image = State(initialValue: cached)
     }
 

@@ -39,33 +39,23 @@ public actor DataPruningService {
 
         // 1. Prune read, unstarred articles older than readRetentionDays
         if readRetentionDays > 0, let readCutoff = calendar.date(byAdding: .day, value: -readRetentionDays, to: now) {
-            let descriptor = FetchDescriptor<FeedItem>(
-                predicate: #Predicate<FeedItem> { item in
-                    item.isRead && !item.isStarred && item.publicationDate < readCutoff
-                }
-            )
-            let itemsToPrune = try context.fetch(descriptor)
-            if !itemsToPrune.isEmpty {
-                readDeleted = itemsToPrune.count
-                for item in itemsToPrune {
-                    context.delete(item)
-                }
+            let predicate = #Predicate<FeedItem> { item in
+                item.isRead && !item.isStarred && item.publicationDate < readCutoff
+            }
+            readDeleted = (try? context.fetchCount(FetchDescriptor<FeedItem>(predicate: predicate))) ?? 0
+            if readDeleted > 0 {
+                try context.delete(model: FeedItem.self, where: predicate)
             }
         }
 
         // 2. Prune ancient unread, unstarred articles older than unreadCutoffDays (safeguard against dead feeds)
         if unreadCutoffDays > 0, let unreadCutoff = calendar.date(byAdding: .day, value: -unreadCutoffDays, to: now) {
-            let descriptor = FetchDescriptor<FeedItem>(
-                predicate: #Predicate<FeedItem> { item in
-                    !item.isRead && !item.isStarred && item.publicationDate < unreadCutoff
-                }
-            )
-            let itemsToPrune = try context.fetch(descriptor)
-            if !itemsToPrune.isEmpty {
-                unreadDeleted = itemsToPrune.count
-                for item in itemsToPrune {
-                    context.delete(item)
-                }
+            let predicate = #Predicate<FeedItem> { item in
+                !item.isRead && !item.isStarred && item.publicationDate < unreadCutoff
+            }
+            unreadDeleted = (try? context.fetchCount(FetchDescriptor<FeedItem>(predicate: predicate))) ?? 0
+            if unreadDeleted > 0 {
+                try context.delete(model: FeedItem.self, where: predicate)
             }
         }
 

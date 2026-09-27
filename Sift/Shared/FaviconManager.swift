@@ -31,9 +31,24 @@ public final class FaviconManager: ObservableObject {
 
     private init() {
         memoryCache.countLimit = 250
+        memoryCache.totalCostLimit = 50 * 1024 * 1024 // 50 MB
     }
 
     // MARK: - Synchronous Local Lookup (Memory -> Disk)
+
+    /// Synchronously checks ONLY in-memory cache for zero-latency scroll performance.
+    public func memoryCachedImage(for feed: Feed) -> PlatformImage? {
+        guard let url = FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL) else {
+            return nil
+        }
+        return memoryCachedImage(for: url)
+    }
+
+    /// Synchronously checks ONLY in-memory cache for zero-latency scroll performance.
+    public func memoryCachedImage(for url: URL) -> PlatformImage? {
+        let key = cacheKey(for: url)
+        return memoryCache.object(forKey: key as NSString)
+    }
 
     /// Returns the cached image immediately if available in memory or on disk.
     /// Does NOT trigger any network request.

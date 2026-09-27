@@ -4,12 +4,8 @@ import SwiftData
 import AppKit
 
 struct MenuBarExtraView: View {
-    @Query(sort: \FeedItem.publicationDate, order: .reverse) private var articles: [FeedItem]
+    @Query(filter: #Predicate<FeedItem> { !$0.isRead }, sort: \FeedItem.publicationDate, order: .reverse) private var unreadArticles: [FeedItem]
     private let refreshService = FeedRefreshService()
-
-    private var unreadArticles: [FeedItem] {
-        articles.filter { !$0.isRead }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
