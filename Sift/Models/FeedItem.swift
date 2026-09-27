@@ -98,14 +98,17 @@ public final class FeedItem {
         return words >= 200 ? max(1, Int((Double(words) / 220).rounded(.up))) : nil
     }
 
+    /// Word count of whatever text came embedded in the RSS feed (content or summary).
+    public var feedWordCount: Int {
+        let text = content ?? summary ?? ""
+        guard !text.isEmpty else { return 0 }
+        let stripped = HTMLSanitizer.stripTags(from: text)
+        return stripped.split(whereSeparator: \.isWhitespace).count
+    }
+
     /// Whether the RSS feed itself provided a full article body rather than a short summary/teaser.
     public var hasSubstantialFeedContent: Bool {
-        guard let content = content?.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty else {
-            return false
-        }
-        let stripped = HTMLSanitizer.stripTags(from: content)
-        let wordCount = stripped.split(whereSeparator: \.isWhitespace).count
-        return wordCount >= 160
+        return feedWordCount >= 300
     }
 
     /// True if the article is only a brief snippet/excerpt and full text has not yet been extracted from the web.

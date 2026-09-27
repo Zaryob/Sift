@@ -112,7 +112,7 @@ struct ArticleDetailView: View {
                 .navigationTitle(article.feed?.title ?? "")
                 .task(id: article.id) {
                     isShowingAISummary = false
-                    isLoadingFullText = article.extractedArticleData == nil && article.isExcerpt
+                    isLoadingFullText = article.extractedArticleData == nil && article.feedWordCount < 400
                     await viewModel.loadFullTextIfNeeded(for: article, context: modelContext)
                     isLoadingFullText = false
                 }

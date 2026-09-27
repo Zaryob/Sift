@@ -295,8 +295,9 @@ public final class AppViewModel {
         guard article.extractedArticleData == nil,
               let link = article.link, let url = URL(string: link) else { return }
 
-        // If the RSS feed already provided the full article text, no need to crawl the site
-        if article.hasSubstantialFeedContent && !force {
+        // If the RSS feed itself already provided an extensive, complete article (>= 400 words),
+        // no need to crawl the site unless forced
+        if !force, article.feedWordCount >= 400 {
             return
         }
 

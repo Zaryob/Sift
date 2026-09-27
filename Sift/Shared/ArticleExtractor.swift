@@ -35,7 +35,7 @@ nonisolated public enum ArticleExtractor {
 
     /// Markup (outside skipped elements) between two blocks beyond which they belong to different regions.
     private static let regionGapThreshold = 2_000
-    private static let minimumWordCount = 120
+    private static let minimumWordCount = 60
 
     private static let voidElements: Set<String> = [
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr", "param"
@@ -104,8 +104,14 @@ nonisolated public enum ArticleExtractor {
 
         let result = ExtractedArticle(blocks: article, leadImageURL: leadImage(in: html, baseURL: baseURL))
         let summaryWords = summary.map { HTMLSanitizer.stripTags(from: $0).split(whereSeparator: \.isWhitespace).count } ?? 0
-        // Not worth showing if it isn't clearly more than the feed already gave us.
-        guard result.wordCount >= minimumWordCount, Double(result.wordCount) > Double(summaryWords) * 1.3 else {
+
+        // Must have at least a minimal prose body to be a valid article
+        guard result.wordCount >= minimumWordCount else {
+            return nil
+        }
+
+        // If the RSS feed already provided a large article (300+ words), only reject if our scraped text is significantly shorter
+        if summaryWords >= 300, result.wordCount < Int(Double(summaryWords) * 0.75) {
             return nil
         }
         return result

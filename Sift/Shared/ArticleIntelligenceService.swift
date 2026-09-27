@@ -231,7 +231,7 @@ public final class ArticleIntelligenceService: ObservableObject {
     private func downloadMissingContentIfNeeded(for items: [FeedItem], context: ModelContext) async {
         await withTaskGroup(of: (UUID, ExtractedArticle)?.self) { group in
             for item in items {
-                if item.extractedArticleData == nil, item.isExcerpt,
+                if item.extractedArticleData == nil, item.feedWordCount < 400,
                    let link = item.link, let url = URL(string: link) {
                     let id = item.id
                     let summary = item.summary ?? item.content
