@@ -26,6 +26,14 @@ labels itself experimental because M0's quality gate has not passed. This is a
 foreground shadow/debugging surface, not the approved story-primary release
 experience.
 
+**Reader translation boundary:** The reader may cache an Apple Translation result
+for a title or full article so the user can read it in the app's current language.
+That cache is separate from source `FeedItem` text and is validated against the
+source-content hash and translation version. It is presentation data only: clustering
+must still run language detection and its own analysis-locale normalization, and must
+never assume a reader translation exists or use it as analysis input. Keep the original
+article available in the reader.
+
 ## 0. Core Premise
 
 The product's core story entity is **`StoryCluster`**, not `FeedItem`. `FeedItem` remains

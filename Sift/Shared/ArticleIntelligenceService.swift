@@ -15,7 +15,10 @@ private struct GeneratedArticleDigest {
 
     @Guide(description: "Short topic labels for the article.", .maximumCount(4))
     let topics: [String]
+}
 
+@Generable
+private struct GeneratedContentCleanup {
     @Guide(
         description: "Zero-based IDs of blocks that are promotional boilerplate, subscription requests, product pitches, social-media calls to action, or unrelated recommendations.",
         .maximumCount(12)
@@ -42,11 +45,15 @@ public final class ArticleIntelligenceService: ObservableObject {
         let blocks = preferredBlocks(for: article)
         let content = blocks.joined(separator: "\n")
         let contentHash = Self.contentHash(title: article.title, content: content)
+        let targetLanguageCode = Self.preferredLanguageCode
 
         // A persisted result is authoritative for this prompt version. Full-text extraction
         // or feed refreshes must not trigger another model request for the same article.
         if let cached = article.intelligenceResults
-            .filter({ $0.promptVersion == Self.articlePromptVersion })
+            .filter({
+                $0.promptVersion == Self.articlePromptVersion
+                    && $0.outputLanguageCode == targetLanguageCode
+            })
             .max(by: { $0.generatedAt < $1.generatedAt }) {
             return IntelligenceOutput(
                 text: cached.summary,
@@ -71,10 +78,21 @@ public final class ArticleIntelligenceService: ObservableObject {
             modelKind: generated.modelKind,
             sourceContentHash: contentHash,
             promptVersion: Self.articlePromptVersion,
+            outputLanguageCode: targetLanguageCode,
             article: article
         )
         context.insert(result)
         try? context.save()
+        #if canImport(FoundationModels)
+        if generated.modelKind != .extractiveFallback {
+            Task { @MainActor in
+                let irrelevantIDs = await classifyIrrelevantBlocks(blocks)
+                guard !irrelevantIDs.isEmpty else { return }
+                result.irrelevantBlockIDs = irrelevantIDs
+                try? context.save()
+            }
+        }
+        #endif
         return generated
     }
 
@@ -292,13 +310,12 @@ public final class ArticleIntelligenceService: ObservableObject {
         let prompt = """
         Provide a 2 to 3 sentence spoken executive summary of this article.
         Use only the supplied article. Preserve key facts, names, numbers, and dates.
-        Also identify only blocks that are clearly unrelated promotional or publisher
-        boilerplate. Do not mark reporting, quotations, captions, or factual article text.
+        Write the summary, key points, and topic labels in (Self.preferredLanguageName).
+        Do not use the source article's language unless it is also (Self.preferredLanguageName).
 
         Title: \(title)
-        Content: \(sample)
         Numbered blocks:
-        \(blockSample.prefix(6_000))
+        \(blockSample.prefix(4_000))
         """
 
         #if canImport(FoundationModels)
@@ -338,7 +355,7 @@ public final class ArticleIntelligenceService: ObservableObject {
                 text: response.content.summary,
                 keyPoints: response.content.keyPoints,
                 topics: response.content.topics,
-                irrelevantBlockIDs: response.content.irrelevantBlockIDs,
+                irrelevantBlockIDs: [],
                 modelKind: .onDevice,
                 isCached: false
             )
@@ -365,6 +382,33 @@ public final class ArticleIntelligenceService: ObservableObject {
             return nil
         }
     }
+
+    private func classifyIrrelevantBlocks(_ blocks: [String]) async -> [Int] {
+        let numberedBlocks = blocks.enumerated()
+            .map { "[BLOCK \($0.offset)] \($0.element)" }
+            .joined(separator: "\n")
+        let prompt = """
+        Identify only blocks that are promotional boilerplate, subscription requests,
+        product pitches, social-media calls to action, or unrelated recommendations.
+        Never mark reporting, quotations, captions, or factual article text.
+
+        \(numberedBlocks.prefix(4_000))
+        """
+
+        do {
+            let session = LanguageModelSession(
+                instructions: "Classify article blocks conservatively. Return no IDs when uncertain."
+            )
+            let response = try await session.respond(
+                to: prompt,
+                generating: GeneratedContentCleanup.self
+            )
+            return response.content.irrelevantBlockIDs.filter(blocks.indices.contains)
+        } catch {
+            print("[ArticleIntelligenceService] Content cleanup unavailable: \(error)")
+            return []
+        }
+    }
     #endif
 
     private func preferredContent(for article: FeedItem) -> String {
@@ -389,6 +433,18 @@ public final class ArticleIntelligenceService: ObservableObject {
     private static func contentHash(title: String, content: String) -> String {
         let digest = SHA256.hash(data: Data("\(title)\n\(content)".utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static var preferredLanguageCode: String {
+        Locale.preferredLanguages.first
+            .flatMap { Locale(identifier: $0).language.languageCode?.identifier }
+            ?? Locale.autoupdatingCurrent.language.languageCode?.identifier
+            ?? "en"
+    }
+
+    private static var preferredLanguageName: String {
+        let code = preferredLanguageCode
+        return Locale.autoupdatingCurrent.localizedString(forLanguageCode: code) ?? code
     }
 
     private static func briefingHash(for items: [FeedItem]) -> String {

@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 import AppIntents
+import CryptoKit
+import NaturalLanguage
+import Translation
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -198,6 +201,15 @@ struct ArticleDetailView: View {
             macOSToolbarItems(for: article)
         }
         #endif
+        .onChange(of: article?.id) { previousArticleID, newArticleID in
+            guard previousArticleID != newArticleID,
+                  speaker.currentArticleID == previousArticleID else { return }
+            speaker.stop()
+        }
+        .onDisappear {
+            guard let article, speaker.currentArticleID == article.id else { return }
+            speaker.stop()
+        }
     }
 
     @MainActor
@@ -633,7 +645,17 @@ struct ArticleReaderScrollView: View {
     var onImageTap: ((URL) -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.locale) private var locale
+    @Environment(\.modelContext) private var modelContext
     @State private var scrollProgress: Double = 0
+    @State private var translationConfiguration: TranslationSession.Configuration?
+    @State private var isTranslating = false
+    @State private var isShowingOriginal = false
+    @State private var translationError: String?
+    @State private var progressiveTranslation: ExtractedArticle?
+    @State private var translationProgress: Double = 0
+
+    private static let translationVersion = 3
 
     private var textColor: Color {
         readerTheme.textColor(colorScheme: colorScheme)
@@ -643,6 +665,40 @@ struct ArticleReaderScrollView: View {
         readerTheme.secondaryTextColor(colorScheme: colorScheme)
     }
 
+    private var targetLanguageCode: String {
+        locale.language.languageCode?.identifier
+            ?? Locale.current.language.languageCode?.identifier
+            ?? "en"
+    }
+
+    private var cachedTranslation: ExtractedArticle? {
+        guard article.translationTargetLanguage == targetLanguageCode,
+              article.translationVersion == Self.translationVersion,
+              article.translationSourceContentHash == sourceContentHash() else { return nil }
+        return article.translatedArticle
+    }
+
+    private var isTranslationActive: Bool {
+        displayedTranslation != nil && !isShowingOriginal
+    }
+
+    private var displayedTranslation: ExtractedArticle? {
+        progressiveTranslation ?? cachedTranslation
+    }
+
+    private var hasTranslatedTitle: Bool {
+        article.translationTargetLanguage == targetLanguageCode
+            && article.translatedTitle?.isEmpty == false
+            && article.translatedTitle != article.title
+    }
+
+    private var displayedTitle: String {
+        if !isShowingOriginal, hasTranslatedTitle, let translatedTitle = article.translatedTitle {
+            return translatedTitle
+        }
+        return article.title
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             ScrollView {
@@ -650,6 +706,7 @@ struct ArticleReaderScrollView: View {
                     #if os(macOS)
                     MacArticleHeaderView(
                         article: article,
+                        displayTitle: displayedTitle,
                         textColor: textColor,
                         secondaryColor: secondaryColor
                     )
@@ -657,12 +714,28 @@ struct ArticleReaderScrollView: View {
                     #else
                     IOSArticleHeaderView(
                         article: article,
+                        displayTitle: displayedTitle,
                         readerFontSize: readerFontSize,
                         fontDesign: fontDesign,
                         textColor: textColor,
                         secondaryColor: secondaryColor
                     )
                     #endif
+
+                    if isTranslating || cachedTranslation != nil || hasTranslatedTitle || translationError != nil {
+                        ArticleTranslationStatusView(
+                            isTranslating: isTranslating,
+                            isShowingOriginal: isShowingOriginal,
+                            hasTranslation: displayedTranslation != nil || hasTranslatedTitle,
+                            progress: translationProgress,
+                            errorMessage: translationError,
+                            onToggleOriginal: {
+                                withAnimation(.smooth(duration: 0.3)) {
+                                    isShowingOriginal.toggle()
+                                }
+                            }
+                        )
+                    }
 
                     if let imageURLString = article.imageURL, let imageURL = URL(string: imageURLString) {
                         ArticleHeroImageView(url: imageURL) {
@@ -685,6 +758,7 @@ struct ArticleReaderScrollView: View {
 
                     ArticleBodyContentView(
                         article: article,
+                        translatedArticle: isTranslationActive ? displayedTranslation : nil,
                         readerFontSize: readerFontSize,
                         fontDesign: fontDesign,
                         lineSpacingMultiplier: readerLineSpacing.multiplier,
@@ -730,12 +804,282 @@ struct ArticleReaderScrollView: View {
         .appEntityIdentifier(
             EntityIdentifier(for: ArticleEntity.self, identifier: article.id)
         )
+        .task(id: "\(article.id.uuidString)-\(article.extractedArticleData?.count ?? 0)-\(isLoadingFullText)-\(targetLanguageCode)") {
+            prepareAutomaticTranslation()
+        }
+        .translationTask(translationConfiguration) { session in
+            await translateArticle(using: session)
+        }
+    }
+
+    private func prepareAutomaticTranslation() {
+        translationError = nil
+        isShowingOriginal = false
+        progressiveTranslation = nil
+        translationProgress = 0
+        guard !isLoadingFullText else { return }
+        guard cachedTranslation == nil else { return }
+
+        let blocks = sourceBlocks()
+        let sample = blocks.map(\.text).joined(separator: " ").prefix(2_000)
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(String(sample))
+        guard let language = recognizer.dominantLanguage else { return }
+
+        let sourceCode = language.rawValue
+        guard sourceCode != targetLanguageCode else { return }
+
+        article.translationSourceLanguage = sourceCode
+        if translationConfiguration == nil {
+            translationConfiguration = TranslationSession.Configuration(
+                source: Locale.Language(identifier: sourceCode),
+                target: Locale.Language(identifier: targetLanguageCode),
+                preferredStrategy: .highFidelity
+            )
+        } else {
+            translationConfiguration?.invalidate()
+        }
+    }
+
+    @MainActor
+    private func translateArticle(using session: TranslationSession) async {
+        let blocks = sourceBlocks()
+        guard !blocks.isEmpty else { return }
+        let sourceHash = sourceContentHash(for: blocks)
+        isTranslating = true
+        translationError = nil
+        translationProgress = 0
+        defer { isTranslating = false }
+
+        var translatedBlocks = blocks
+        let chunks = blocks.enumerated().flatMap { blockIndex, block in
+            translationChunks(for: block.text).enumerated().map { chunkIndex, text in
+                TranslationChunk(
+                    blockIndex: blockIndex,
+                    chunkIndex: chunkIndex,
+                    text: text
+                )
+            }
+        }
+        var translatedChunks: [Int: [Int: String]] = [:]
+
+        do {
+            for (completedCount, chunk) in chunks.enumerated() {
+                try Task.checkCancellation()
+                let translatedText = try await translateReliably(
+                    chunk.text,
+                    using: session
+                )
+                translatedChunks[chunk.blockIndex, default: [:]][chunk.chunkIndex] = translatedText
+
+                let blockChunks = chunks
+                    .filter { $0.blockIndex == chunk.blockIndex }
+                    .sorted { $0.chunkIndex < $1.chunkIndex }
+                translatedBlocks[chunk.blockIndex].text = blockChunks.map { blockChunk in
+                    translatedChunks[chunk.blockIndex]?[blockChunk.chunkIndex] ?? blockChunk.text
+                }
+                .joined(separator: " ")
+
+                translationProgress = Double(completedCount + 1) / Double(max(chunks.count, 1))
+                withAnimation(.smooth(duration: 0.35)) {
+                    progressiveTranslation = ExtractedArticle(
+                        blocks: translatedBlocks,
+                        leadImageURL: article.extractedArticle?.leadImageURL
+                    )
+                }
+            }
+
+            let translatedTitle: String
+            if let titleResponse = try? await session.translate(article.title) {
+                translatedTitle = titleResponse.targetText
+            } else {
+                translatedTitle = article.title
+            }
+            let translated = ExtractedArticle(
+                blocks: translatedBlocks,
+                leadImageURL: article.extractedArticle?.leadImageURL
+            )
+            // Full-text extraction may have replaced an RSS excerpt while this
+            // translation was running. Never cache a result for stale input.
+            guard sourceContentHash() == sourceHash else {
+                progressiveTranslation = nil
+                translationProgress = 0
+                return
+            }
+            article.translatedArticleData = try JSONEncoder().encode(translated)
+            article.translatedTitle = translatedTitle
+            article.translationTargetLanguage = targetLanguageCode
+            article.translationVersion = Self.translationVersion
+            article.translationSourceContentHash = sourceHash
+            try modelContext.save()
+            progressiveTranslation = translated
+            translationProgress = 1
+        } catch is CancellationError {
+            progressiveTranslation = nil
+            return
+        } catch {
+            progressiveTranslation = nil
+            translationProgress = 0
+            translationError = error.localizedDescription
+        }
+    }
+
+    private func sourceBlocks() -> [ExtractedArticle.Block] {
+        if let extracted = article.extractedArticle {
+            return extracted.blocks
+        }
+        return HTMLSanitizer.paragraphs(from: article.content ?? article.summary ?? "")
+            .map { .init(kind: .paragraph, text: $0) }
+    }
+
+    private func sourceContentHash() -> String {
+        sourceContentHash(for: sourceBlocks())
+    }
+
+    private func sourceContentHash(for blocks: [ExtractedArticle.Block]) -> String {
+        let material = ([article.title] + blocks.map(\.text)).joined(separator: "\n")
+        let digest = SHA256.hash(data: Data(material.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func translationChunks(for text: String, maximumLength: Int = 1_200) -> [String] {
+        guard text.count > maximumLength else { return [text] }
+
+        var sentences: [String] = []
+        text.enumerateSubstrings(
+            in: text.startIndex..<text.endIndex,
+            options: [.bySentences, .substringNotRequired]
+        ) { _, range, _, _ in
+            sentences.append(String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        var chunks: [String] = []
+        var current = ""
+        for sentence in sentences where !sentence.isEmpty {
+            if sentence.count > maximumLength {
+                if !current.isEmpty {
+                    chunks.append(current)
+                    current = ""
+                }
+                var remaining = sentence[...]
+                while remaining.count > maximumLength {
+                    let end = remaining.index(remaining.startIndex, offsetBy: maximumLength)
+                    chunks.append(String(remaining[..<end]))
+                    remaining = remaining[end...]
+                }
+                if !remaining.isEmpty { current = String(remaining) }
+            } else if current.count + sentence.count + 1 > maximumLength {
+                chunks.append(current)
+                current = sentence
+            } else {
+                current += current.isEmpty ? sentence : " " + sentence
+            }
+        }
+        if !current.isEmpty { chunks.append(current) }
+        return chunks.isEmpty ? [text] : chunks
+    }
+
+    private func translateReliably(
+        _ text: String,
+        using session: TranslationSession
+    ) async throws -> String {
+        do {
+            return try await session.translate(text).targetText
+        } catch {
+            guard text.count > 350 else {
+                try await Task.sleep(for: .milliseconds(180))
+                return try await session.translate(text).targetText
+            }
+
+            let smallerChunks = translationChunks(for: text, maximumLength: 350)
+            var translated: [String] = []
+            translated.reserveCapacity(smallerChunks.count)
+            for chunk in smallerChunks {
+                try Task.checkCancellation()
+                translated.append(try await session.translate(chunk).targetText)
+            }
+            return translated.joined(separator: " ")
+        }
+    }
+}
+
+private struct TranslationChunk {
+    let blockIndex: Int
+    let chunkIndex: Int
+    let text: String
+}
+
+private struct ArticleTranslationStatusView: View {
+    let isTranslating: Bool
+    let isShowingOriginal: Bool
+    let hasTranslation: Bool
+    let progress: Double
+    let errorMessage: String?
+    let onToggleOriginal: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isTranslating ? "character.book.closed" : "translate")
+                .foregroundStyle(Color.siftAccent)
+                .symbolEffect(.pulse, isActive: isTranslating)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(isTranslating ? "Translating article…" : statusTitle)
+                    .font(.subheadline.weight(.semibold))
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                } else if hasTranslation {
+                    Text("Translated on device")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if hasTranslation {
+                Button(isShowingOriginal ? "Show Translation" : "View Original", action: onToggleOriginal)
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.glass)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottomLeading) {
+            if isTranslating {
+                GeometryReader { proxy in
+                    Capsule()
+                        .fill(Color.siftAccent)
+                        .frame(width: proxy.size.width * progress, height: 2.5)
+                        .animation(.smooth(duration: 0.3), value: progress)
+                }
+                .frame(height: 2.5)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 2)
+            }
+        }
+        .glassEffect(
+            .regular.tint(Color.siftAccent.opacity(0.1)),
+            in: .rect(cornerRadius: 18)
+        )
+        .accessibilityElement(children: .combine)
+    }
+
+    private var statusTitle: LocalizedStringResource {
+        if errorMessage != nil {
+            return "Translation unavailable"
+        }
+        return isShowingOriginal ? "Original article" : "Translation active"
     }
 }
 
 #if os(macOS)
 struct MacArticleHeaderView: View {
     let article: FeedItem
+    let displayTitle: String
     var textColor: Color = .primary
     var secondaryColor: Color = .secondary
 
@@ -772,7 +1116,7 @@ struct MacArticleHeaderView: View {
                     }
                 }
 
-                Text(article.title.isEmpty ? "Untitled" : article.title)
+                Text(displayTitle.isEmpty ? "Untitled" : displayTitle)
                     .font(.system(size: 15.5, weight: .bold))
                     .foregroundStyle(textColor)
                     .lineSpacing(2)
@@ -813,6 +1157,7 @@ struct MacArticleHeaderView: View {
 #if os(iOS)
 struct IOSArticleHeaderView: View {
     let article: FeedItem
+    let displayTitle: String
     let readerFontSize: Double
     let fontDesign: Font.Design
     var textColor: Color = .primary
@@ -820,7 +1165,7 @@ struct IOSArticleHeaderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(article.title)
+            Text(displayTitle)
                 .font(.system(size: min(readerFontSize * 1.25, 23), weight: .semibold, design: fontDesign))
                 .foregroundStyle(textColor)
                 .lineSpacing(readerFontSize * 0.12)
@@ -895,6 +1240,7 @@ struct ArticleHeroImageView: View {
 
 struct ArticleBodyContentView: View {
     let article: FeedItem
+    let translatedArticle: ExtractedArticle?
     let readerFontSize: Double
     let fontDesign: Font.Design
     let lineSpacingMultiplier: CGFloat
@@ -917,7 +1263,7 @@ struct ArticleBodyContentView: View {
 
     var body: some View {
         let spacing = readerFontSize * 0.75
-        if let extracted = article.extractedArticle {
+        if let extracted = translatedArticle ?? article.extractedArticle {
             VStack(alignment: .leading, spacing: spacing) {
                 ForEach(Array(extracted.blocks.enumerated()), id: \.offset) { index, block in
                     FilterableArticleBlockView(

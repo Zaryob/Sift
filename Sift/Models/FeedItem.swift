@@ -22,6 +22,12 @@ public final class FeedItem {
     /// JSON-encoded `ExtractedArticle`: the full text pulled from the publisher's page.
     @Attribute(.externalStorage) public var extractedArticleData: Data?
     public var extractionAttemptedAt: Date?
+    @Attribute(.externalStorage) public var translatedArticleData: Data?
+    public var translatedTitle: String?
+    public var translationSourceLanguage: String?
+    public var translationTargetLanguage: String?
+    public var translationVersion: Int?
+    public var translationSourceContentHash: String?
 
     public var feed: Feed?
     @Relationship(deleteRule: .cascade, inverse: \ArticleIntelligenceResult.article)
@@ -83,6 +89,11 @@ public final class FeedItem {
     public var extractedArticle: ExtractedArticle? {
         guard let extractedArticleData else { return nil }
         return try? JSONDecoder().decode(ExtractedArticle.self, from: extractedArticleData)
+    }
+
+    public var translatedArticle: ExtractedArticle? {
+        guard let translatedArticleData else { return nil }
+        return try? JSONDecoder().decode(ExtractedArticle.self, from: translatedArticleData)
     }
 
     /// Reading time only when we actually know the length of the article, never from an excerpt.
