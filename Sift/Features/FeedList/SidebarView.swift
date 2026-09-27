@@ -30,6 +30,10 @@ struct SidebarView: View {
         starredArticles.count
     }
 
+    private var smartUnreadCount: Int {
+        SmartFeedFilter.filteredArticles(from: unreadArticles).count
+    }
+
     private var categorizedFeeds: [String: [Feed]] {
         Dictionary(grouping: feeds) { feed in
             feed.category?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -84,6 +88,7 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $viewModel.selectedSidebarItem) {
             Section("Library") {
+                libraryRow("Smart Feed", systemImage: "sparkles", item: .smart, count: smartUnreadCount > 0 ? smartUnreadCount : nil)
                 libraryRow("All Articles", systemImage: "tray.full", item: .all, count: unreadCount > 0 ? unreadCount : nil)
                 libraryRow("Today", systemImage: "sun.max", item: .today, count: todayCount > 0 ? todayCount : nil)
                 libraryRow("Unread", systemImage: "circlebadge", item: .unread, count: unreadCount)
@@ -216,6 +221,8 @@ struct SidebarView: View {
 
     private func iconColor(for item: SidebarItem) -> Color {
         switch item {
+        case .smart:
+            return Color.purple
         case .all:
             return Color.siftAccent
         case .today:

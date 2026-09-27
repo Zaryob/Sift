@@ -196,6 +196,8 @@ struct ArticleListView: View {
             return allArticles.filter { $0.feed?.id == feedID }
         }
         switch viewModel.selectedSidebarItem {
+        case .smart:
+            return SmartFeedFilter.filteredArticles(from: allArticles)
         case .today:
             let startOfToday = Calendar.current.startOfDay(for: Date())
             return allArticles.filter { $0.publicationDate >= startOfToday }
@@ -279,6 +281,7 @@ struct ArticleListView: View {
 
     private var currentScopeTitle: String {
         switch viewModel.selectedSidebarItem {
+        case .smart: return String(localized: "Smart Feed")
         case .today: return String(localized: "Today")
         case .unread: return String(localized: "Unread")
         case .starred: return String(localized: "Starred")
@@ -494,9 +497,11 @@ struct ArticleListView: View {
         if isFilterActive {
             let count = filteredArticles.count
             return String(localized: "\(count) articles · \(updatedAgoString)")
-        } else {
-            return statusText
         }
+        if viewModel.selectedSidebarItem == .smart, !allArticles.isEmpty {
+            return String(localized: "\(sourceArticles.count) selected from \(allArticles.count) articles")
+        }
+        return statusText
     }
 
     private var selectedFeedItem: Feed? {
@@ -1227,6 +1232,32 @@ struct ArticleListView: View {
                 Button("Turn Off Filter") {
                     withAnimation {
                         isFilterActive = false
+                    }
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color.siftAccent)
+                .padding(.top, 6)
+            }
+            .frame(maxWidth: .infinity)
+        } else if case .smart = viewModel.selectedSidebarItem {
+            VStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 38))
+                    .foregroundStyle(Color.siftAccent)
+                    .padding(.bottom, 4)
+
+                Text("Smart Feed is clear")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text("Promotional and repeated posts stay available in All Articles.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button("View All Articles") {
+                    withAnimation {
+                        viewModel.selectedSidebarItem = .all
                     }
                 }
                 .font(.subheadline.weight(.medium))

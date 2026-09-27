@@ -5,6 +5,7 @@ import Observation
 import WidgetKit
 
 public enum SidebarItem: Hashable, Identifiable {
+    case smart
     case all
     case today
     case unread
@@ -13,6 +14,7 @@ public enum SidebarItem: Hashable, Identifiable {
 
     public var id: String {
         switch self {
+        case .smart: return "smart"
         case .all: return "all"
         case .today: return "today"
         case .unread: return "unread"
@@ -137,7 +139,7 @@ public enum FeedLookupError: LocalizedError {
 @MainActor
 @Observable
 public final class AppViewModel {
-    public var selectedSidebarItem: SidebarItem? = .all
+    public var selectedSidebarItem: SidebarItem? = .smart
     public var selectedArticle: FeedItem?
     public var articleOpenRequestID = UUID()
     
