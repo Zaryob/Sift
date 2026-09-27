@@ -44,8 +44,19 @@ struct SidebarView: View {
         categorizedFeeds[""] ?? []
     }
 
+    private var feedUnreadCounts: [UUID: Int] {
+        var counts: [UUID: Int] = [:]
+        for item in unreadArticles {
+            if let feedID = item.feed?.id {
+                counts[feedID, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
     private func categoryUnreadCount(_ categoryName: String) -> Int {
-        (categorizedFeeds[categoryName] ?? []).reduce(0) { $0 + $1.unreadCount }
+        let counts = feedUnreadCounts
+        return (categorizedFeeds[categoryName] ?? []).reduce(0) { $0 + (counts[$1.id] ?? 0) }
     }
 
     private func expansionBinding(for folder: String) -> Binding<Bool> {
@@ -139,6 +150,12 @@ struct SidebarView: View {
         } message: {
             Text("Enter a folder name for this feed or leave empty to remove from folder.")
         }
+        .onAppear {
+            NotificationManager.shared.updateBadgeCount(unreadArticles.count)
+        }
+        .onChange(of: unreadArticles.count) { _, newCount in
+            NotificationManager.shared.updateBadgeCount(newCount)
+        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -207,8 +224,9 @@ struct SidebarView: View {
                         .foregroundStyle(.orange)
                         .help(feed.refreshError ?? "")
                 }
-                if feed.unreadCount > 0 {
-                    countText(feed.unreadCount)
+                let unread = feedUnreadCounts[feed.id] ?? 0
+                if unread > 0 {
+                    countText(unread)
                 }
             }
         } icon: {

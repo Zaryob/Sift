@@ -194,8 +194,8 @@ struct ArticleListView: View {
         }
         switch viewModel.selectedSidebarItem {
         case .today:
-            let calendar = Calendar.current
-            return allArticles.filter { calendar.isDateInToday($0.publicationDate) }
+            let startOfToday = Calendar.current.startOfDay(for: Date())
+            return allArticles.filter { $0.publicationDate >= startOfToday }
         case .unread:
             return allArticles.filter { !$0.isRead }
         case .starred:
@@ -269,7 +269,7 @@ struct ArticleListView: View {
     }
 
     private var currentScopeUnreadCount: Int {
-        baseArticles.filter { !$0.isRead }.count
+        sourceArticles.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
     }
 
     private var currentScopeTitle: String {
@@ -1813,12 +1813,25 @@ struct ArticleRow: View {
     }
     #endif
 
+    private static let shortTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f
+    }()
+
+    private static let monthDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("dMMM")
+        return f
+    }()
+
     private func formattedTime(for date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) || calendar.isDateInYesterday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
+            return Self.shortTimeFormatter.string(from: date)
         } else {
-            return date.formatted(.dateTime.month(.abbreviated).day())
+            return Self.monthDayFormatter.string(from: date)
         }
     }
 }

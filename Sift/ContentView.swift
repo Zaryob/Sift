@@ -125,10 +125,12 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            if !hasCompletedOnboarding && feeds.isEmpty {
-                isShowingOnboarding = true
+            if !hasCompletedOnboarding {
+                let feedCount = (try? modelContext.fetchCount(FetchDescriptor<Feed>())) ?? 0
+                if feedCount == 0 {
+                    isShowingOnboarding = true
+                }
             }
-            NotificationManager.shared.updateBadgeCount(unreadItems.count)
             Task {
                 await WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
                 WidgetCenter.shared.reloadAllTimelines()
@@ -155,9 +157,6 @@ struct ContentView: View {
                 }
                 #endif
             }
-        }
-        .onChange(of: unreadItems.count) { _, newCount in
-            NotificationManager.shared.updateBadgeCount(newCount)
         }
         .onReceive(NotificationCenter.default.publisher(for: PersistenceController.storeFailedNotification)) { _ in
             viewModel.errorMessage = String(localized: "Sift could not open its database and is running in temporary mode. Your subscriptions are safe — please restart the app.")
