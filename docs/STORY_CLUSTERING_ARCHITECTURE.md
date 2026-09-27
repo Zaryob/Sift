@@ -15,7 +15,8 @@ cluster's recency and coverage signals are inputs to those experiences, not proo
 that publishers independently corroborate a claim.
 
 **Current app prototype:** The Article List's Options menu can run an explicit
-"Build Stories Preview" against the latest 72 hours of existing `FeedItem`s. It first
+"Build Stories Preview" against articles published today and yesterday in the user's
+current calendar and time zone. It first
 attempts bounded foreground extraction for articles without a substantial body,
 caches successful extracts in the existing article fields, and falls back to RSS
 content/summary when publishers block extraction. It then calls the M0

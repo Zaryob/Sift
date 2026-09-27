@@ -224,9 +224,13 @@ public final class AppViewModel {
             storyPreviewProgress = nil
         }
 
-        let cutoff = Date().addingTimeInterval(-72 * 60 * 60)
+        let now = Date()
+        let calendar = Calendar.autoupdatingCurrent
+        let startOfToday = calendar.startOfDay(for: now)
+        let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday)
+            ?? now.addingTimeInterval(-48 * 60 * 60)
         let recentItems = feedItems
-            .filter { $0.publicationDate >= cutoff }
+            .filter { $0.publicationDate >= startOfYesterday && $0.publicationDate <= now }
             .sorted { $0.publicationDate < $1.publicationDate }
 
         guard !recentItems.isEmpty else {
@@ -274,7 +278,7 @@ public final class AppViewModel {
             articles,
             analysisLocale: "en",
             similarityThreshold: 0.82,
-            candidateWindow: 72 * 60 * 60,
+            candidateWindow: now.timeIntervalSince(startOfYesterday),
             translationStrategy: .lowLatency,
             eventSignaturesEnabled: false
         )

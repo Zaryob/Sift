@@ -47,12 +47,13 @@ public final class ArticleIntelligenceService: ObservableObject {
         let contentHash = Self.contentHash(title: article.title, content: content)
         let targetLanguageCode = Self.preferredLanguageCode
 
-        // A persisted result is authoritative for this prompt version. Full-text extraction
-        // or feed refreshes must not trigger another model request for the same article.
+        // Reuse only a digest for the exact source text and output language. If the
+        // full-text extractor replaces an RSS excerpt, the changed hash needs a new digest.
         if let cached = article.intelligenceResults
             .filter({
                 $0.promptVersion == Self.articlePromptVersion
                     && $0.outputLanguageCode == targetLanguageCode
+                    && $0.sourceContentHash == contentHash
             })
             .max(by: { $0.generatedAt < $1.generatedAt }) {
             return IntelligenceOutput(

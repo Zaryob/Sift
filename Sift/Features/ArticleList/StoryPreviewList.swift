@@ -72,7 +72,7 @@ struct StoryPreviewList: View {
                 ContentUnavailableView(
                     "No Recent Articles",
                     systemImage: "square.stack.3d.up",
-                    description: Text("Refresh your feeds to build a preview from articles published in the last 72 hours.")
+                    description: Text("Refresh your feeds to build a preview from articles published today and yesterday.")
                 )
                 .listRowSeparator(.hidden)
             }
