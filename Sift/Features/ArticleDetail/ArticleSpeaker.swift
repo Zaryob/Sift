@@ -10,6 +10,9 @@ public final class ArticleSpeaker: NSObject, ObservableObject, AVSpeechSynthesiz
 
     private let synthesizer = AVSpeechSynthesizer()
     private var activeUtteranceIDs: Set<ObjectIdentifier> = []
+    private var pendingSegments: [(text: String, isTitle: Bool, isParagraphEnd: Bool)] = []
+    private var nextSegmentIndex = 0
+    private var activeVoice: AVSpeechSynthesisVoice?
 
     @Published public private(set) var isSpeaking: Bool = false
     @Published public private(set) var isPaused: Bool = false
@@ -35,23 +38,16 @@ public final class ArticleSpeaker: NSObject, ObservableObject, AVSpeechSynthesiz
 
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        let voice = fallbackVoiceIfNeeded(for: "\(title) \(text)")
         let segments = speechSegments(title: title, text: text)
         guard !segments.isEmpty else { return }
 
         currentArticleID = articleID
         isSpeaking = true
         isPaused = false
-
-        for segment in segments {
-            let utterance = AVSpeechUtterance(string: segment.text)
-            utterance.voice = voice
-            utterance.prefersAssistiveTechnologySettings = true
-            utterance.preUtteranceDelay = segment.isTitle ? 0 : 0.04
-            utterance.postUtteranceDelay = segment.isParagraphEnd ? 0.28 : 0.12
-            activeUtteranceIDs.insert(ObjectIdentifier(utterance))
-            synthesizer.speak(utterance)
-        }
+        pendingSegments = segments
+        nextSegmentIndex = 0
+        activeVoice = fallbackVoiceIfNeeded(for: "\(title) \(text)")
+        speakNextSegment()
     }
 
     /// Pauses ongoing speech.
@@ -71,6 +67,9 @@ public final class ArticleSpeaker: NSObject, ObservableObject, AVSpeechSynthesiz
     /// Stops speech completely.
     public func stop() {
         activeUtteranceIDs.removeAll()
+        pendingSegments.removeAll(keepingCapacity: false)
+        nextSegmentIndex = 0
+        activeVoice = nil
         synthesizer.stopSpeaking(at: .immediate)
         isSpeaking = false
         isPaused = false
@@ -108,9 +107,36 @@ public final class ArticleSpeaker: NSObject, ObservableObject, AVSpeechSynthesiz
     private func complete(_ utteranceID: ObjectIdentifier) {
         guard activeUtteranceIDs.remove(utteranceID) != nil else { return }
         guard activeUtteranceIDs.isEmpty else { return }
+
+        if nextSegmentIndex < pendingSegments.count, currentArticleID != nil {
+            speakNextSegment()
+            return
+        }
+
+        pendingSegments.removeAll(keepingCapacity: false)
+        nextSegmentIndex = 0
+        activeVoice = nil
         isSpeaking = false
         isPaused = false
         currentArticleID = nil
+    }
+
+    /// Feed the synthesizer one utterance at a time. Enqueuing every sentence
+    /// of a long article at once can make AVSpeechSynthesizer monopolize the
+    /// main thread while it prepares the complete queue.
+    private func speakNextSegment() {
+        guard nextSegmentIndex < pendingSegments.count else { return }
+
+        let segment = pendingSegments[nextSegmentIndex]
+        nextSegmentIndex += 1
+
+        let utterance = AVSpeechUtterance(string: segment.text)
+        utterance.voice = activeVoice
+        utterance.prefersAssistiveTechnologySettings = true
+        utterance.preUtteranceDelay = segment.isTitle ? 0 : 0.04
+        utterance.postUtteranceDelay = segment.isParagraphEnd ? 0.28 : 0.12
+        activeUtteranceIDs.insert(ObjectIdentifier(utterance))
+        synthesizer.speak(utterance)
     }
 
     private func bestAvailableVoice(for languageIdentifier: String) -> AVSpeechSynthesisVoice? {

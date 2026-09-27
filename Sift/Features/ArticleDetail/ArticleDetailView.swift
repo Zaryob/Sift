@@ -201,6 +201,15 @@ struct ArticleDetailView: View {
             macOSToolbarItems(for: article)
         }
         #endif
+        .onChange(of: article?.id) { previousArticleID, newArticleID in
+            guard previousArticleID != newArticleID,
+                  speaker.currentArticleID == previousArticleID else { return }
+            speaker.stop()
+        }
+        .onDisappear {
+            guard let article, speaker.currentArticleID == article.id else { return }
+            speaker.stop()
+        }
     }
 
     @MainActor
