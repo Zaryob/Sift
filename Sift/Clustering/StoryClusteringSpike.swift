@@ -110,8 +110,8 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-10"
-    private static let assignmentPolicy = "60% article-body + 40% headline embedding; centroid threshold + independent headline/body trace + on-device Foundation Models event signature + Natural Language fallback"
+    public static let pipelineVersion = "m0-spike-11"
+    private static let assignmentPolicy = "60% article-body + 40% headline embedding; embedding shortlist + on-device Foundation Models event signature for candidates + Natural Language fallback"
     private static let cohesionSlack = 0.055
     private static let actionMismatchOverrideSimilarity = 0.985
     private static let eventSignatureSimilarityThreshold = 0.86
@@ -144,6 +144,7 @@ public actor StoryClusteringSpike {
 
     private struct CandidateCluster {
         let id: String
+        let representativeArticleID: UUID
         var centroid: ArticleVector
         var representativeVector: ArticleVector
         var representativeActionTerms: Set<String>
@@ -344,24 +345,6 @@ public actor StoryClusteringSpike {
         }
 
         var eventSignaturesByID: [UUID: EventSignatureEvidence] = [:]
-        if eventSignatureModelAvailable {
-            for article in sortedArticles {
-                guard let prepared = preparedByID[article.id],
-                      prepared.failure == nil,
-                      let normalizedContext = prepared.normalizedText,
-                      let normalizedTitle = prepared.normalizedTitle else { continue }
-                if let signature = await Self.generateEventSignature(
-                    title: normalizedTitle,
-                    body: normalizedContext,
-                    analysisLocale: analysisLocale,
-                    embeddingLanguage: targetNaturalLanguage,
-                    embeddingModel: model
-                ) {
-                    eventSignaturesByID[article.id] = signature
-                }
-            }
-        }
-
         var clusters: [CandidateCluster] = []
         var assignments: [StoryClusteringAssignment] = []
 
@@ -385,7 +368,6 @@ public actor StoryClusteringSpike {
                   let detectedLanguage = prepared.detectedLanguage else { continue }
             let normalizedTitle = prepared.normalizedTitle ?? article.title
             let eventActionTerms = Self.eventActionTerms(in: normalizedTitle)
-            let eventSignature = eventSignaturesByID[article.id]
 
             let vector = Self.articleVector(
                 title: normalizedTitle,
@@ -406,6 +388,59 @@ public actor StoryClusteringSpike {
                     candidateDiagnostics: []
                 ))
                 continue
+            }
+
+            // Foundation Models is comparatively expensive. Generate event
+            // signatures only after Apple Natural Language has found at least one
+            // candidate that could otherwise pass the cluster-cohesion checks.
+            // This keeps one-off stories on the embedding-only path.
+            var eventSignature = eventSignaturesByID[article.id]
+            let possibleCandidateIndices = clusters.indices.filter { index in
+                Self.couldPassEmbeddingCohesion(
+                    vector,
+                    cluster: clusters[index],
+                    threshold: similarityThreshold
+                )
+            }
+            if eventSignatureModelAvailable, !possibleCandidateIndices.isEmpty {
+                if eventSignature == nil,
+                   let normalizedContext = prepared.normalizedText,
+                   let normalizedTitle = prepared.normalizedTitle {
+                    eventSignature = await Self.generateEventSignature(
+                        title: normalizedTitle,
+                        body: normalizedContext,
+                        analysisLocale: analysisLocale,
+                        embeddingLanguage: targetNaturalLanguage,
+                        embeddingModel: model
+                    )
+                    if let eventSignature {
+                        eventSignaturesByID[article.id] = eventSignature
+                    }
+                }
+                if eventSignature != nil {
+                    for index in possibleCandidateIndices where clusters[index].representativeEventSignature == nil {
+                        let representativeID = clusters[index].representativeArticleID
+                        guard let representative = preparedByID[representativeID],
+                              let normalizedContext = representative.normalizedText,
+                              let normalizedTitle = representative.normalizedTitle else { continue }
+                        let signature: EventSignatureEvidence?
+                        if let cached = eventSignaturesByID[representativeID] {
+                            signature = cached
+                        } else {
+                            signature = await Self.generateEventSignature(
+                                title: normalizedTitle,
+                                body: normalizedContext,
+                                analysisLocale: analysisLocale,
+                                embeddingLanguage: targetNaturalLanguage,
+                                embeddingModel: model
+                            )
+                        }
+                        clusters[index].representativeEventSignature = signature
+                        if let signature {
+                            eventSignaturesByID[representativeID] = signature
+                        }
+                    }
+                }
             }
 
             // Replay the corpus as a timeline. Using wall-clock `now` here would
@@ -466,6 +501,7 @@ public actor StoryClusteringSpike {
                     .diagnostic.centroidSimilarity
                 clusters.append(CandidateCluster(
                     id: clusterID,
+                    representativeArticleID: article.id,
                     centroid: vector,
                     representativeVector: vector,
                     representativeActionTerms: eventActionTerms,
@@ -601,6 +637,22 @@ public actor StoryClusteringSpike {
                 selected: false
             )
         )
+    }
+
+    private static func couldPassEmbeddingCohesion(
+        _ vector: ArticleVector,
+        cluster: CandidateCluster,
+        threshold: Double
+    ) -> Bool {
+        guard let centroid = cosineSimilarity(vector.combined, cluster.centroid.combined),
+              centroid >= threshold,
+              let representative = cosineSimilarity(vector.combined, cluster.representativeVector.combined),
+              representative >= threshold - cohesionSlack else { return false }
+        let recent = cluster.recentMemberVectors.suffix(3).compactMap {
+            cosineSimilarity(vector.combined, $0.combined)
+        }
+        guard !recent.isEmpty else { return false }
+        return recent.reduce(0, +) / Double(recent.count) >= threshold - cohesionSlack
     }
 
     private static func nearestCandidateDiagnostics(

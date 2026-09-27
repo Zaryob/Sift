@@ -382,24 +382,29 @@ source text.
 The same 66-row, agent-provisional silver sample was run with analysis locale `en`,
 `highFidelity`, a 72-hour window, and threshold `0.96`. Spike v7 introduced separate
 translated headline and article-body vectors weighted 40/60; its F1 was 0.548, recall
-0.426, precision 0.768, and contaminated-cluster rate 12.5%. Spike v10 retains that
-body-first weighting and adds an on-device Foundation Models event signature as a
+0.426, precision 0.768, and contaminated-cluster rate 12.5%. Spike v10 retained that
+body-first weighting and added an on-device Foundation Models event signature as a
 boundary signal. It scored precision 0.704, recall 0.595, F1 0.645, false-merge rate
 20% (5/25 clusters), false-positive pair rate 29.6%, and 7/22 split gold stories.
-The signature was produced for 55/66 rows. The run took 246 seconds on the recorded
-Mac16,1 host. These results fail the M0 F1 gate and are a product-latency warning:
-do not request a Foundation Models signature for every ingested article in a
-production refresh pass.
+The eager-signature run took 246 seconds on the recorded Mac16,1 host.
+
+Spike v11 uses the same policy and data but calls Foundation Models only after the
+Natural Language embeddings shortlist at least one candidate that passes centroid,
+representative, and recent-member cohesion checks. It produced the same assignments
+and quality metrics, called the model for 50/66 rows, and took 204 seconds (about
+17% faster than the eager run). This is progress but still about 3.1 seconds per row
+on this host; it does not establish acceptable production latency. Do not block feed
+refresh on this model call.
 
 The decision trace records body and headline similarity independently, plus overall
 signature similarity and actor/action/object compatibility evidence. Action/object
 word overlap did not separate accepted true-positive pairs from false-positive pairs
 (median overlap was zero for both), while actor overlap was populated for only two
-accepted pairs. On this sample the Foundation Models gate did not improve F1 over the
-preceding signature run. Keep the structured signature as an experiment, not a
-validated clustering rule. Next benchmark work should evaluate lazy signature
-generation only for embedding-shortlisted candidates, then compare quality and
-end-to-end latency with the signature-free Apple Natural Language baseline.
+accepted pairs. On this sample the Foundation Models gate did not improve F1. Keep
+the structured signature as an experiment, not a validated clustering rule. Next
+benchmark work should compare the lazy-signature path with the signature-free Apple
+Natural Language baseline, then reserve Foundation Models for the user-facing,
+source-linked “what changed?” synthesis if it does not improve event identity.
 
 All rows were assigned after Translation preflight, but this sample does not prove
 language-independent clustering: it contains cross-language same-event pairs, and
