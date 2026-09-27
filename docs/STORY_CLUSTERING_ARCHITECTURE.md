@@ -226,12 +226,16 @@ Key decisions:
 - **Centroid drift control.** Centroid is a running mean weighted toward recent
   members (or recomputed from the top-K freshest members) so a cluster doesn't
   ossify around its oldest items.
-- **Concrete-event boundary (M0 spike v6).** A centroid match alone is not enough.
+- **Concrete-event boundary (M0 spike v7).** A centroid match alone is not enough.
   Candidate assignments also need support from the event's fixed representative and
   recent member vectors. Natural Language lemmatizes action verbs in the normalized
   headline; clearly disjoint representative/candidate actions block an event merge,
   except for near-identical representative matches (≥0.985 cosine) that are likely
   headline paraphrases of the same event.
+  The semantic vector keeps headline and article body as separate inputs, with 40%
+  headline and 60% body weight when body text exists; the body prefers extracted
+  publisher text and falls back to the feed summary. This keeps context and reported
+  details central while using the headline as an event cue.
   This deliberately prefers a visible false split over quietly combining different
   developments about the same person, organization, or issue. Related developments
   belong on a `Storyline` timeline after a separately evaluated issue-linking step.
@@ -372,6 +376,24 @@ source text.
 |---|---|---|
 | **M0** | **Blocking evidence and feasibility gate** — blocks story-primary UI, synthesis, briefings, and urgent alerts. | The current native spike (`Sift/Clustering/StoryClusteringSpike.swift`) runs language detection → installed-asset Translation preflight → on-device embedding → sliding-window clustering without changing shipped data or UI. Run it against a hand-collected corpus of 300–500 real articles from ≥20 publishers and ≥3 languages, manually labeled under [`STORY_CLUSTERING_ANNOTATION_GUIDE.md`](STORY_CLUSTERING_ANNOTATION_GUIDE.md). Evaluate with [`tools/evaluate_story_clusters.py`](../tools/evaluate_story_clusters.py). **Metrics:** pairwise precision/recall/F1; false-merge rate = contaminated predicted clusters / all predicted clusters; false-positive pair rate and false splits reported separately. Record a numeric false-merge bound before scoring. **Go/no-go:** pairwise F1 ≥ 0.75, false-merge rate below that bound, acceptable per-item latency on representative devices, and required translation pairs actually `.installed`. Measure `lowLatency` and `highFidelity` separately. User sessions and a one-week diary are also required by the roadmap; repository code does not substitute for those evidence. If a gate fails, revise the on-device strategy and rerun M0 before moving forward. |
 | **M1–M4** | Product delivery milestones | Defined by [`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md), the product source of truth. M1 adds durable story pipeline after M0; M2 adds story/synthesis; M3 adds briefing and notification policy; M4 pilots and iterates. Keep technical schema and migration details in this architecture document. |
+
+### Current development diagnostic (2026-09-27)
+
+The same 66-row, agent-provisional silver sample was run with analysis locale `en`,
+`highFidelity`, a 72-hour window, and threshold `0.96`. Moving from spike v6 to v7,
+which uses a separate translated headline and article-body vector weighted 40/60,
+changed pairwise F1 from 0.498 to 0.548 and recall from 0.338 to 0.426; precision
+fell from 0.943 to 0.768, and contaminated predicted clusters rose from 5% to 12.5%.
+This is a useful direction for recall, with an unresolved false-merge cost. The
+benchmark decision trace points to broad body/issue similarity as a source of merges
+and shows some same-event misses just below the fixed centroid threshold. It is a
+small, provisional development sample, not an M0 result or threshold calibration set.
+
+All sample rows were assigned after Translation preflight, but the sample does not
+prove language-independent clustering: cross-language same-event pairs are sparse
+and missed in the current labels. M0 still needs deliberately assembled same-event
+coverage across language pairs, plus adjudicated labels, before this pipeline can
+pass its gate. The corpus and detailed assignments are local and excluded from Git.
 
 ## 7. Non-Goals and Accepted Risks for v0
 

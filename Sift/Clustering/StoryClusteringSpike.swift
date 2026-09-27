@@ -89,8 +89,8 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-6"
-    private static let assignmentPolicy = "centroid threshold + representative/recent-vector support (0.055 slack) + normalized-title action boundary (0.985 near-identity override); event-level clusters only; top-five candidate decision trace"
+    public static let pipelineVersion = "m0-spike-7"
+    private static let assignmentPolicy = "60% article-body + 40% headline embedding; centroid threshold + representative/recent-vector support (0.055 slack) + headline-action boundary (0.985 near-identity override); top-ten candidate trace"
     private static let cohesionSlack = 0.055
     private static let actionMismatchOverrideSimilarity = 0.985
     private static let maximumRetainedMemberVectors = 12
@@ -139,6 +139,7 @@ public actor StoryClusteringSpike {
         let article: StoryClusteringArticle
         let startedAt: ContinuousClock.Instant
         let sourceText: String
+        let sourceContext: String
         let detectedLanguage: String?
         var normalizedText: String?
         var normalizedTitle: String?
@@ -207,6 +208,7 @@ public actor StoryClusteringSpike {
         for article in sortedArticles {
             let start = ContinuousClock.now
             let sourceText = Self.analysisText(for: article)
+            let sourceContext = Self.analysisContext(for: article)
             let wordCount = sourceText.split(whereSeparator: \.isWhitespace).count
             let detectedLanguage = wordCount >= 8 ? Self.detectLanguage(in: sourceText) : nil
             let failure: StoryClusteringReadiness? = wordCount < 8
@@ -217,8 +219,9 @@ public actor StoryClusteringSpike {
                 article: article,
                 startedAt: start,
                 sourceText: sourceText,
+                sourceContext: sourceContext,
                 detectedLanguage: detectedLanguage,
-                normalizedText: needsTranslation || failure != nil ? nil : sourceText,
+                normalizedText: needsTranslation || failure != nil ? nil : sourceContext,
                 normalizedTitle: needsTranslation || failure != nil ? nil : article.title,
                 translationReadiness: needsTranslation ? "pending" : (failure == nil ? "notNeeded" : "unsupported"),
                 failure: failure
@@ -263,7 +266,7 @@ public actor StoryClusteringSpike {
                             articleID: articleID,
                             field: .text,
                             request: TranslationSession.Request(
-                                sourceText: prepared.sourceText,
+                                sourceText: prepared.sourceContext,
                                 clientIdentifier: "text:\(articleID.uuidString)"
                             )
                         ),
@@ -316,25 +319,17 @@ public actor StoryClusteringSpike {
                 ))
                 continue
             }
-            guard let normalizedText = prepared.normalizedText,
+            guard let normalizedContext = prepared.normalizedText,
                   let detectedLanguage = prepared.detectedLanguage else { continue }
             let normalizedTitle = prepared.normalizedTitle ?? article.title
             let eventActionTerms = Self.eventActionTerms(in: normalizedTitle)
 
-            let vector: [Double]?
-            if detectedLanguage == analysisLocale {
-                vector = Self.articleVector(
-                    for: article,
-                    language: targetNaturalLanguage,
-                    model: model
-                )
-            } else {
-                vector = Self.meanPooledVector(
-                    for: normalizedText,
-                    language: targetNaturalLanguage,
-                    model: model
-                )
-            }
+            let vector = Self.articleVector(
+                title: normalizedTitle,
+                context: normalizedContext,
+                language: targetNaturalLanguage,
+                model: model
+            )
             guard let vector else {
                 assignments.append(Self.assignment(
                     article: article,
@@ -564,22 +559,21 @@ public actor StoryClusteringSpike {
     }
 
     private static func articleVector(
-        for article: StoryClusteringArticle,
+        title: String,
+        context: String?,
         language: NLLanguage,
         model: NLContextualEmbedding
     ) -> [Double]? {
         guard let titleVector = meanPooledVector(
-            for: article.title,
+            for: title,
             language: language,
             model: model
         ) else { return nil }
 
-        let context = [article.summary, article.fullText]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
         guard let context,
+              !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let contextVector = meanPooledVector(
-                  for: String(context.prefix(2_000)),
+                  for: String(context.prefix(4_000)),
                   language: language,
                   model: model
               ),
@@ -588,9 +582,9 @@ public actor StoryClusteringSpike {
             return titleVector
         }
 
-        // Feed excerpts often contain generic background that drowns out the event
-        // named in the headline. Give the title the larger share of the article vector.
-        return zip(normalizedTitle, normalizedContext).map { ($0 * 0.7) + ($1 * 0.3) }
+        // The article body is the primary account; the headline is a useful event
+        // cue, but must not drown out detail and context in the article itself.
+        return zip(normalizedTitle, normalizedContext).map { ($0 * 0.4) + ($1 * 0.6) }
     }
 
     private static func unitVector(_ vector: [Double]) -> [Double]? {
@@ -651,6 +645,13 @@ public actor StoryClusteringSpike {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         return String(parts.joined(separator: "\n\n").prefix(12_000))
+    }
+
+    private static func analysisContext(for article: StoryClusteringArticle) -> String {
+        let parts = [article.fullText, article.summary]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return String((parts.first ?? article.title).prefix(12_000))
     }
 
     private static func assignment(
