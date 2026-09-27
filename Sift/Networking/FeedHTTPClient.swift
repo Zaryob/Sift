@@ -58,7 +58,7 @@ nonisolated public final class FeedHTTPClient: FeedHTTPClientProtocol, @unchecke
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw URLError(.init(rawValue: httpResponse.statusCode))
+            throw HTTPError(statusCode: httpResponse.statusCode, url: url)
         }
 
         let newEtag = httpResponse.value(forHTTPHeaderField: "ETag")
@@ -66,5 +66,22 @@ nonisolated public final class FeedHTTPClient: FeedHTTPClientProtocol, @unchecke
         let finalURL = httpResponse.url ?? url
 
         return .success(data: data, etag: newEtag, lastModified: newLastModified, responseURL: finalURL)
+    }
+}
+
+/// A strongly-typed HTTP-level error that carries the real HTTP status code.
+/// URLError.Code uses negative integers, so mapping HTTP status codes (positive
+/// integers like 404, 500) into URLError would produce meaningless descriptions.
+public struct HTTPError: LocalizedError, CustomStringConvertible {
+    public let statusCode: Int
+    public let url: URL
+
+    public var errorDescription: String? {
+        HTTPURLResponse.localizedString(forStatusCode: statusCode)
+            .capitalized + " (HTTP \(statusCode))"
+    }
+
+    public var description: String {
+        "HTTPError(\(statusCode)) at \(url.absoluteString)"
     }
 }
