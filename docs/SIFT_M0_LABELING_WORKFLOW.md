@@ -85,26 +85,34 @@ use them to claim the M0 accuracy gate, or tune a final threshold as if the set 
 an independent holdout.
 
 The current local seed is `tools/local/sift-m0-agent-labeled-seed.jsonl`; exploratory
-results for the original representation and title-weighted revision are in
-`tools/local/sift-m0-seed-threshold-sweep.json` and
-`tools/local/sift-m0-seed-threshold-sweep-v2.json`. These files are intentionally
+reports are in `tools/local/sift-m0-seed-threshold-sweep*.json` and
+`tools/local/sift-m0-multilingual-seed-report.json`. These files are intentionally
 excluded through the checkout-local `.git/info/exclude` and are not part of a commit.
-The seed has 30 Turkish records, 14 publishers, and 11 provisional story IDs; four
-event copies were added from direct publisher pages as research candidates, beyond
-the RSS snapshot. Keep any future feed text and labels local as well.
+The seed now has 54 records from 29 publishers across Turkish (30), English (12),
+German (4), Spanish (4), and French (4), grouped into 17 provisional story IDs.
+The 24 added records cover three multilingual events and three separate Apple-topic
+hard negatives. Their labels and rationales remain local. The multilingual set
+contains no same-event Turkish/non-Turkish pair yet, so it does not measure
+Turkish-to-other-language clustering.
 
 Use the silver seed to expose obvious pipeline failures and compare representation
 or candidate-generation variants. The original `m0-spike-1` representation assigned
 all 30 seed records to one predicted cluster at threshold 0.82. Revision
 `m0-spike-2` combines separate unit-normalized title and excerpt vectors at 0.7/0.3.
-For same-language rows, threshold 0.96 reached exploratory pairwise F1 0.83, with two
-contaminated predicted clusters, two split gold IDs, and 8.1% false-positive pairs.
-The threshold was swept on this same agent-labeled seed, so this is neither an
-independent holdout score nor an M0 pass. Cross-language rows still use the joined
-translated text path and need their own evaluation. Validate boundaries and threshold
-on human-reviewed calibration data before any quality claim. Reserve human review
-for ambiguous story boundaries and a holdout; do not require a person to label
-hundreds of articles before implementation work can proceed.
+On the 30-row Turkish-only seed, threshold 0.96 reached exploratory pairwise F1 0.83.
+After adding the multilingual rows, the same threshold yielded F1 0.53, precision
+0.73, recall 0.42, a 12.5% contaminated-cluster rate, and a 27.1% false-positive-pair
+rate. Four gold IDs were split. Translation reported `installed` for 42 non-English
+rows; the 12 English rows needed no translation. The run took about 102 seconds for
+54 rows on the recorded Mac16,1 / macOS 27.0 machine (about 1.9 seconds per article).
+These are silver-set diagnostics only: the threshold was not independently chosen,
+the labels were agent-created, and this is not an M0 pass. In particular, the seed
+shows that the current cross-language approach misses some clear matches and that
+per-article Translation latency needs work. Keep the failing multilingual cases as
+regression examples; test batching/caching and representation changes against the
+same private seed, then validate the decision on human-reviewed calibration and
+holdout data before making a quality claim. Do not require a person to label hundreds
+of articles before implementation work can proceed.
 
 ## Who supplies the labels
 
