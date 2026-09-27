@@ -150,6 +150,7 @@ struct ArticleListView: View {
     @State private var showToast = false
     @State private var sortOrder: ArticleSortOrder = .newestFirst
     @State private var hideRead = false
+    @State private var isShowingStoryPreview = false
 
     @AppStorage("vipFeedIDs") private var vipFeedIDsRaw: String = ""
     @AppStorage("articleFilterConfigData") private var savedFilterConfigData: Data = Data()
@@ -284,7 +285,18 @@ struct ArticleListView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            List(selection: $viewModel.selectedArticle) {
+            Group {
+                if isShowingStoryPreview {
+                    StoryPreviewList(
+                        groups: viewModel.storyPreviewGroups,
+                        articlesByID: Dictionary(uniqueKeysWithValues: allArticles.map { ($0.id, $0) }),
+                        unassignedIDs: viewModel.storyPreviewUnassignedIDs,
+                        metrics: viewModel.storyPreviewMetrics,
+                        isBuilding: viewModel.isBuildingStoryPreview,
+                        selectedArticle: $viewModel.selectedArticle
+                    )
+                } else {
+                    List(selection: $viewModel.selectedArticle) {
                 if let currentFeed = selectedFeedItem, let error = currentFeed.refreshError {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle")
@@ -330,6 +342,8 @@ struct ArticleListView: View {
             }
             .listStyle(.plain)
             .navigationLinkIndicatorVisibility(.hidden)
+                }
+            }
             .refreshable {
                 await viewModel.refreshAll(context: modelContext)
             }
@@ -415,10 +429,19 @@ struct ArticleListView: View {
     }
 
     private var currentNavTitle: String {
-        currentFeedTitle ?? currentScopeTitle
+        if isShowingStoryPreview {
+            return String(localized: "Stories Preview")
+        }
+        return currentFeedTitle ?? currentScopeTitle
     }
 
     private var currentNavSubtitle: String {
+        if isShowingStoryPreview, let progress = viewModel.storyPreviewProgress {
+            return progress
+        }
+        if isShowingStoryPreview, viewModel.isBuildingStoryPreview {
+            return String(localized: "Analyzing recent coverage on this device…")
+        }
         if viewModel.isRefreshing {
             return String(localized: "Updating feeds…")
         }
@@ -969,6 +992,30 @@ struct ArticleListView: View {
                 .disabled(viewModel.isRefreshing)
             }
 
+            Section("Stories") {
+                if isShowingStoryPreview {
+                    Button {
+                        isShowingStoryPreview = false
+                    } label: {
+                        Label("By Feed", systemImage: "list.bullet")
+                    }
+
+                    Button {
+                        buildStoryPreview()
+                    } label: {
+                        Label("Rebuild Preview", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(viewModel.isBuildingStoryPreview)
+                } else {
+                    Button {
+                        buildStoryPreview()
+                    } label: {
+                        Label("Build Stories Preview", systemImage: "square.stack.3d.up")
+                    }
+                    .disabled(viewModel.isBuildingStoryPreview || allArticles.isEmpty || !isAllArticlesScope)
+                }
+            }
+
             Section("View Options") {
                 Toggle("Show Feed Icons", isOn: $showFeedIcons)
                 Toggle("Show Article Previews", isOn: $showArticlePreviews)
@@ -1012,6 +1059,18 @@ struct ArticleListView: View {
         }
         .buttonStyle(.plain)
         .help("Options")
+    }
+
+    private var isAllArticlesScope: Bool {
+        viewModel.selectedSidebarItem == .all || viewModel.selectedSidebarItem == nil
+    }
+
+    private func buildStoryPreview() {
+        viewModel.selectedSidebarItem = .all
+        isShowingStoryPreview = true
+        Task {
+            await viewModel.buildStoryPreview(from: allArticles, context: modelContext)
+        }
     }
 
     // MARK: - Undo Toast
@@ -1965,4 +2024,3 @@ extension UIResponder {
     }
 }
 #endif
-

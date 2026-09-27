@@ -34,6 +34,16 @@ All model inference and learned preference data stay on the person’s device. F
 
 **Exit artifact:** labeled corpus and annotation rules, reproducible benchmark report, observed user needs, and a recorded go/no-go decision. Do not substitute synthetic examples or model-generated labels for this evidence.
 
+**Current M0 app prototype:** The Article List's Options menu includes an opt-in
+**Build Stories Preview** action. It attempts bounded foreground article-text
+extraction for the latest 72 hours of current feed items, caches successful extracts
+on their existing articles, then runs the M0 clustering spike in memory. Failed or
+unavailable extraction falls back to RSS content and summary. The preview shows
+source-linked groups and articles the pipeline could not safely assign. It does not
+write cluster assignments, synthesize claims, or change the default By Feed reader.
+The preview is explicitly experimental; it does not satisfy the M0 quality gate or
+authorize story-primary release.
+
 ### M1 — Source-backed story pipeline (after M0 passes)
 
 - Add durable `StoryCluster` and per-article language, embedding, assignment, and pipeline provenance. Add a versioned SwiftData migration; deleting a derived cluster must never delete its articles.

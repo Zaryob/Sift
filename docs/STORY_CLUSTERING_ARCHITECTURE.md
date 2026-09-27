@@ -14,6 +14,18 @@ urgent notifications; those experiences are governed by the product roadmap. A
 cluster's recency and coverage signals are inputs to those experiences, not proof
 that publishers independently corroborate a claim.
 
+**Current app prototype:** The Article List's Options menu can run an explicit
+"Build Stories Preview" against the latest 72 hours of existing `FeedItem`s. It first
+attempts bounded foreground extraction for articles without a substantial body,
+caches successful extracts in the existing article fields, and falls back to RSS
+content/summary when publishers block extraction. It then calls the M0
+`StoryClusteringSpike` in memory, translates only with already-installed Apple
+Translation pairs, and displays source-linked groups plus unassigned items. It does
+not persist cluster assignments, generate summaries, or replace By Feed. The preview
+labels itself experimental because M0's quality gate has not passed. This is a
+foreground shadow/debugging surface, not the approved story-primary release
+experience.
+
 ## 0. Core Premise
 
 The product's core story entity is **`StoryCluster`**, not `FeedItem`. `FeedItem` remains

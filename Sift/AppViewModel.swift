@@ -29,6 +29,27 @@ public enum ArticleScope: String, CaseIterable, Identifiable {
     public var id: String { rawValue }
 }
 
+public struct StoryPreviewGroup: Identifiable, Sendable {
+    public let id: String
+    public let articleIDs: [UUID]
+    public let publisherCount: Int
+}
+
+public struct StoryPreviewMetrics: Sendable {
+    public let analyzedArticleCount: Int
+    public let readyArticleCount: Int
+    public let articleBodyCount: Int
+    public let waitingForTranslationCount: Int
+    public let unsupportedLanguageCount: Int
+    public let otherFailureCount: Int
+}
+
+private struct StoryPreviewExtractionRequest: Sendable {
+    let url: URL
+    let itemIDs: [UUID]
+    let summary: String?
+}
+
 /// A feed that has been fetched and parsed but not yet saved.
 public struct FeedPreview {
     public let url: URL
@@ -83,10 +104,16 @@ public final class AppViewModel {
     public var errorMessage: String?
     public var showErrorAlert: Bool = false
     public var isRefreshing: Bool = false
+    public private(set) var isBuildingStoryPreview = false
+    public private(set) var storyPreviewProgress: String?
+    public private(set) var storyPreviewGroups: [StoryPreviewGroup] = []
+    public private(set) var storyPreviewUnassignedIDs: [UUID] = []
+    public private(set) var storyPreviewMetrics: StoryPreviewMetrics?
 
     private let refreshService: FeedRefreshService
     private let httpClient: FeedHTTPClientProtocol
     private let discoveryService: FeedDiscoveryService
+    private let storyClusteringSpike = StoryClusteringSpike()
 
     public init(
         refreshService: FeedRefreshService = FeedRefreshService(),
@@ -169,6 +196,196 @@ public final class AppViewModel {
         isRefreshing = false
         WidgetSnapshotManager.shared.updateSnapshot(context: context ?? PersistenceController.shared.container.mainContext)
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Runs the M0 clustering spike against recent RSS items without saving derived assignments.
+    /// Extracted article text is preferred; RSS content and summary remain the fallback inputs.
+    public func buildStoryPreview(from feedItems: [FeedItem], context: ModelContext) async {
+        guard !isBuildingStoryPreview else { return }
+        isBuildingStoryPreview = true
+        defer {
+            isBuildingStoryPreview = false
+            storyPreviewProgress = nil
+        }
+
+        let cutoff = Date().addingTimeInterval(-72 * 60 * 60)
+        let recentItems = feedItems
+            .filter { $0.publicationDate >= cutoff }
+            .sorted { $0.publicationDate < $1.publicationDate }
+
+        guard !recentItems.isEmpty else {
+            storyPreviewGroups = []
+            storyPreviewUnassignedIDs = []
+            storyPreviewMetrics = StoryPreviewMetrics(
+                analyzedArticleCount: 0,
+                readyArticleCount: 0,
+                articleBodyCount: 0,
+                waitingForTranslationCount: 0,
+                unsupportedLanguageCount: 0,
+                otherFailureCount: 0
+            )
+            return
+        }
+
+        await extractMissingStoryPreviewBodies(from: recentItems, context: context)
+
+        let bodyCount = recentItems.filter { Self.articleBodyWordCount(for: $0) >= 120 }.count
+        let articles = recentItems.map { item in
+            let extractedBody = item.extractedArticle?.blocks.map(\.text).joined(separator: "\n")
+            let rssContent = item.content.map { HTMLSanitizer.stripTags(from: $0) }
+            let summary = item.summary.map { HTMLSanitizer.stripTags(from: $0) }
+            let body = [
+                extractedBody.flatMap { $0.split(whereSeparator: \.isWhitespace).count >= 120 ? $0 : nil },
+                rssContent.flatMap { $0.split(whereSeparator: \.isWhitespace).count >= 120 ? $0 : nil },
+                extractedBody,
+                rssContent
+            ]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+
+            return StoryClusteringArticle(
+                id: item.id,
+                title: item.title,
+                summary: summary,
+                fullText: body,
+                publisherKey: Self.publisherKey(for: item.feed, itemID: item.id),
+                publishedAt: item.publicationDate
+            )
+        }
+
+        let result = await storyClusteringSpike.cluster(
+            articles,
+            analysisLocale: "en",
+            similarityThreshold: 0.82,
+            candidateWindow: 72 * 60 * 60,
+            translationStrategy: .lowLatency,
+            eventSignaturesEnabled: false
+        )
+
+        let readyAssignments = result.assignments.filter {
+            $0.readiness == .ready && $0.predictedClusterID != nil
+        }
+        let assignmentGroups = Dictionary(grouping: readyAssignments) { $0.predictedClusterID! }
+        let publisherByArticleID = Dictionary(uniqueKeysWithValues: zip(articles.map(\.id), articles.map(\.publisherKey)))
+        let dateByArticleID = Dictionary(uniqueKeysWithValues: recentItems.map { ($0.id, $0.publicationDate) })
+        storyPreviewGroups = assignmentGroups.map { clusterID, assignments in
+            let sortedAssignments = assignments.sorted { lhs, rhs in
+                let leftDate = dateByArticleID[lhs.id] ?? .distantPast
+                let rightDate = dateByArticleID[rhs.id] ?? .distantPast
+                return leftDate > rightDate
+            }
+            let publishers = Set(sortedAssignments.compactMap { publisherByArticleID[$0.id] })
+            return StoryPreviewGroup(
+                id: clusterID,
+                articleIDs: sortedAssignments.map(\.id),
+                publisherCount: publishers.count
+            )
+        }
+        .sorted { lhs, rhs in
+            let leftDate = lhs.articleIDs.first.flatMap { dateByArticleID[$0] } ?? .distantPast
+            let rightDate = rhs.articleIDs.first.flatMap { dateByArticleID[$0] } ?? .distantPast
+            return leftDate > rightDate
+        }
+
+        let assignedIDs = Set(readyAssignments.map(\.id))
+        storyPreviewUnassignedIDs = recentItems.map(\.id).filter { !assignedIDs.contains($0) }
+        storyPreviewMetrics = StoryPreviewMetrics(
+            analyzedArticleCount: result.assignments.count,
+            readyArticleCount: readyAssignments.count,
+            articleBodyCount: bodyCount,
+            waitingForTranslationCount: result.assignments.filter { $0.readiness == .translationNotInstalled }.count,
+            unsupportedLanguageCount: result.assignments.filter { $0.readiness == .unsupportedLanguage }.count,
+            otherFailureCount: result.assignments.filter {
+                $0.readiness != .ready && $0.readiness != .translationNotInstalled && $0.readiness != .unsupportedLanguage
+            }.count
+        )
+    }
+
+    private func extractMissingStoryPreviewBodies(from items: [FeedItem], context: ModelContext) async {
+        let itemByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        let requests = Dictionary(grouping: items.compactMap { item -> (URL, FeedItem)? in
+            guard Self.articleBodyWordCount(for: item) < 120,
+                  item.extractedArticleData == nil,
+                  let link = item.link,
+                  let url = URL(string: link),
+                  url.scheme == "https" || url.scheme == "http",
+                  let host = url.host(), !host.isEmpty else { return nil }
+            if let lastAttempt = item.extractionAttemptedAt,
+               Date().timeIntervalSince(lastAttempt) < 86_400 {
+                return nil
+            }
+            return (url, item)
+        }, by: { $0.0 })
+        .map { url, entries in
+            StoryPreviewExtractionRequest(
+                url: url,
+                itemIDs: entries.map { $0.1.id },
+                summary: entries.first?.1.summary ?? entries.first?.1.content
+            )
+        }
+        .sorted { $0.url.absoluteString < $1.url.absoluteString }
+
+        guard !requests.isEmpty else { return }
+        let requestByURL = Dictionary(uniqueKeysWithValues: requests.map { ($0.url, $0) })
+        storyPreviewProgress = String(localized: "Preparing article text…")
+        var completedCount = 0
+        let maximumConcurrentRequests = 4
+
+        await withTaskGroup(of: (URL, ExtractedArticle?).self) { group in
+            var nextRequestIndex = 0
+            for _ in 0..<min(maximumConcurrentRequests, requests.count) {
+                let request = requests[nextRequestIndex]
+                nextRequestIndex += 1
+                group.addTask {
+                    (request.url, try? await ArticleExtractor.fetch(url: request.url, summary: request.summary))
+                }
+            }
+
+            while let (url, extractedArticle) = await group.next() {
+                completedCount += 1
+                storyPreviewProgress = String(localized: "Extracting article text \(completedCount) of \(requests.count)…")
+                let request = requestByURL[url]
+                for itemID in request?.itemIDs ?? [] {
+                    guard let item = itemByID[itemID] else { continue }
+                    item.extractionAttemptedAt = Date()
+                    if let extractedArticle,
+                       let data = try? JSONEncoder().encode(extractedArticle) {
+                        item.extractedArticleData = data
+                        if item.imageURL == nil {
+                            item.imageURL = extractedArticle.leadImageURL
+                        }
+                    }
+                }
+                if nextRequestIndex < requests.count {
+                    let nextRequest = requests[nextRequestIndex]
+                    nextRequestIndex += 1
+                    group.addTask {
+                        (nextRequest.url, try? await ArticleExtractor.fetch(url: nextRequest.url, summary: nextRequest.summary))
+                    }
+                }
+            }
+        }
+
+        try? context.save()
+    }
+
+    private static func articleBodyWordCount(for item: FeedItem) -> Int {
+        if let extracted = item.extractedArticle, extracted.wordCount >= 120 {
+            return extracted.wordCount
+        }
+        let rssBody = HTMLSanitizer.stripTags(from: item.content ?? "")
+        let rssBodyCount = rssBody.split(whereSeparator: \.isWhitespace).count
+        if rssBodyCount >= 120 { return rssBodyCount }
+        return item.extractedArticle?.wordCount ?? rssBodyCount
+    }
+
+    private static func publisherKey(for feed: Feed?, itemID: UUID) -> String {
+        guard let feed,
+              let url = URL(string: feed.siteURL ?? feed.url),
+              let host = url.host()?.lowercased() else {
+            return "unknown-publisher-\(itemID.uuidString)"
+        }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
     // MARK: - Adding feeds
