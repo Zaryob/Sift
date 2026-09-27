@@ -108,6 +108,12 @@ public actor FeedRefreshService {
                 }
             }
 
+            if updateWidgetAndBadge {
+                await MainActor.run {
+                    ArticleEnrichmentQueue.shared.scheduleRecentItems(in: modelContainer)
+                }
+            }
+
             // Update Widget snapshot and notify WidgetKit only if requested (e.g. single feed refresh from UI)
             if updateWidgetAndBadge {
                 await WidgetSnapshotManager.shared.updateSnapshot(context: context)
@@ -153,6 +159,10 @@ public actor FeedRefreshService {
                     }
                 }
             }
+        }
+
+        await MainActor.run {
+            ArticleEnrichmentQueue.shared.scheduleRecentItems(in: modelContainer)
         }
 
         // Final snapshot update after all feeds finish refreshing

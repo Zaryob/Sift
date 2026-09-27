@@ -3,13 +3,23 @@ import SwiftData
 
 struct StoryPreviewList: View {
     let groups: [StoryPreviewGroup]
+    let categories: [StoryPreviewCategory]
     let articlesByID: [UUID: FeedItem]
     let unassignedIDs: [UUID]
     let metrics: StoryPreviewMetrics?
     let isBuilding: Bool
+    let onEnrichmentPassComplete: () -> Void
     @Binding var selectedArticle: FeedItem?
+    @ObservedObject private var enrichmentQueue = ArticleEnrichmentQueue.shared
+    @State private var selectedCategoryID: String?
 
     var body: some View {
+        let selectedCategory = categories.first { $0.id == selectedCategoryID }
+        let visibleGroups = selectedCategory.map { category in
+            groups.filter { category.storyGroupIDs.contains($0.id) }
+        } ?? groups
+        let visibleUnassignedIDs = selectedCategory?.articleIDs ?? unassignedIDs
+
         List(selection: $selectedArticle) {
             if isBuilding {
                 Section {
@@ -23,6 +33,24 @@ struct StoryPreviewList: View {
                 }
             }
 
+            if enrichmentQueue.isProcessing {
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        if let progressMessage = enrichmentQueue.progressMessage {
+                            Text(progressMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Enriching recent articles on this device…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .listRowSeparator(.hidden)
+                }
+            }
+
             if let metrics, metrics.analysisState != .noRecentArticles {
                 Section {
                     StoryPreviewStatusCard(metrics: metrics)
@@ -30,7 +58,23 @@ struct StoryPreviewList: View {
                 }
             }
 
-            ForEach(groups) { group in
+            if !categories.isEmpty {
+                Section {
+                    StoryPreviewCategoryFilter(
+                        categories: categories,
+                        selection: $selectedCategoryID
+                    )
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                } header: {
+                    Text("Topics from recent coverage")
+                        .textCase(nil)
+                } footer: {
+                    Text("Topic labels come from on-device article digests and may change as more recent articles are enriched.")
+                }
+            }
+
+            ForEach(visibleGroups) { group in
                 let memberArticles = group.articleIDs.compactMap { articlesByID[$0] }
                 if let representative = memberArticles.first {
                     Section {
@@ -50,9 +94,9 @@ struct StoryPreviewList: View {
                 }
             }
 
-            if !unassignedIDs.isEmpty {
+            if !visibleUnassignedIDs.isEmpty {
                 Section {
-                    ForEach(unassignedIDs, id: \.self) { id in
+                    ForEach(visibleUnassignedIDs, id: \.self) { id in
                         if let article = articlesByID[id] {
                             NavigationLink(value: article) {
                                 StoryPreviewSourceRow(article: article)
@@ -79,6 +123,63 @@ struct StoryPreviewList: View {
         }
         .listStyle(.plain)
         .navigationLinkIndicatorVisibility(.hidden)
+        .onChange(of: enrichmentQueue.completedPassCount) { _, count in
+            guard count > 0 else { return }
+            onEnrichmentPassComplete()
+        }
+    }
+}
+
+private struct StoryPreviewCategoryFilter: View {
+    let categories: [StoryPreviewCategory]
+    @Binding var selection: String?
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                StoryPreviewCategoryChip(
+                    title: nil,
+                    isSelected: selection == nil || !categories.contains { $0.id == selection },
+                    action: { selection = nil }
+                )
+                ForEach(categories) { category in
+                    StoryPreviewCategoryChip(
+                        title: category.title,
+                        isSelected: selection == category.id,
+                        action: { selection = category.id }
+                    )
+                }
+            }
+            .padding(.vertical, 3)
+        }
+        .scrollIndicators(.hidden)
+    }
+}
+
+private struct StoryPreviewCategoryChip: View {
+    let title: String?
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if let title {
+                    Text(title)
+                } else {
+                    Text("All stories")
+                }
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background {
+                Capsule()
+                    .fill(isSelected ? Color.siftAccent : Color.secondary.opacity(0.12))
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -104,6 +205,16 @@ private struct StoryPreviewStatusCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            if metrics.enrichedArticleCount > 0 {
+                Text("\(metrics.enrichedArticleCount) article digests · \(metrics.dailyCategoryCount) daily topics")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Daily topics appear as Apple Intelligence prepares article digests on this device.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if metrics.waitingForTranslationCount > 0 || metrics.unsupportedLanguageCount > 0 || metrics.otherFailureCount > 0 {
                 Text("\(metrics.waitingForTranslationCount) waiting for language assets · \(metrics.unsupportedLanguageCount) unsupported languages · \(metrics.otherFailureCount) other analysis limits")
                     .font(.caption)
@@ -117,7 +228,7 @@ private struct StoryPreviewStatusCard: View {
     private var statusDescription: LocalizedStringResource {
         switch metrics.analysisState {
         case .completed:
-            "M0 quality gate not passed. No summaries are generated; open a source article to inspect the reporting."
+            "M0 quality gate not passed. Article digests and topic labels are experimental; story-level summaries are not generated."
         case .modelUnavailable:
             "Apple's on-device embedding model did not load. This run did not evaluate whether these stories match."
         case .noRecentArticles:

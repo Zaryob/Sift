@@ -37,6 +37,13 @@ public struct StoryPreviewGroup: Identifiable, Sendable {
     public let publisherCount: Int
 }
 
+public struct StoryPreviewCategory: Identifiable, Sendable {
+    public let id: String
+    public let title: String
+    public let storyGroupIDs: [String]
+    public let articleIDs: [UUID]
+}
+
 public enum StoryPreviewAnalysisState: Equatable, Sendable {
     case completed
     case modelUnavailable
@@ -47,6 +54,8 @@ public struct StoryPreviewMetrics: Sendable {
     public let analyzedArticleCount: Int
     public let readyArticleCount: Int
     public let articleBodyCount: Int
+    public let enrichedArticleCount: Int
+    public let dailyCategoryCount: Int
     public let waitingForTranslationCount: Int
     public let unsupportedLanguageCount: Int
     public let otherFailureCount: Int
@@ -57,6 +66,12 @@ private struct StoryPreviewExtractionRequest: Sendable {
     let url: URL
     let itemIDs: [UUID]
     let summary: String?
+}
+
+private struct DailyCategoryAccumulator {
+    var labelCounts: [String: Int] = [:]
+    var storyGroupIDs: Set<String> = []
+    var articleIDs: Set<UUID> = []
 }
 
 /// A feed that has been fetched and parsed but not yet saved.
@@ -118,6 +133,7 @@ public final class AppViewModel {
     public private(set) var isBuildingStoryPreview = false
     public private(set) var storyPreviewProgress: String?
     public private(set) var storyPreviewGroups: [StoryPreviewGroup] = []
+    public private(set) var storyPreviewCategories: [StoryPreviewCategory] = []
     public private(set) var storyPreviewUnassignedIDs: [UUID] = []
     public private(set) var storyPreviewMetrics: StoryPreviewMetrics?
 
@@ -235,11 +251,14 @@ public final class AppViewModel {
 
         guard !recentItems.isEmpty else {
             storyPreviewGroups = []
+            storyPreviewCategories = []
             storyPreviewUnassignedIDs = []
             storyPreviewMetrics = StoryPreviewMetrics(
                 analyzedArticleCount: 0,
                 readyArticleCount: 0,
                 articleBodyCount: 0,
+                enrichedArticleCount: 0,
+                dailyCategoryCount: 0,
                 waitingForTranslationCount: 0,
                 unsupportedLanguageCount: 0,
                 otherFailureCount: 0,
@@ -248,13 +267,21 @@ public final class AppViewModel {
             return
         }
 
-        await extractMissingStoryPreviewBodies(from: recentItems, context: context)
+        if !ArticleEnrichmentQueue.shared.isProcessing {
+            await extractMissingStoryPreviewBodies(from: recentItems, context: context)
+        }
+
+        let intelligence = ArticleIntelligenceService.shared
+        let digestsByArticleID = Dictionary(uniqueKeysWithValues: recentItems.compactMap { item in
+            intelligence.currentOnDeviceDigest(for: item).map { (item.id, $0) }
+        })
 
         let bodyCount = recentItems.filter { Self.articleBodyWordCount(for: $0) >= 120 }.count
         let articles = recentItems.map { item in
             let extractedBody = item.extractedArticle?.blocks.map(\.text).joined(separator: "\n")
             let rssContent = item.content.map { HTMLSanitizer.stripTags(from: $0) }
             let summary = item.summary.map { HTMLSanitizer.stripTags(from: $0) }
+            let digest = digestsByArticleID[item.id]
             let body = [
                 extractedBody.flatMap { $0.split(whereSeparator: \.isWhitespace).count >= 120 ? $0 : nil },
                 rssContent.flatMap { $0.split(whereSeparator: \.isWhitespace).count >= 120 ? $0 : nil },
@@ -269,6 +296,9 @@ public final class AppViewModel {
                 title: item.title,
                 summary: summary,
                 fullText: body,
+                digestSummary: digest?.summary,
+                keyPoints: digest?.keyPoints ?? [],
+                digestLanguageCode: digest?.outputLanguageCode,
                 publisherKey: Self.publisherKey(for: item.feed, itemID: item.id),
                 publishedAt: item.publicationDate
             )
@@ -310,10 +340,17 @@ public final class AppViewModel {
 
         let assignedIDs = Set(readyAssignments.map(\.id))
         storyPreviewUnassignedIDs = recentItems.map(\.id).filter { !assignedIDs.contains($0) }
+        storyPreviewCategories = Self.makeDailyCategories(
+            groups: storyPreviewGroups,
+            unassignedIDs: storyPreviewUnassignedIDs,
+            digestsByArticleID: digestsByArticleID
+        )
         storyPreviewMetrics = StoryPreviewMetrics(
             analyzedArticleCount: result.assignments.count,
             readyArticleCount: readyAssignments.count,
             articleBodyCount: bodyCount,
+            enrichedArticleCount: digestsByArticleID.count,
+            dailyCategoryCount: storyPreviewCategories.count,
             waitingForTranslationCount: result.assignments.filter { $0.readiness == .translationNotInstalled }.count,
             unsupportedLanguageCount: result.assignments.filter { $0.readiness == .unsupportedLanguage }.count,
             otherFailureCount: result.assignments.filter {
@@ -321,6 +358,60 @@ public final class AppViewModel {
             }.count,
             analysisState: result.embeddingModelAvailable == false ? .modelUnavailable : .completed
         )
+    }
+
+    private static func makeDailyCategories(
+        groups: [StoryPreviewGroup],
+        unassignedIDs: [UUID],
+        digestsByArticleID: [UUID: ArticleIntelligenceResult]
+    ) -> [StoryPreviewCategory] {
+        var buckets: [String: DailyCategoryAccumulator] = [:]
+
+        func normalizedKey(for label: String) -> String? {
+            let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: .punctuationCharacters)
+            guard !trimmed.isEmpty else { return nil }
+            let folded = trimmed.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return folded.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+
+        func record(_ label: String, groupID: String? = nil, articleID: UUID? = nil) {
+            guard let key = normalizedKey(for: label) else { return }
+            var bucket = buckets[key, default: DailyCategoryAccumulator()]
+            let displayLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: .punctuationCharacters)
+            bucket.labelCounts[displayLabel, default: 0] += 1
+            if let groupID { bucket.storyGroupIDs.insert(groupID) }
+            if let articleID { bucket.articleIDs.insert(articleID) }
+            buckets[key] = bucket
+        }
+
+        for group in groups {
+            for articleID in group.articleIDs {
+                for topic in digestsByArticleID[articleID]?.topics ?? [] {
+                    record(topic, groupID: group.id)
+                }
+            }
+        }
+        for articleID in unassignedIDs {
+            for topic in digestsByArticleID[articleID]?.topics ?? [] {
+                record(topic, articleID: articleID)
+            }
+        }
+
+        return buckets.compactMap { key, bucket in
+            guard let title = bucket.labelCounts.max(by: { left, right in
+                if left.value == right.value { return left.key > right.key }
+                return left.value < right.value
+            })?.key else { return nil }
+            return StoryPreviewCategory(
+                id: key,
+                title: title,
+                storyGroupIDs: bucket.storyGroupIDs.sorted(),
+                articleIDs: bucket.articleIDs.sorted { $0.uuidString < $1.uuidString }
+            )
+        }
+        .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     private func extractMissingStoryPreviewBodies(from items: [FeedItem], context: ModelContext) async {
@@ -480,6 +571,7 @@ public final class AppViewModel {
         }
 
         try context.save()
+        ArticleEnrichmentQueue.shared.scheduleRecentItems(in: PersistenceController.shared.container)
         await WidgetSnapshotManager.shared.updateSnapshot(context: context)
         WidgetCenter.shared.reloadAllTimelines()
 

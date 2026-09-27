@@ -320,10 +320,19 @@ struct ArticleListView: View {
                 if isShowingStoryPreview {
                     StoryPreviewList(
                         groups: viewModel.storyPreviewGroups,
+                        categories: viewModel.storyPreviewCategories,
                         articlesByID: Dictionary(uniqueKeysWithValues: allArticles.map { ($0.id, $0) }),
                         unassignedIDs: viewModel.storyPreviewUnassignedIDs,
                         metrics: viewModel.storyPreviewMetrics,
                         isBuilding: viewModel.isBuildingStoryPreview,
+                        onEnrichmentPassComplete: {
+                            Task { @MainActor in
+                                while viewModel.isBuildingStoryPreview {
+                                    try? await Task.sleep(nanoseconds: 100_000_000)
+                                }
+                                await viewModel.buildStoryPreview(from: allArticles, context: modelContext)
+                            }
+                        },
                         selectedArticle: $viewModel.selectedArticle
                     )
                 } else {

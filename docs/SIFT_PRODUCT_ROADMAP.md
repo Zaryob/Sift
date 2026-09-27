@@ -16,8 +16,8 @@ All model inference and learned preference data stay on the person’s device. F
 
 - **Reader mode:** Preserve the existing RSS/Atom experience, including OPML, feed selection, search/filtering, read/star state, and article reading. It must remain usable when Apple Intelligence is disabled, unavailable, still preparing, or does not support the content language. Article titles and full text may also be translated on-device with Apple's Translation framework; keep the original available, cache translations separately against the source-content hash and translation version, and never use that display cache as the clustering pipeline's normalized analysis text.
 - **Story mode:** Show one durable story identity with a representative title, distinct publisher coverage, a chronological list of member articles, and direct links to each source. Keep “By Feed” as a first-class view. Coverage count describes how many publishers covered a story; it is not a claim that those publishers independently corroborate its truth.
-- **Daily categories and story identity:** For the local-calendar window covering today and yesterday, build the visible category set dynamically from per-article topic labels as new feed items are enriched. One article or story can appear in multiple categories; normalize synonymous labels so the category list does not fragment. Categories answer “what subjects are in today’s coverage”; a `StoryCluster` answers “which articles report the same concrete event.” Similar summaries and key points are useful matching evidence, but cannot alone establish identity: use them to shortlist candidates, then check source text, actors/actions, and timing, and leave uncertain items separate.
-- **Per-article enrichment:** After bounded full-text extraction (falling back to RSS content when unavailable), generate a cached on-device article summary, key points, and topics when Apple Foundation Models is available. Key the result by source-content hash, prompt version, and output language so a later full-text fetch invalidates an excerpt-only result. Newly ingested items join the daily categories incrementally; model or network unavailability leaves the RSS item readable and does not fabricate enrichment.
+- **Daily categories and story identity:** For the local-calendar window covering today and yesterday, build the visible category set dynamically from current per-article topic labels as new feed items are enriched. Normalize label casing, diacritics, and whitespace; ask the on-device model for short, canonical labels, while treating semantic synonym merging as an unvalidated follow-up. One article or story can appear in multiple categories. Categories answer “what subjects are in recent coverage”; a `StoryCluster` answers “which articles report the same concrete event.” Similar summaries and key points are secondary matching evidence, not proof of story identity: compare them only after source text, language, actors/actions, and timing are checked, and leave uncertain items separate.
+- **Per-article enrichment:** After bounded publisher-page extraction (falling back to RSS content when unavailable), generate and cache an on-device article summary, key points, and topics when Apple Foundation Models is available. Key results by source-content hash, prompt version, and output language so a later full-text fetch invalidates an excerpt-only result. For the experimental clustering preview, append same-language digest evidence only after source text and cap it at 600 characters; do not mix a translated digest into a different-language article. A resumable best-effort queue re-discovers today's/yesterday's unfinished items on feed refresh. Model or network unavailability leaves RSS reading intact and does not fabricate enrichment.
 - **Briefing:** Offer user-configured morning and evening local briefings. Each entry separates what happened from what changed, cites its source `FeedItem`s, and exposes source differences where evidence conflicts. State when only feed excerpts are available. Do not present unsupported model prose as fact.
 - **Urgent alerts:** Evaluate three distinct signals: story importance, personal relevance, and time sensitivity. Send an urgent notification only when all exceed their configured threshold. Keep ordinary new-article alerts as an explicit user option, not the default briefing path. Honor quiet hours, OS notification permission, and the user’s Time Sensitive setting.
 - **Local preference profile:** Ask for starter topics, sources, and briefing times. On device, learn topic/source relevance from opens, reading, stars/saves, and revisits; learn interruption preference from notification opens, response delay, dismissals, snoozes, and mutes; learn time sensitivity from responses to developing stories. A skip or a single dismissal is not evidence of disinterest. Let people inspect, edit, reset, and disable learning.
@@ -37,19 +37,23 @@ All model inference and learned preference data stay on the person’s device. F
 **Exit artifact:** labeled corpus and annotation rules, reproducible benchmark report, observed user needs, and a recorded go/no-go decision. Do not substitute synthetic examples or model-generated labels for this evidence.
 
 **Current M0 app prototype:** The Article List's Options menu includes an opt-in
-**Build Stories Preview** action. It attempts bounded foreground article-text
-extraction for current-calendar today and yesterday's feed items, caches successful extracts
-on their existing articles, then runs the M0 clustering spike in memory. Failed or
-unavailable extraction falls back to RSS content and summary. The preview shows
-source-linked groups and articles the pipeline could not safely assign. It does not
-write cluster assignments, synthesize claims, or change the default By Feed reader.
-The preview is explicitly experimental; it does not satisfy the M0 quality gate or
-authorize story-primary release.
+**Build Stories Preview** action for current-calendar today and yesterday. Feed refresh
+also schedules a resumable best-effort enrichment pass: up to four publisher pages are
+extracted concurrently, successful bodies are saved to existing `FeedItem` fields, and
+current Apple on-device digests add per-article summary, key points, and dynamic topic
+filters. Failed extraction uses RSS content/summary. The in-memory clustering spike
+uses same-language digest evidence only after the source text and within a 600-character
+cap; the publisher body remains the primary context. The preview shows source-linked
+groups and safe topic filters. It still does not persist cluster assignments or produce
+story-level summaries/briefings, and it does not change the default By Feed reader. This
+is experimental implementation work, not M0 quality evidence or authorization for a
+story-primary release. iOS may suspend enrichment; the next refresh re-scans the recent
+window and resumes incomplete rows.
 
 ### M1 — Source-backed story pipeline (after M0 passes)
 
 - Add durable `StoryCluster` and per-article language, embedding, assignment, and pipeline provenance. Add a versioned SwiftData migration; deleting a derived cluster must never delete its articles.
-- Add bounded background article extraction for new items. Keep the RSS title/summary as a supported input when the publisher blocks extraction, content is absent, or extraction fails.
+- Promote the experimental best-effort enrichment queue into the supported background pipeline, with explicit resource limits and resumability. Keep RSS title/summary as supported input when publisher extraction fails.
 - Run language detection, Translation availability checks, and Apple Natural Language embedding/clustering on device in shadow mode. Record the used analysis language and pipeline/model versions per article. Compare the 72-hour candidate window against M0’s continuing-story examples.
 - **Exit gate:** benchmark remains within all M0 limits on the same labeled corpus; refresh/extraction failures leave the normal RSS reader intact; an inspectable report includes language coverage, asset state, latency, assignments, and errors.
 

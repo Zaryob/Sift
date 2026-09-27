@@ -20,6 +20,9 @@ public struct StoryClusteringArticle: Codable, Identifiable, Sendable {
     public let title: String
     public let summary: String?
     public let fullText: String?
+    public let digestSummary: String?
+    public let keyPoints: [String]?
+    public let digestLanguageCode: String?
     public let publisherKey: String
     public let publishedAt: Date
 
@@ -28,6 +31,9 @@ public struct StoryClusteringArticle: Codable, Identifiable, Sendable {
         title: String,
         summary: String? = nil,
         fullText: String? = nil,
+        digestSummary: String? = nil,
+        keyPoints: [String]? = nil,
+        digestLanguageCode: String? = nil,
         publisherKey: String,
         publishedAt: Date
     ) {
@@ -35,6 +41,9 @@ public struct StoryClusteringArticle: Codable, Identifiable, Sendable {
         self.title = title
         self.summary = summary
         self.fullText = fullText
+        self.digestSummary = digestSummary
+        self.keyPoints = keyPoints
+        self.digestLanguageCode = digestLanguageCode
         self.publisherKey = publisherKey
         self.publishedAt = publishedAt
     }
@@ -114,8 +123,8 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-16"
-    private static let assignmentPolicy = "60% article-body + 40% headline embedding; centroid threshold + representative/recent-member cohesion + Natural Language action boundary"
+    public static let pipelineVersion = "m0-spike-17"
+    private static let assignmentPolicy = "60% body-first context (up to 600 same-language on-device digest characters appended after up to 3,400 source-body characters) + 40% headline embedding; centroid threshold + representative/recent-member cohesion + Natural Language action boundary"
     private static let experimentalEventSignaturePolicy = "60% article-body + 40% headline embedding; embedding shortlist + experimental Foundation Models event-signature rejection"
     private static let cohesionSlack = 0.055
     private static let actionMismatchOverrideSimilarity = 0.985
@@ -953,9 +962,31 @@ public actor StoryClusteringSpike {
         let parts = [article.fullText, article.summary]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        // Embedding generation consumes at most 4,000 characters, so translating a
-        // longer excerpt only adds latency without changing the article vector.
-        return String((parts.first ?? article.title).prefix(4_000))
+        let sourceBody = parts.first ?? article.title
+        let digest = ([article.digestSummary] + (article.keyPoints ?? []).map(Optional.some))
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        let sourceLanguage = detectLanguage(in: sourceBody).flatMap { code in
+            Locale(identifier: code).language.languageCode?.identifier.lowercased()
+        }
+        let digestLanguage = article.digestLanguageCode.flatMap { code in
+            Locale(identifier: code).language.languageCode?.identifier.lowercased()
+        }
+
+        // Digests help compare low-signal excerpts only when they are in the same
+        // language as the source. Keep the publisher text in the leading 3,400
+        // characters and cap generated evidence at 600 so article body remains the
+        // dominant portion of the body vector.
+        guard !digest.isEmpty,
+              let sourceLanguage,
+              sourceLanguage == digestLanguage else {
+            return String(sourceBody.prefix(4_000))
+        }
+        let sourcePrefix = String(sourceBody.prefix(3_400))
+        let remainingDigestBudget = min(600, max(0, 4_000 - sourcePrefix.count - 2))
+        guard remainingDigestBudget > 0 else { return sourcePrefix }
+        return sourcePrefix + "\n\n" + String(digest.prefix(remainingDigestBudget))
     }
 
     private static func assignment(

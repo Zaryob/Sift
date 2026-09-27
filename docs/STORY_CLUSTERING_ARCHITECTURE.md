@@ -16,16 +16,20 @@ that publishers independently corroborate a claim.
 
 **Current app prototype:** The Article List's Options menu can run an explicit
 "Build Stories Preview" against articles published today and yesterday in the user's
-current calendar and time zone. It first
-attempts bounded foreground extraction for articles without a substantial body,
-caches successful extracts in the existing article fields, and falls back to RSS
-content/summary when publishers block extraction. It then calls the M0
-`StoryClusteringSpike` in memory, translates only with already-installed Apple
-Translation pairs, and displays source-linked groups plus unassigned items. It does
-not persist cluster assignments, generate summaries, or replace By Feed. The preview
-labels itself experimental because M0's quality gate has not passed. This is a
-foreground shadow/debugging surface, not the approved story-primary release
-experience.
+current calendar and time zone. Feed refresh also schedules a resumable, best-effort
+enrichment pass: it extracts up to four publisher pages concurrently, saves successful
+bodies to the existing `FeedItem`, then requests a current per-article digest from
+Apple's on-device Foundation Model when available. Extraction failures fall back to
+RSS content/summary; missing/unavailable on-device models skip digest creation and do
+not block the RSS reader. The preview runs the M0 `StoryClusteringSpike` in memory,
+translates only with already-installed Apple Translation pairs, and derives dynamic
+topic filters from current on-device article digests. Same-language digest summary and
+key points may supplement (not replace) the source body, appended after up to 3,400
+source characters and capped at 600 characters. It does not persist cluster
+assignments or produce story-level summaries/briefings, and it does not replace By Feed.
+The preview and per-article digests remain experimental because M0's quality gate has
+not passed. iOS may suspend the queue; a later refresh re-scans today/yesterday and
+resumes unfinished rows.
 
 **Reader translation boundary:** The reader may cache an Apple Translation result
 for a title or full article so the user can read it in the app's current language.
@@ -256,10 +260,13 @@ Key decisions:
   headline; clearly disjoint representative/candidate actions block an event merge,
   except for near-identical representative matches (≥0.985 cosine) that are likely
   headline paraphrases of the same event.
-  The semantic vector keeps headline and article body as separate inputs, with 40%
-  headline and 60% body weight when body text exists; the body prefers extracted
-  publisher text and falls back to the feed summary. This keeps context and reported
-  details central while using the headline as an event cue.
+  The semantic vector keeps headline and article context as separate inputs, with 40%
+  headline and 60% body-context weight when body text exists; the context prefers
+  extracted publisher text and falls back to RSS content/summary. A current on-device
+  digest can append at most 600 same-language characters after up to 3,400 source
+  characters. A digest in another language is excluded before translation. The
+  resulting body-context vector supplements source reporting and must be evaluated
+  separately against M0 labels; it does not establish an event match by itself.
   This deliberately prefers a visible false split over quietly combining different
   developments about the same person, organization, or issue. Related developments
   belong on a `Storyline` timeline after a separately evaluated issue-linking step.
