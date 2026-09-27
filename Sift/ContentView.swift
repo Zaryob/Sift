@@ -82,29 +82,11 @@ struct ContentView: View {
             Text(viewModel.errorMessage ?? "An unknown error occurred.")
         }
         .onOpenURL { url in
-            Platform.showMainWindow()
-            if url.isFileURL {
-                Task {
-                    await viewModel.importOPMLFile(at: url, context: modelContext)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    viewModel.handleDeepLink(url, context: modelContext)
-                }
-            }
+            handleIncomingURL(url)
         }
         .onReceive(NotificationCenter.default.publisher(for: .siftHandleDeepLink)) { notification in
             if let url = notification.object as? URL {
-                Platform.showMainWindow()
-                if url.isFileURL {
-                    Task {
-                        await viewModel.importOPMLFile(at: url, context: modelContext)
-                    }
-                } else {
-                    DispatchQueue.main.async {
-                        viewModel.handleDeepLink(url, context: modelContext)
-                    }
-                }
+                handleIncomingURL(url)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NotificationManager.openArticleNotification)) { notification in
@@ -151,11 +133,7 @@ struct ContentView: View {
                 #if os(macOS)
                 if let pending = AppDelegate.pendingURL {
                     AppDelegate.pendingURL = nil
-                    if pending.isFileURL {
-                        await viewModel.importOPMLFile(at: pending, context: modelContext)
-                    } else {
-                        viewModel.handleDeepLink(pending, context: modelContext)
-                    }
+                    handleIncomingURL(pending)
                 }
                 #endif
             }
@@ -163,6 +141,18 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: PersistenceController.storeFailedNotification)) { _ in
             viewModel.errorMessage = String(localized: "Sift could not open its database and is running in temporary mode. Your subscriptions are safe — please restart the app.")
             viewModel.showErrorAlert = true
+        }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        Platform.showMainWindow()
+
+        if url.isFileURL {
+            Task {
+                await viewModel.importOPMLFile(at: url, context: modelContext)
+            }
+        } else {
+            viewModel.handleDeepLink(url, context: modelContext)
         }
     }
 

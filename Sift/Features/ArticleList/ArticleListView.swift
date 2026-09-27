@@ -171,21 +171,14 @@ struct ArticleListView: View {
     }
 
     private var vipFeedIDs: Set<UUID> {
-        get {
-            Set(vipFeedIDsRaw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
-        }
-        set {
-            vipFeedIDsRaw = newValue.map(\.uuidString).joined(separator: ",")
-        }
+        SmartFeedFilter.decodeVIPFeedIDs(vipFeedIDsRaw)
     }
 
     private var vipFeedIDsBinding: Binding<Set<UUID>> {
         Binding(
-            get: {
-                Set(vipFeedIDsRaw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
-            },
+            get: { SmartFeedFilter.decodeVIPFeedIDs(vipFeedIDsRaw) },
             set: { newSet in
-                vipFeedIDsRaw = newSet.map(\.uuidString).joined(separator: ",")
+                vipFeedIDsRaw = SmartFeedFilter.encodeVIPFeedIDs(newSet)
             }
         )
     }

@@ -21,7 +21,15 @@ public enum SmartFeedFilter {
         guard let raw = UserDefaults.standard.string(forKey: "vipFeedIDs"), !raw.isEmpty else {
             return []
         }
-        return Set(raw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+        return decodeVIPFeedIDs(raw)
+    }
+
+    public static func decodeVIPFeedIDs(_ rawValue: String) -> Set<UUID> {
+        Set(rawValue.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+    }
+
+    public static func encodeVIPFeedIDs(_ feedIDs: Set<UUID>) -> String {
+        feedIDs.map(\.uuidString).sorted().joined(separator: ",")
     }
 
     /// Curates a list of articles into a high-signal Smart Feed digest.
