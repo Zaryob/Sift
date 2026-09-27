@@ -93,6 +93,8 @@ struct ArticleDetailView: View {
     private func macOSToolbarItems(for article: FeedItem?) -> some ToolbarContent {
         if article != nil {
             activeArticleToolbarItems(for: article)
+        } else {
+            ToolbarSpacer(.flexible, placement: .automatic)
         }
     }
 
