@@ -45,6 +45,7 @@ public enum StoryClusteringReadiness: String, Codable, Sendable {
     case insufficientText
     case unsupportedLanguage
     case translationNotInstalled
+    case translationSessionUnavailable
     case embeddingUnavailable
     case processingFailed
 }
@@ -111,7 +112,7 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-13"
+    public static let pipelineVersion = "m0-spike-15"
     private static let assignmentPolicy = "60% article-body + 40% headline embedding; centroid threshold + representative/recent-member cohesion + Natural Language action boundary"
     private static let experimentalEventSignaturePolicy = "60% article-body + 40% headline embedding; embedding shortlist + experimental Foundation Models event-signature rejection"
     private static let cohesionSlack = 0.055
@@ -281,7 +282,7 @@ public actor StoryClusteringSpike {
             }
         }
 
-        let availability = LanguageAvailability()
+        let availability = LanguageAvailability(preferredStrategy: translationStrategy.frameworkValue)
         for sourceLanguageCode in translationGroups.keys.sorted() {
             let articleIDs = translationGroups[sourceLanguageCode] ?? []
             let sourceLanguage = Locale.Language(identifier: sourceLanguageCode)
@@ -343,8 +344,8 @@ public actor StoryClusteringSpike {
                     }
                 } catch {
                     for articleID in chunk {
-                        preparedByID[articleID]?.translationReadiness = "installed"
-                        preparedByID[articleID]?.failure = .processingFailed
+                        preparedByID[articleID]?.translationReadiness = "sessionUnavailable"
+                        preparedByID[articleID]?.failure = .translationSessionUnavailable
                     }
                 }
             }
@@ -917,7 +918,9 @@ public actor StoryClusteringSpike {
         let parts = [article.fullText, article.summary]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        return String((parts.first ?? article.title).prefix(12_000))
+        // Embedding generation consumes at most 4,000 characters, so translating a
+        // longer excerpt only adds latency without changing the article vector.
+        return String((parts.first ?? article.title).prefix(4_000))
     }
 
     private static func assignment(

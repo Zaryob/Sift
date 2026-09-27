@@ -428,6 +428,44 @@ and detailed assignments are local and excluded from Git. This agent-provisional
 sample is diagnostic only; do not use it to declare a quality gate passed or as the
 sole basis for a production threshold.
 
+### Larger multilingual shadow attempt (2026-09-27)
+
+A balanced 300-row sample was collected locally across 44 feeds and 43 publishers:
+120 Turkish, 120 English, and 20 each German, Spanish, and French. Full-text
+extraction succeeded for 195 rows (65%). Agent-provisional labels identify 18
+clear multi-source event candidates (63 rows); remaining rows are provisional
+singletons. Google News' mixed-headline aggregate entries were excluded. None of
+these annotations are human gold.
+
+Spike v15 uses body-first 60/40 body/headline weighting and caps the source context
+at 4,000 characters, the maximum used by embedding generation. The benchmark ran
+with English analysis, threshold 0.96, 72-hour candidate window, low-latency
+translation, and event signatures disabled. It assigned 120/300 rows. The
+strategy-matched Translation preflight reported 177 rows waiting for language
+assets and 3 rows with insufficient text. Its silver-label diagnostic was P 0.060,
+R 0.026, F1 0.036, false-merge rate 2.89% (8/277), and false-positive pair rate
+94%. This score is not a valid model quality estimate because most non-English
+rows were unassigned and the singleton labels have not been reviewed. It does,
+however, establish that story-first UI must remain gated and that translation
+readiness is an actual prerequisite for the intended cross-language test.
+
+The earlier preflight used the default Translation strategy even when a different
+strategy was selected. On this host that mismatch said assets were installed, but
+the `lowLatency` Translation session threw `notInstalled`. Preflight now uses the
+selected strategy and session failures are surfaced as
+`translationSessionUnavailable` instead of being reported as a generic processing
+failure. A one-item rerun with strategy-matched preflight correctly reported
+`translationNotInstalled` / `waitingForAsset`. Apple documents `.installed` as
+ready for the requested language pair, and warns that readiness may change before
+translation; keep the runtime error path as well as preflight checks
+([status](https://developer.apple.com/documentation/translation/languageavailability/status),
+[session readiness](https://developer.apple.com/documentation/translation/translationsession/isready)).
+
+All RSS snapshots, publisher text, silver labels, predictions, and reports remain
+checkout-local and are excluded from Git. The native extractor source is committed
+so the body-availability measurement can be reproduced from the ignored feed
+manifest.
+
 ## 7. Non-Goals and Accepted Risks for v0
 
 - Cross-publisher fact-checking or claims that source count proves truth.

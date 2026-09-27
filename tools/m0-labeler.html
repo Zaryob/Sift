@@ -39,7 +39,7 @@
 <body>
   <header>
     <h1>Sift M0: Hikâye etiketleme</h1>
-    <p class="muted">Bu sayfa dosyayı yalnızca tarayıcı belleğinde işler. Model tahmini göstermez; etiketler gözden geçirenin kaynaklara göre verdiği kararlardır.</p>
+    <p class="muted">Bu sayfa dosyayı yalnızca tarayıcı belleğinde işler. Model tahmini göstermez. Dosyada agent-provisional etiketler varsa öneri olarak gösterir; kaynaklara bakıp onaylayabilir veya düzeltebilirsiniz.</p>
   </header>
 
   <section class="panel" aria-labelledby="load-heading">
@@ -57,7 +57,7 @@
         <div><strong id="progress-label">0 / 0 etiketlendi</strong><div class="progress" aria-label="Etiketleme ilerlemesi"><div id="progress-bar"></div></div></div>
         <div class="controls">
           <button id="checkpoint" disabled>Ara kayıt JSONL indir</button>
-          <button id="export" class="primary" disabled>Gold JSONL indir</button>
+          <button id="export" class="primary" disabled>Tamamlanan etiketleri indir</button>
         </div>
       </div>
       <div class="filters" style="margin-top: 14px">
@@ -81,6 +81,7 @@
         <button id="new-story" class="primary">Yeni hikâye oluştur ve ekle</button>
         <button id="add-selected" disabled>Seçili hikâyeye ekle</button>
         <button id="mark-singleton">Ayrı hikâye olarak etiketle</button>
+        <button id="confirm-label" disabled>Mevcut etiketi doğrula</button>
         <button id="clear-label" class="danger">Etiketi kaldır</button>
       </div>
       <p id="decision-status" class="status muted" role="status"></p>
@@ -133,7 +134,8 @@
         else if (!view.length) { currentId = null; index = -1; }
 
         const labeledCount = labels.size;
-        $('progress-label').textContent = `${labeledCount} / ${rows.length} etiketlendi`;
+        const provisionalCount = rows.filter((row) => row.annotationStatus === 'agent-provisional').length;
+        $('progress-label').textContent = `${labeledCount} / ${rows.length} kayıt etiketli · ${provisionalCount} öneri incelenmedi`;
         $('progress-bar').style.width = `${rows.length ? labeledCount / rows.length * 100 : 0}%`;
         $('position').textContent = index >= 0 ? `${index + 1} / ${view.length} eşleşme` : 'Gösterilecek makale yok';
         $('previous').disabled = index <= 0;
@@ -151,10 +153,14 @@
         const meta = [text(row.publisherKey), text(row.language), text(row.publishedAt)].filter(Boolean).map(esc).join(' · ');
         const linkBlock = link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">Kaynak sayfayı aç</a>` : '';
         const label = labels.get(row._id);
+        $('confirm-label').disabled = !label || row.annotationStatus === 'human-reviewed';
+        $('confirm-label').textContent = row.annotationStatus === 'human-reviewed' ? 'İnsan incelemesinden geçti' : 'Mevcut etiketi doğrula';
         $('article').innerHTML = `
           <div class="meta"><span>${meta || 'Kaynak bilgisi yok'}</span><span>${esc(row._id)}</span>${linkBlock}</div>
           <h3 class="article-title">${esc(row.title || 'Başlıksız makale')}</h3>
-          <div class="excerpt">${esc(row.summary || row.fullText || 'RSS özeti yok. Gerekirse kaynak sayfayı açın.')}</div>
+          <div class="excerpt">${esc(row.summary || 'RSS özeti yok. Gerekirse kaynak sayfayı açın.')}</div>
+          ${text(row.fullText) ? `<details><summary>Tam metin (${Number(row.fullTextWordCount || 0)} kelime)</summary><div class="excerpt">${esc(row.fullText)}</div></details>` : ''}
+          ${row.annotationStatus === 'agent-provisional' ? `<p class="status"><strong>Öneri:</strong> Agent tarafından geçici etiketlendi. Kaynak metni kontrol edin.</p><p class="muted">${esc(row.annotationRationale || '')}</p>` : ''}
           <p class="status">${label ? `Şu anki etiket: <strong>${esc(label)}</strong>` : '<span class="muted">Henüz etiketlenmedi</span>'}</p>`;
       }
 
@@ -204,6 +210,7 @@
         const row = currentRow();
         if (!row) return;
         labels.set(row._id, storyId);
+        row.annotationStatus = 'human-reviewed';
         $('decision-status').textContent = message;
         refresh();
         $('decision-status').textContent = message;
@@ -236,6 +243,7 @@
             const storyId = text(row.goldStoryID);
             if (storyId) labels.set(row._id, storyId);
           }
+          $('unlabeled-only').checked = !rows.some((row) => row.annotationStatus === 'agent-provisional');
           const existingNumbers = [...labels.values()].map((value) => /^story-(\d+)$/.exec(value)).filter(Boolean).map((match) => Number(match[1]));
           nextStoryNumber = Math.max(0, ...existingNumbers) + 1;
           fillFilter('publisher-filter', rows.map((row) => text(row.publisherKey)));
@@ -274,8 +282,14 @@
       $('mark-singleton').addEventListener('click', () => {
         const row = currentRow(); if (row) assign(`single-${row._id}`, 'Makale ayrı bir olay olarak etiketlendi.');
       });
+      $('confirm-label').addEventListener('click', () => {
+        const row = currentRow(); if (!row || !labels.has(row._id)) return;
+        row.annotationStatus = 'human-reviewed';
+        $('decision-status').textContent = 'Mevcut hikâye etiketi kaynak metne göre doğrulandı.';
+        refresh();
+      });
       $('clear-label').addEventListener('click', () => {
-        const row = currentRow(); if (row) { labels.delete(row._id); $('decision-status').textContent = 'Etiket kaldırıldı; makale adjudikasyona ayrıldı.'; refresh(); }
+        const row = currentRow(); if (row) { labels.delete(row._id); row.annotationStatus = 'needs-adjudication'; $('decision-status').textContent = 'Etiket kaldırıldı; makale adjudikasyona ayrıldı.'; refresh(); }
       });
       function downloadLabels(requireComplete) {
         const pending = rows.filter((row) => !labels.has(row._id));
@@ -289,10 +303,10 @@
         const blob = new Blob([output], {type:'application/x-ndjson;charset=utf-8'});
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a'); anchor.href = url;
-        anchor.download = requireComplete ? 'sift-m0-gold.jsonl' : 'sift-m0-labeling-checkpoint.jsonl'; anchor.click();
+        anchor.download = requireComplete ? 'sift-m0-labeled.jsonl' : 'sift-m0-labeling-checkpoint.jsonl'; anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         $('decision-status').textContent = requireComplete
-          ? 'Gold JSONL tarayıcıda oluşturuldu. Dosyanın nereye kaydedileceğine siz karar verin.'
+          ? 'Etiketli JSONL tarayıcıda oluşturuldu. Provisional durumlarını inceleyip onay durumlarını koruyun.'
           : `${labels.size} etiketli kayıt ve etiketsiz kayıtlar ara dosyasına indirildi. Dosyayı tekrar açarak kaldığınız yerden devam edebilirsiniz.`;
       }
       $('checkpoint').addEventListener('click', () => downloadLabels(false));

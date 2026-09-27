@@ -118,6 +118,35 @@ predicted assignments and the pairwise metrics were identical. Treat this as a
 maintainability/API-shape improvement, not a measured speedup. Both runs translated
 every eligible row from scratch, unlike the intended incremental app pipeline.
 
+On 2026-09-27, a larger local sample was collected from the working-feed pool:
+300 items, 44 feeds, 43 publishers, with 120 Turkish, 120 English, and 20 each
+German, Spanish, and French. Google News' multi-headline aggregator rows were
+excluded because one feed entry can contain several unrelated stories. Native
+article extraction produced readable full text for 195/300 items (65%); the
+remainder retain RSS metadata and excerpts. An agent-provisional annotation pass
+grouped 63 rows into 18 clear multi-source event candidates; the other 237 are
+provisional singletons. These are title/excerpt-driven silver suggestions, not
+reviewed gold labels; use the local labeler to inspect source evidence, confirm
+or correct a story ID, and retain `annotationStatus` when exporting. Local files:
+`tools/local/sift-m0-holdout-fulltext.jsonl` and
+`tools/local/sift-m0-holdout-silver.jsonl`.
+
+The 300-row shadow run with spike v15, analysis locale `en`, threshold `0.96`,
+72-hour window, `lowLatency`, and signatures disabled assigned only 120/300 rows.
+The matching Translation availability preflight reported 177 rows waiting for
+assets and 3 with insufficient text; this host cannot yet prove cross-language
+quality. The measured silver-label score (P 0.060, R 0.026, F1 0.036) is not a
+valid quality estimate: labels are provisional, most non-English inputs were
+unassigned, and singleton suggestions dominate. It is a diagnostic that says the
+current configuration is not ready for story-primary UI. Before interpreting a
+new clustering score, make the required Translation language pairs available and
+human-review the multi-source clusters and a stratified sample of singleton pairs.
+Apple's Translation docs define `.installed` as downloaded and ready, and note
+that session readiness can change between checking and translation; check readiness
+with the selected strategy and handle request failures explicitly
+([status](https://developer.apple.com/documentation/translation/languageavailability/status),
+[session readiness](https://developer.apple.com/documentation/translation/translationsession/isready)).
+
 The source-diversity case found no clean direct factual contradiction in the sampled
 coverage; it found framing/procedure differences, one alleged transaction versus a
 non-specific response, and a macro-level “systemic risk” assurance alongside a
