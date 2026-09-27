@@ -134,6 +134,7 @@ struct ArticleListView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var searchText = ""
+    @State private var searchQuery = ""
     @State private var isSearching = false
     @FocusState private var isSearchFocused: Bool
 
@@ -218,20 +219,23 @@ struct ArticleListView: View {
     }
 
     private func filteredArticles(from source: [FeedItem]) -> [FeedItem] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isSearching = !trimmed.isEmpty
+        let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let articles: [FeedItem]
 
-        let articles = source.filter { article in
-            if hideRead && article.isRead { return false }
-            if !isSearching { return true }
-            if article.title.localizedCaseInsensitiveContains(trimmed) { return true }
-            if let translatedTitle = article.translatedTitle,
-               translatedTitle.localizedCaseInsensitiveContains(trimmed) { return true }
-            if let author = article.author, author.localizedCaseInsensitiveContains(trimmed) { return true }
-            if let snippet = article.snippet, snippet.localizedCaseInsensitiveContains(trimmed) { return true }
-            if let summary = article.summary, summary.localizedCaseInsensitiveContains(trimmed) { return true }
-            if let feedTitle = article.feed?.title, feedTitle.localizedCaseInsensitiveContains(trimmed) { return true }
-            return false
+        if trimmed.isEmpty {
+            articles = hideRead ? source.filter { !$0.isRead } : source
+        } else {
+            articles = source.filter { article in
+                if hideRead && article.isRead { return false }
+                if article.title.localizedCaseInsensitiveContains(trimmed) { return true }
+                if let translatedTitle = article.translatedTitle,
+                   translatedTitle.localizedCaseInsensitiveContains(trimmed) { return true }
+                if let author = article.author, author.localizedCaseInsensitiveContains(trimmed) { return true }
+                if let snippet = article.snippet, snippet.localizedCaseInsensitiveContains(trimmed) { return true }
+                if let summary = article.summary, summary.localizedCaseInsensitiveContains(trimmed) { return true }
+                if let feedTitle = article.feed?.title, feedTitle.localizedCaseInsensitiveContains(trimmed) { return true }
+                return false
+            }
         }
 
         let ordered = sortOrder == .oldestFirst ? articles.reversed() : articles
@@ -240,6 +244,22 @@ struct ArticleListView: View {
 
     private var filteredArticles: [FeedItem] {
         filteredArticles(from: sourceArticles)
+    }
+
+    private func updateSearchQuery() async {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            searchQuery = ""
+            return
+        }
+
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            searchQuery = trimmed
+        } catch {
+            // A new keystroke cancels the previous pending search.
+        }
     }
 
     private func timelineSections(
@@ -414,6 +434,9 @@ struct ArticleListView: View {
             }
             .task(id: viewModel.selectedArticle?.id) {
                 await markSelectedArticleReadIfNeeded()
+            }
+            .task(id: searchText) {
+                await updateSearchQuery()
             }
             .navigationTitle(currentNavTitle)
             .navigationSubtitle(currentNavSubtitle(visibleCount: visibleArticles.count, sourceCount: scopedArticles.count, sourceUnreadCount: scopedUnreadCount))
