@@ -103,6 +103,7 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
     /// Versioned description of the event-boundary and cluster-cohesion policy.
     public let assignmentPolicy: String
     public let eventSignatureModelAvailable: Bool
+    public let eventSignaturesEnabled: Bool
     public let eventSignatureCount: Int
 }
 
@@ -110,8 +111,9 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-11"
-    private static let assignmentPolicy = "60% article-body + 40% headline embedding; embedding shortlist + on-device Foundation Models event signature for candidates + Natural Language fallback"
+    public static let pipelineVersion = "m0-spike-13"
+    private static let assignmentPolicy = "60% article-body + 40% headline embedding; centroid threshold + representative/recent-member cohesion + Natural Language action boundary"
+    private static let experimentalEventSignaturePolicy = "60% article-body + 40% headline embedding; embedding shortlist + experimental Foundation Models event-signature rejection"
     private static let cohesionSlack = 0.055
     private static let actionMismatchOverrideSimilarity = 0.985
     private static let eventSignatureSimilarityThreshold = 0.86
@@ -197,7 +199,8 @@ public actor StoryClusteringSpike {
         analysisLocale: String = "en",
         similarityThreshold: Double,
         candidateWindow: TimeInterval = 72 * 60 * 60,
-        translationStrategy: TranslationStrategy = .highFidelity
+        translationStrategy: TranslationStrategy = .highFidelity,
+        eventSignaturesEnabled: Bool = false
     ) async -> StoryClusteringSpikeResult {
         let eventSignatureModelAvailable = SystemLanguageModel.default.availability == .available
         let targetLanguage = Locale.Language(identifier: analysisLocale)
@@ -211,7 +214,8 @@ public actor StoryClusteringSpike {
                 revision: 0,
                 threshold: similarityThreshold,
                 candidateWindow: candidateWindow,
-                translationStrategy: translationStrategy
+                translationStrategy: translationStrategy,
+                eventSignaturesEnabled: eventSignaturesEnabled
             )
         }
 
@@ -224,7 +228,8 @@ public actor StoryClusteringSpike {
                     revision: model.revision,
                     threshold: similarityThreshold,
                     candidateWindow: candidateWindow,
-                    translationStrategy: translationStrategy
+                    translationStrategy: translationStrategy,
+                    eventSignaturesEnabled: eventSignaturesEnabled
                 )
             }
         }
@@ -237,7 +242,8 @@ public actor StoryClusteringSpike {
                 revision: model.revision,
                 threshold: similarityThreshold,
                 candidateWindow: candidateWindow,
-                translationStrategy: translationStrategy
+                translationStrategy: translationStrategy,
+                eventSignaturesEnabled: eventSignaturesEnabled
             )
         }
         defer { model.unload() }
@@ -402,7 +408,7 @@ public actor StoryClusteringSpike {
                     threshold: similarityThreshold
                 )
             }
-            if eventSignatureModelAvailable, !possibleCandidateIndices.isEmpty {
+            if eventSignaturesEnabled, eventSignatureModelAvailable, !possibleCandidateIndices.isEmpty {
                 if eventSignature == nil,
                    let normalizedContext = prepared.normalizedText,
                    let normalizedTitle = prepared.normalizedTitle {
@@ -535,8 +541,11 @@ public actor StoryClusteringSpike {
             candidateWindowHours: candidateWindow / 3600,
             similarityThreshold: similarityThreshold,
             assignments: assignments,
-            assignmentPolicy: Self.assignmentPolicy,
+            assignmentPolicy: eventSignaturesEnabled
+                ? Self.experimentalEventSignaturePolicy
+                : Self.assignmentPolicy,
             eventSignatureModelAvailable: eventSignatureModelAvailable,
+            eventSignaturesEnabled: eventSignaturesEnabled,
             eventSignatureCount: eventSignaturesByID.count
         )
     }
@@ -599,7 +608,7 @@ public actor StoryClusteringSpike {
             decision = .rejectedCentroidSimilarity
         } else if eventSignatureCompatible == false {
             decision = .rejectedEventSignatureMismatch
-        } else if actionMismatch && !actionOverrideApplies && eventSignatureCompatible != true {
+        } else if actionMismatch && !actionOverrideApplies {
             decision = .rejectedActionMismatch
         } else if representative == nil || representative! < threshold - cohesionSlack {
             decision = .rejectedRepresentativeSimilarity
@@ -629,7 +638,7 @@ public actor StoryClusteringSpike {
                 eventObjectSimilarity: eventObjectSimilarity,
                 representativeSimilarity: representative,
                 recentMemberSupport: recentSupport,
-                actionsCompatible: !actionMismatch || actionOverrideApplies || eventSignatureCompatible == true,
+                actionsCompatible: !actionMismatch || actionOverrideApplies,
                 eventSignatureCompatible: eventSignatureCompatible,
                 candidateActionTerms: candidateActionTerms.sorted(),
                 representativeActionTerms: cluster.representativeActionTerms.sorted(),
@@ -945,7 +954,8 @@ public actor StoryClusteringSpike {
         revision: Int,
         threshold: Double,
         candidateWindow: TimeInterval,
-        translationStrategy: TranslationStrategy
+        translationStrategy: TranslationStrategy,
+        eventSignaturesEnabled: Bool
     ) -> StoryClusteringSpikeResult {
         StoryClusteringSpikeResult(
             analysisPipelineVersion: Self.pipelineVersion,
@@ -968,8 +978,11 @@ public actor StoryClusteringSpike {
                     candidateDiagnostics: []
                 )
             },
-            assignmentPolicy: Self.assignmentPolicy,
+            assignmentPolicy: eventSignaturesEnabled
+                ? Self.experimentalEventSignaturePolicy
+                : Self.assignmentPolicy,
             eventSignatureModelAvailable: SystemLanguageModel.default.availability == .available,
+            eventSignaturesEnabled: eventSignaturesEnabled,
             eventSignatureCount: 0
         )
     }

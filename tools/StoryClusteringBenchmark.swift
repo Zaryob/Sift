@@ -54,6 +54,7 @@ private struct Options {
     var threshold: Double?
     var windowHours = 72.0
     var translationStrategy = StoryClusteringSpike.TranslationStrategy.highFidelity
+    var eventSignaturesEnabled = false
 
     init(arguments: [String]) throws {
         var index = 1
@@ -92,6 +93,11 @@ private struct Options {
                     throw BenchmarkError.usage("--translation-strategy must be lowLatency or highFidelity")
                 }
                 translationStrategy = parsed
+            case "--event-signatures":
+                guard value == "enabled" || value == "disabled" else {
+                    throw BenchmarkError.usage("--event-signatures must be enabled or disabled")
+                }
+                eventSignaturesEnabled = value == "enabled"
             default:
                 throw BenchmarkError.usage("Unknown option: \(flag)")
             }
@@ -129,7 +135,8 @@ private enum BenchmarkError: Error, CustomStringConvertible {
         --assignments-output assignments.json \
         --threshold value [--evaluator-output predictions.jsonl] \
         [--locale en] [--window-hours 72] \
-        [--translation-strategy lowLatency|highFidelity]
+        [--translation-strategy lowLatency|highFidelity] \\
+        [--event-signatures enabled|disabled] (default disabled for the NL baseline)
 
     Corpus JSONL fields: id (UUID), title, optional summary/fullText,
     publisherKey, publishedAt (ISO-8601), and optional manually assigned goldStoryID.
@@ -171,7 +178,8 @@ private enum StoryClusteringBenchmark {
                 analysisLocale: options.analysisLocale,
                 similarityThreshold: options.threshold!,
                 candidateWindow: options.windowHours * 60 * 60,
-                translationStrategy: options.translationStrategy
+                translationStrategy: options.translationStrategy,
+                eventSignaturesEnabled: options.eventSignaturesEnabled
             )
             let processingDuration = processingStartedAt.duration(to: .now)
             let totalMilliseconds = Double(processingDuration.components.seconds) * 1_000

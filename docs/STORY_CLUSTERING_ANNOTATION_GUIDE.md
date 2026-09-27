@@ -87,6 +87,10 @@ unsupported languages and unavailable assets count as false splits instead of
 disappearing from the score. A synthetic smoke-test corpus can check the runner but
 cannot satisfy M0's real-corpus gate.
 
+Use `--event-signatures disabled` to run the same corpus through the Apple Natural
+Language embedding baseline without Foundation Models calls. The default is disabled;
+pass `--event-signatures enabled` to run the experimental signature path.
+
 The runner requires `--threshold` explicitly; the sample value above is only a
 command example, not a validated recommendation. Divide the annotated corpus by
 whole `goldStoryID` groups into calibration and holdout sets, keeping language-pair

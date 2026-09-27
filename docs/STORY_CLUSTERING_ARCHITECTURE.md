@@ -396,15 +396,29 @@ and quality metrics, called the model for 50/66 rows, and took 204 seconds (abou
 on this host; it does not establish acceptable production latency. Do not block feed
 refresh on this model call.
 
+The same v11 build with `--event-signatures disabled` is the signature-free Apple
+Natural Language baseline: precision 0.768, recall 0.426, F1 0.548, false-merge rate
+12.5% (4/32 clusters), and 119 seconds. Enabling signatures raised recall by 17
+points and F1 by about 10 points, but lowered precision by 6 points and raised
+false-merge rate by 7.5 points, with 85 seconds more processing time. The trace shows
+that a compatible Foundation Models signature can override the Natural Language
+headline-action mismatch. Spike v12 removes that positive override: signatures can
+reject incompatible candidates, but cannot overrule an action mismatch. Quality then
+returned exactly to the signature-free baseline (precision 0.768, recall 0.426,
+F1 0.548, false-merge rate 12.5%), while 51 signatures were still generated and the
+run took 163 seconds. The Foundation Models signature therefore added no clustering
+quality on this corpus and is disabled by default in spike v13. Keep the enabled path
+as an explicit experiment only.
+
 The decision trace records body and headline similarity independently, plus overall
 signature similarity and actor/action/object compatibility evidence. Action/object
 word overlap did not separate accepted true-positive pairs from false-positive pairs
 (median overlap was zero for both), while actor overlap was populated for only two
-accepted pairs. On this sample the Foundation Models gate did not improve F1. Keep
-the structured signature as an experiment, not a validated clustering rule. Next
-benchmark work should compare the lazy-signature path with the signature-free Apple
-Natural Language baseline, then reserve Foundation Models for the user-facing,
-source-linked “what changed?” synthesis if it does not improve event identity.
+accepted pairs. This does not support actor/action/object overlap as a hard gate.
+The current evidence supports using Apple Natural Language for event clustering and
+reserving Foundation Models for user-facing, source-linked “what happened/what
+changed?” synthesis, where it can produce a cited briefing rather than decide event
+identity. The clustering work remains below the M0 quality and latency gates.
 
 All rows were assigned after Translation preflight, but this sample does not prove
 language-independent clustering: it contains cross-language same-event pairs, and
