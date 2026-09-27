@@ -15,7 +15,10 @@ private struct GeneratedArticleDigest {
 
     @Guide(description: "Short topic labels for the article.", .maximumCount(4))
     let topics: [String]
+}
 
+@Generable
+private struct GeneratedContentCleanup {
     @Guide(
         description: "Zero-based IDs of blocks that are promotional boilerplate, subscription requests, product pitches, social-media calls to action, or unrelated recommendations.",
         .maximumCount(12)
@@ -75,6 +78,16 @@ public final class ArticleIntelligenceService: ObservableObject {
         )
         context.insert(result)
         try? context.save()
+        #if canImport(FoundationModels)
+        if generated.modelKind != .extractiveFallback {
+            Task { @MainActor in
+                let irrelevantIDs = await classifyIrrelevantBlocks(blocks)
+                guard !irrelevantIDs.isEmpty else { return }
+                result.irrelevantBlockIDs = irrelevantIDs
+                try? context.save()
+            }
+        }
+        #endif
         return generated
     }
 
@@ -292,13 +305,10 @@ public final class ArticleIntelligenceService: ObservableObject {
         let prompt = """
         Provide a 2 to 3 sentence spoken executive summary of this article.
         Use only the supplied article. Preserve key facts, names, numbers, and dates.
-        Also identify only blocks that are clearly unrelated promotional or publisher
-        boilerplate. Do not mark reporting, quotations, captions, or factual article text.
 
         Title: \(title)
-        Content: \(sample)
         Numbered blocks:
-        \(blockSample.prefix(6_000))
+        \(blockSample.prefix(4_000))
         """
 
         #if canImport(FoundationModels)
@@ -350,7 +360,7 @@ public final class ArticleIntelligenceService: ObservableObject {
                         text: response.content.summary,
                         keyPoints: response.content.keyPoints,
                         topics: response.content.topics,
-                        irrelevantBlockIDs: response.content.irrelevantBlockIDs,
+                        irrelevantBlockIDs: [],
                         modelKind: .privateCloudCompute,
                         isCached: false
                     )
@@ -371,7 +381,7 @@ public final class ArticleIntelligenceService: ObservableObject {
                 text: response.content.summary,
                 keyPoints: response.content.keyPoints,
                 topics: response.content.topics,
-                irrelevantBlockIDs: response.content.irrelevantBlockIDs,
+                irrelevantBlockIDs: [],
                 modelKind: .onDevice,
                 isCached: false
             )
@@ -420,6 +430,33 @@ public final class ArticleIntelligenceService: ObservableObject {
         } catch {
             print("[ArticleIntelligenceService] On-device model unavailable: \(error). Using extractive fallback.")
             return nil
+        }
+    }
+
+    private func classifyIrrelevantBlocks(_ blocks: [String]) async -> [Int] {
+        let numberedBlocks = blocks.enumerated()
+            .map { "[BLOCK \($0.offset)] \($0.element)" }
+            .joined(separator: "\n")
+        let prompt = """
+        Identify only blocks that are promotional boilerplate, subscription requests,
+        product pitches, social-media calls to action, or unrelated recommendations.
+        Never mark reporting, quotations, captions, or factual article text.
+
+        \(numberedBlocks.prefix(4_000))
+        """
+
+        do {
+            let session = LanguageModelSession(
+                instructions: "Classify article blocks conservatively. Return no IDs when uncertain."
+            )
+            let response = try await session.respond(
+                to: prompt,
+                generating: GeneratedContentCleanup.self
+            )
+            return response.content.irrelevantBlockIDs.filter(blocks.indices.contains)
+        } catch {
+            print("[ArticleIntelligenceService] Content cleanup unavailable: \(error)")
+            return []
         }
     }
     #endif
