@@ -1674,17 +1674,13 @@ struct ArticleRow: View {
 
     #if os(iOS)
     private var iosMailRow: some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Unread dot
-            ZStack(alignment: .top) {
-                if !article.isRead {
-                    Circle()
-                        .fill(Color.siftAccent)
-                        .frame(width: 6.5, height: 6.5)
-                        .padding(.top, 4)
-                }
-            }
-            .frame(width: 7)
+        HStack(alignment: .top, spacing: 9) {
+            // Unread dot column (fixed width ensures all favicons vertically align across rows)
+            Circle()
+                .fill(article.isRead ? Color.clear : Color.siftAccent)
+                .frame(width: 7.5, height: 7.5)
+                .frame(width: 10, height: (showFeedIcon && showSource) ? iconSize : 20)
+                .accessibilityHidden(true)
 
             // Feed Favicon / Initial Monogram
             if showFeedIcon && showSource {
@@ -1695,14 +1691,14 @@ struct ArticleRow: View {
                 }
             }
 
-            // Article Content: Header line, Title, Snippet
-            VStack(alignment: .leading, spacing: density == .compact ? 2 : 3) {
+            // Article Content: Header line (Feed Name), Title (Primary Focus), Snippet
+            VStack(alignment: .leading, spacing: density == .compact ? 2 : 3.5) {
                 if showSource {
-                    // Header: Feed Name + Timestamp
+                    // Header: Feed Name + Timestamp (Secondary context)
                     HStack(alignment: .firstTextBaseline) {
                         Text(feedTitle)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(article.isRead ? Color.primary.opacity(0.75) : Color.primary)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(article.isRead ? Color.secondary.opacity(0.7) : Color.secondary)
                             .lineLimit(1)
 
                         Spacer(minLength: 6)
@@ -1711,12 +1707,12 @@ struct ArticleRow: View {
                     }
                 }
 
-                // Article Title (+ trailing time/star inline when the header line is gone)
+                // Article Title: Primary visual focal point
                 HStack(alignment: .firstTextBaseline) {
                     Text(article.title.isEmpty ? "Untitled" : article.title)
-                        .font(.system(size: 16, weight: article.isRead ? .regular : .semibold))
-                        .foregroundStyle(article.isRead ? Color.primary.opacity(0.78) : Color.primary)
-                        .lineSpacing(1.2)
+                        .font(.system(size: 16, weight: article.isRead ? .medium : .semibold))
+                        .foregroundStyle(article.isRead ? Color.primary.opacity(0.7) : Color.primary)
+                        .lineSpacing(2)
                         .lineLimit(density == .compact ? 1 : 2)
 
                     if !showSource {
@@ -1728,9 +1724,9 @@ struct ArticleRow: View {
                 // Article Preview Snippet
                 if showPreview, !snippet.isEmpty, density != .compact {
                     Text(snippet)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(Color.primary.opacity(article.isRead ? 0.58 : 0.7))
-                        .lineSpacing(1.1)
+                        .font(.system(size: 13.5, weight: .regular))
+                        .foregroundStyle(Color.secondary.opacity(article.isRead ? 0.75 : 0.95))
+                        .lineSpacing(1.5)
                         .lineLimit(density == .spacious ? 2 : 1)
                         .padding(.top, 1)
                 }
@@ -1741,8 +1737,8 @@ struct ArticleRow: View {
     @ViewBuilder
     private var trailingMeta: some View {
         Text(formattedTime(for: article.publicationDate))
-            .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(.secondary)
+            .font(.system(size: 12.5, weight: .regular))
+            .foregroundStyle(Color.secondary.opacity(0.8))
 
         if article.isStarred {
             Image(systemName: "star.fill")
