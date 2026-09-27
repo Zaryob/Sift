@@ -289,19 +289,14 @@ public final class AppViewModel {
         }
     }
 
-    /// Fetches and caches the article's full text lazily on-demand when the user opens the article.
+    /// Fetches and caches the article's full text on-demand whenever the article is opened.
     /// If the feed already contains the complete text, no external web request is made.
     public func loadFullTextIfNeeded(for article: FeedItem, force: Bool = false, context: ModelContext) async {
         guard article.extractedArticleData == nil,
               let link = article.link, let url = URL(string: link) else { return }
 
-        // If the RSS feed already provided the substantial full article, we don't need to crawl the site
+        // If the RSS feed already provided the full article text, no need to crawl the site
         if article.hasSubstantialFeedContent && !force {
-            return
-        }
-
-        // Avoid re-fetching immediately if already attempted recently, unless forced
-        if !force, let attempted = article.extractionAttemptedAt, Date().timeIntervalSince(attempted) < 3600 {
             return
         }
 
