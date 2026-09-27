@@ -13,22 +13,77 @@ enum DetailViewMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+public struct IdentifiableImageURL: Identifiable {
+    public let id: String
+    public let url: URL
+
+    public init(_ url: URL) {
+        self.id = url.absoluteString
+        self.url = url
+    }
+}
+
 struct ArticleDetailView: View {
     @Bindable var viewModel: AppViewModel
     let article: FeedItem?
     var onBackToList: (() -> Void)? = nil
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var speaker = ArticleSpeaker.shared
 
     @AppStorage(ReadingPreferenceKey.fontSize) private var readerFontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var readerFontDesignRaw: String = ReaderFontDesign.serif.rawValue
+    @AppStorage(ReadingPreferenceKey.readerTheme) private var readerThemeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReadingPreferenceKey.readerLineSpacing) private var readerLineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
+    @AppStorage(ReadingPreferenceKey.readerContentWidth) private var readerContentWidthRaw: String = ReaderContentWidth.standard.rawValue
     @AppStorage(ReadingPreferenceKey.openLinksInApp) private var openLinksInApp: Bool = true
+
     @State private var viewMode: DetailViewMode = .reader
     @State private var isLoadingFullText = false
     @State private var isShowingAppearancePopover = false
+    @State private var selectedLightboxImage: IdentifiableImageURL? = nil
 
     private var fontDesign: Font.Design {
         (ReaderFontDesign(rawValue: readerFontDesignRaw) ?? .serif).design
+    }
+
+    private var readerTheme: ReaderTheme {
+        ReaderTheme(rawValue: readerThemeRaw) ?? .system
+    }
+
+    private var readerLineSpacing: ReaderLineSpacing {
+        ReaderLineSpacing(rawValue: readerLineSpacingRaw) ?? .normal
+    }
+
+    private var readerContentWidth: ReaderContentWidth {
+        ReaderContentWidth(rawValue: readerContentWidthRaw) ?? .standard
+    }
+
+    private var isCurrentArticleSpeaking: Bool {
+        guard let article else { return false }
+        return speaker.isSpeaking && speaker.currentArticleID == article.id
+    }
+
+    private var speakerIcon: String {
+        if isCurrentArticleSpeaking {
+            return speaker.isPaused ? "play.circle.fill" : "pause.circle.fill"
+        }
+        return "waveform"
+    }
+
+    private var speakerLabel: String {
+        if isCurrentArticleSpeaking {
+            return speaker.isPaused ? "Resume Listening" : "Pause Listening"
+        }
+        return "Listen to Article"
+    }
+
+    private var speakerHelp: String {
+        if isCurrentArticleSpeaking {
+            return speaker.isPaused ? "Resume reading aloud" : "Pause reading aloud"
+        }
+        return "Read article aloud with text-to-speech"
     }
 
     var body: some View {
@@ -42,7 +97,13 @@ struct ArticleDetailView: View {
                             article: article,
                             readerFontSize: readerFontSize,
                             fontDesign: fontDesign,
-                            isLoadingFullText: isLoadingFullText
+                            readerTheme: readerTheme,
+                            readerLineSpacing: readerLineSpacing,
+                            readerContentWidth: readerContentWidth,
+                            isLoadingFullText: isLoadingFullText,
+                            onImageTap: { imageURL in
+                                selectedLightboxImage = IdentifiableImageURL(imageURL)
+                            }
                         )
                     }
                 }
@@ -60,6 +121,14 @@ struct ArticleDetailView: View {
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button {
+                            toggleSpeech(for: article)
+                        } label: {
+                            Image(systemName: speakerIcon)
+                                .foregroundStyle(isCurrentArticleSpeaking ? Color.siftAccent : .primary)
+                        }
+                        .help(speakerHelp)
+
+                        Button {
                             article.isStarred.toggle()
                             try? modelContext.save()
                         } label: {
@@ -70,12 +139,24 @@ struct ArticleDetailView: View {
 
                         ArticleMoreMenu(
                             article: article,
+                            isSpeaking: isCurrentArticleSpeaking,
+                            speakerIcon: speakerIcon,
+                            speakerLabel: speakerLabel,
+                            onToggleSpeech: { toggleSpeech(for: article) },
                             onShowAppearance: { isShowingAppearancePopover = true },
                             onPrint: { printArticle(article) }
                         )
                     }
                 }
+                .fullScreenCover(item: $selectedLightboxImage) { item in
+                    ArticleImageLightboxView(imageURL: item.url)
+                }
                 .onOpenURL(prefersInApp: openLinksInApp)
+                #elseif os(macOS)
+                .sheet(item: $selectedLightboxImage) { item in
+                    ArticleImageLightboxView(imageURL: item.url)
+                        .frame(minWidth: 700, minHeight: 520)
+                }
                 #endif
             } else {
                 EmptyArticleDetailView()
@@ -86,6 +167,12 @@ struct ArticleDetailView: View {
             macOSToolbarItems(for: article)
         }
         #endif
+    }
+
+    private func toggleSpeech(for article: FeedItem?) {
+        guard let article else { return }
+        let text = printableBody(for: article)
+        speaker.speak(articleID: article.id, title: article.title, text: text)
     }
 
     #if os(macOS)
@@ -156,11 +243,30 @@ struct ArticleDetailView: View {
         .visibilityPriority(.high)
 
         ToolbarItem(placement: .primaryAction) {
+            Button {
+                toggleSpeech(for: article)
+            } label: {
+                Label(speakerLabel, systemImage: speakerIcon)
+            }
+            .foregroundStyle(isCurrentArticleSpeaking ? Color.siftAccent : .secondary)
+            .help(speakerHelp)
+            .disabled(article == nil)
+        }
+        .visibilityPriority(.high)
+
+        ToolbarItem(placement: .primaryAction) {
             Menu {
                 Button {
                     isShowingAppearancePopover = true
                 } label: {
                     Label("Reading Appearance", systemImage: "textformat.size")
+                }
+                .disabled(article == nil)
+
+                Button {
+                    toggleSpeech(for: article)
+                } label: {
+                    Label(speakerLabel, systemImage: speakerIcon)
                 }
                 .disabled(article == nil)
 
@@ -251,7 +357,7 @@ struct ArticleDetailView: View {
     }
 }
 
-// MARK: - Extracted Independent Section Views (swiftui-specialist-ref-structure)
+// MARK: - Extracted Independent Section Views
 
 struct EmptyArticleDetailView: View {
     var body: some View {
@@ -280,50 +386,125 @@ struct EmptyArticleDetailView: View {
     }
 }
 
+private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+struct ReadingProgressBar: View {
+    let progress: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Color.clear
+                Rectangle()
+                    .fill(Color.siftAccent)
+                    .frame(width: max(0, min(CGFloat(progress) * proxy.size.width, proxy.size.width)))
+            }
+        }
+        .frame(height: 2.5)
+    }
+}
+
 struct ArticleReaderScrollView: View {
     let article: FeedItem
     let readerFontSize: Double
     let fontDesign: Font.Design
+    let readerTheme: ReaderTheme
+    let readerLineSpacing: ReaderLineSpacing
+    let readerContentWidth: ReaderContentWidth
     let isLoadingFullText: Bool
+    var onImageTap: ((URL) -> Void)? = nil
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var scrollProgress: Double = 0
+
+    private var textColor: Color {
+        readerTheme.textColor(colorScheme: colorScheme)
+    }
+
+    private var secondaryColor: Color {
+        readerTheme.secondaryTextColor(colorScheme: colorScheme)
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                #if os(macOS)
-                MacArticleHeaderView(article: article)
-                Divider().opacity(0.35)
-                #else
-                IOSArticleHeaderView(
-                    article: article,
-                    readerFontSize: readerFontSize,
-                    fontDesign: fontDesign
-                )
-                #endif
+        ZStack(alignment: .top) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    #if os(macOS)
+                    MacArticleHeaderView(
+                        article: article,
+                        textColor: textColor,
+                        secondaryColor: secondaryColor
+                    )
+                    Divider().opacity(0.35)
+                    #else
+                    IOSArticleHeaderView(
+                        article: article,
+                        readerFontSize: readerFontSize,
+                        fontDesign: fontDesign,
+                        textColor: textColor,
+                        secondaryColor: secondaryColor
+                    )
+                    #endif
 
-                if let imageURLString = article.imageURL, let imageURL = URL(string: imageURLString) {
-                    ArticleHeroImageView(url: imageURL)
+                    if let imageURLString = article.imageURL, let imageURL = URL(string: imageURLString) {
+                        ArticleHeroImageView(url: imageURL) {
+                            onImageTap?(imageURL)
+                        }
+                    }
+
+                    ArticleBodyContentView(
+                        article: article,
+                        readerFontSize: readerFontSize,
+                        fontDesign: fontDesign,
+                        lineSpacingMultiplier: readerLineSpacing.multiplier,
+                        textColor: textColor,
+                        secondaryTextColor: secondaryColor,
+                        isLoadingFullText: isLoadingFullText
+                    )
                 }
-
-                ArticleBodyContentView(
-                    article: article,
-                    readerFontSize: readerFontSize,
-                    fontDesign: fontDesign,
-                    isLoadingFullText: isLoadingFullText
+                .textSelection(.enabled)
+                .padding(.horizontal, 28)
+                .padding(.top, 20)
+                .padding(.bottom, 48)
+                .frame(maxWidth: readerContentWidth.maxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: ScrollOffsetPreferenceKey.self,
+                            value: geo.frame(in: .named("readerScroll")).minY
+                        )
+                    }
                 )
             }
-            .textSelection(.enabled)
-            .padding(.horizontal, 28)
-            .padding(.top, 20)
-            .padding(.bottom, 48)
-            .frame(maxWidth: 620, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .coordinateSpace(name: "readerScroll")
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { minY in
+                let scrolled = max(0, -minY)
+                let estimatedTotal = max(600, CGFloat(article.readingMinutes ?? 3) * 450)
+                withAnimation(.linear(duration: 0.1)) {
+                    scrollProgress = min(1.0, Double(scrolled / estimatedTotal))
+                }
+            }
+
+            if scrollProgress > 0.02 {
+                ReadingProgressBar(progress: scrollProgress)
+                    .transition(.opacity)
+            }
         }
+        .background(readerTheme.backgroundColor(colorScheme: colorScheme).ignoresSafeArea())
     }
 }
 
 #if os(macOS)
 struct MacArticleHeaderView: View {
     let article: FeedItem
+    var textColor: Color = .primary
+    var secondaryColor: Color = .secondary
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -337,7 +518,7 @@ struct MacArticleHeaderView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(article.feed?.title ?? article.author ?? "Feed")
                         .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(textColor)
 
                     Spacer()
 
@@ -349,18 +530,18 @@ struct MacArticleHeaderView: View {
                                 Text(category)
                                     .font(.system(size: 11.5))
                             }
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(secondaryColor)
                         }
 
                         Text(article.publicationDate.formatted(date: .abbreviated, time: .shortened))
                             .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(secondaryColor)
                     }
                 }
 
                 Text(article.title.isEmpty ? "Untitled" : article.title)
                     .font(.system(size: 15.5, weight: .bold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(textColor)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -368,25 +549,25 @@ struct MacArticleHeaderView: View {
                     if let author = article.author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
                         Text("By \(author)")
                             .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(secondaryColor)
                             .lineLimit(1)
                         Text("·")
                             .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(secondaryColor.opacity(0.6))
                     }
 
                     if let minutes = article.knownReadingMinutes {
                         Text("\(minutes) min read")
                             .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(secondaryColor)
                         Text("·")
                             .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(secondaryColor.opacity(0.6))
                     }
 
                     Text(article.publicationDate, format: .dateTime.day().month(.wide).year())
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(secondaryColor)
                 }
                 .padding(.top, 1)
             }
@@ -401,11 +582,14 @@ struct IOSArticleHeaderView: View {
     let article: FeedItem
     let readerFontSize: Double
     let fontDesign: Font.Design
+    var textColor: Color = .primary
+    var secondaryColor: Color = .secondary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(article.title)
                 .font(.system(size: min(readerFontSize * 1.25, 23), weight: .semibold, design: fontDesign))
+                .foregroundStyle(textColor)
                 .lineSpacing(readerFontSize * 0.12)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -430,7 +614,7 @@ struct IOSArticleHeaderView: View {
                 }
             }
             .font(.footnote)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(secondaryColor)
 
             Divider().opacity(0.4)
         }
@@ -441,24 +625,38 @@ struct IOSArticleHeaderView: View {
 
 struct ArticleHeroImageView: View {
     let url: URL
+    var onTap: (() -> Void)? = nil
 
     var body: some View {
-        Color.clear
-            .frame(maxWidth: .infinity)
-            .frame(height: 220)
-            .overlay {
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else {
-                        Rectangle().fill(.quaternary)
+        Button {
+            onTap?()
+        } label: {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 220)
+                .overlay {
+                    AsyncImage(url: url) { phase in
+                        if case .success(let image) = phase {
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            Rectangle().fill(.quaternary)
+                        }
                     }
                 }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .padding(.vertical, 2)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black.opacity(0.5), in: Circle())
+                        .padding(8)
+                }
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 2)
     }
 }
 
@@ -466,6 +664,9 @@ struct ArticleBodyContentView: View {
     let article: FeedItem
     let readerFontSize: Double
     let fontDesign: Font.Design
+    let lineSpacingMultiplier: CGFloat
+    let textColor: Color
+    let secondaryTextColor: Color
     let isLoadingFullText: Bool
     @State private var cachedParagraphs: [String] = []
 
@@ -484,7 +685,10 @@ struct ArticleBodyContentView: View {
                     ArticleBlockRowView(
                         block: block,
                         readerFontSize: readerFontSize,
-                        fontDesign: fontDesign
+                        fontDesign: fontDesign,
+                        lineSpacingMultiplier: lineSpacingMultiplier,
+                        textColor: textColor,
+                        secondaryTextColor: secondaryTextColor
                     )
                 }
             }
@@ -493,7 +697,8 @@ struct ArticleBodyContentView: View {
                 ForEach(paragraphs, id: \.self) { paragraph in
                     Text(paragraph)
                         .font(.system(size: readerFontSize, design: fontDesign))
-                        .lineSpacing(readerFontSize * 0.32)
+                        .lineSpacing(readerFontSize * lineSpacingMultiplier)
+                        .foregroundStyle(textColor)
                 }
 
                 if isLoadingFullText {
@@ -502,7 +707,7 @@ struct ArticleBodyContentView: View {
                         Text("Loading the full article…")
                     }
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryTextColor)
                 } else if let url = article.originalURL {
                     Link(destination: url) {
                         Label("Continue reading on \(url.host() ?? "the website")", systemImage: "arrow.up.right")
@@ -524,6 +729,9 @@ struct ArticleBlockRowView: View {
     let block: ExtractedArticle.Block
     let readerFontSize: Double
     let fontDesign: Font.Design
+    let lineSpacingMultiplier: CGFloat
+    let textColor: Color
+    let secondaryTextColor: Color
 
     private var bodyFont: Font {
         .system(size: readerFontSize, design: fontDesign)
@@ -535,28 +743,32 @@ struct ArticleBlockRowView: View {
             case .paragraph:
                 Text(block.text)
                     .font(bodyFont)
-                    .lineSpacing(readerFontSize * 0.32)
+                    .lineSpacing(readerFontSize * lineSpacingMultiplier)
+                    .foregroundStyle(textColor)
             case .heading:
                 Text(block.text)
                     .font(.system(size: readerFontSize * 1.2, weight: .bold, design: fontDesign))
+                    .foregroundStyle(textColor)
                     .padding(.top, readerFontSize * 0.4)
                     .padding(.bottom, readerFontSize * 0.06)
             case .quote:
                 Text(block.text)
                     .font(.system(size: readerFontSize * 0.96, design: fontDesign).italic())
-                    .lineSpacing(readerFontSize * 0.32)
-                    .foregroundStyle(.secondary)
+                    .lineSpacing(readerFontSize * lineSpacingMultiplier)
+                    .foregroundStyle(secondaryTextColor)
                     .padding(.leading, 14)
                     .padding(.vertical, 3)
                     .overlay(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 1.5)
-                            .fill(Color.primary.opacity(0.2))
+                            .fill(Color.siftAccent.opacity(0.6))
                             .frame(width: 3)
                     }
             case .listItem:
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("•").foregroundStyle(.secondary)
-                    Text(block.text).lineSpacing(readerFontSize * 0.28)
+                    Text("•").foregroundStyle(secondaryTextColor)
+                    Text(block.text)
+                        .lineSpacing(readerFontSize * (lineSpacingMultiplier * 0.85))
+                        .foregroundStyle(textColor)
                 }
                 .font(bodyFont)
             case .code:
@@ -564,6 +776,7 @@ struct ArticleBlockRowView: View {
                     Text(block.text)
                         .font(.system(size: max(12, readerFontSize * 0.82), design: .monospaced))
                         .padding(10)
+                        .foregroundStyle(textColor)
                 }
                 .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
@@ -574,6 +787,10 @@ struct ArticleBlockRowView: View {
 #if os(iOS)
 struct ArticleMoreMenu: View {
     let article: FeedItem
+    var isSpeaking: Bool = false
+    var speakerIcon: String = "waveform"
+    var speakerLabel: String = "Listen to Article"
+    let onToggleSpeech: () -> Void
     let onShowAppearance: () -> Void
     let onPrint: () -> Void
     @Environment(\.modelContext) private var modelContext
@@ -581,6 +798,10 @@ struct ArticleMoreMenu: View {
 
     var body: some View {
         Menu {
+            Button(action: onToggleSpeech) {
+                Label(speakerLabel, systemImage: speakerIcon)
+            }
+
             Button(action: onShowAppearance) {
                 Label("Reading Appearance", systemImage: "textformat.size")
             }
@@ -629,51 +850,135 @@ struct ArticleMoreMenu: View {
 struct ReadingAppearancePopover: View {
     @AppStorage(ReadingPreferenceKey.fontSize) private var readerFontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var readerFontDesignRaw: String = ReaderFontDesign.serif.rawValue
+    @AppStorage(ReadingPreferenceKey.readerTheme) private var readerThemeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReadingPreferenceKey.readerLineSpacing) private var readerLineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
+    @AppStorage(ReadingPreferenceKey.readerContentWidth) private var readerContentWidthRaw: String = ReaderContentWidth.standard.rawValue
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Appearance")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
+        VStack(alignment: .leading, spacing: 14) {
+            // Theme Palette
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Theme")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
 
-            Picker("Font Design", selection: $readerFontDesignRaw) {
-                ForEach(ReaderFontDesign.allCases) { design in
-                    Text(design.rawValue).tag(design.rawValue)
+                HStack(spacing: 8) {
+                    ForEach(ReaderTheme.allCases) { theme in
+                        themeButton(theme)
+                    }
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
 
-            HStack(spacing: 12) {
-                Button {
-                    if readerFontSize > 13 {
-                        readerFontSize -= 1
+            Divider()
+
+            // Typography Section
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Font")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                Picker("Font Design", selection: $readerFontDesignRaw) {
+                    ForEach(ReaderFontDesign.allCases) { design in
+                        Text(design.rawValue).tag(design.rawValue)
                     }
-                } label: {
-                    Image(systemName: "textformat.size.smaller")
-                        .frame(maxWidth: .infinity)
                 }
-                .disabled(readerFontSize <= 13)
+                .pickerStyle(.segmented)
+                .labelsHidden()
 
-                Text("\(Int(readerFontSize)) pt")
-                    .font(.subheadline.monospacedDigit().weight(.medium))
-                    .frame(minWidth: 46)
-
-                Button {
-                    if readerFontSize < 26 {
-                        readerFontSize += 1
+                HStack(spacing: 10) {
+                    Button {
+                        if readerFontSize > 13 {
+                            readerFontSize -= 1
+                        }
+                    } label: {
+                        Image(systemName: "textformat.size.smaller")
+                            .frame(maxWidth: .infinity)
                     }
-                } label: {
-                    Image(systemName: "textformat.size.larger")
-                        .frame(maxWidth: .infinity)
+                    .disabled(readerFontSize <= 13)
+
+                    Text("\(Int(readerFontSize)) pt")
+                        .font(.subheadline.monospacedDigit().weight(.medium))
+                        .frame(minWidth: 46)
+
+                    Button {
+                        if readerFontSize < 26 {
+                            readerFontSize += 1
+                        }
+                    } label: {
+                        Image(systemName: "textformat.size.larger")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(readerFontSize >= 26)
                 }
-                .disabled(readerFontSize >= 26)
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
+
+            Divider()
+
+            // Spacing & Width Section
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Line Spacing")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                Picker("Line Spacing", selection: $readerLineSpacingRaw) {
+                    ForEach(ReaderLineSpacing.allCases) { spacing in
+                        Text(spacing.rawValue).tag(spacing.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Column Width")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                Picker("Column Width", selection: $readerContentWidthRaw) {
+                    ForEach(ReaderContentWidth.allCases) { width in
+                        Text(width.rawValue).tag(width.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
         }
-        .padding(14)
-        .frame(width: 210)
+        .padding(16)
+        .frame(width: 250)
+    }
+
+    private func themeButton(_ theme: ReaderTheme) -> some View {
+        let isSelected = readerThemeRaw == theme.rawValue
+        return Button {
+            readerThemeRaw = theme.rawValue
+        } label: {
+            VStack(spacing: 4) {
+                Circle()
+                    .fill(theme.backgroundColor(colorScheme: colorScheme))
+                    .overlay {
+                        Circle()
+                            .stroke(isSelected ? Color.siftAccent : Color.secondary.opacity(0.3), lineWidth: isSelected ? 2.5 : 1)
+                    }
+                    .overlay {
+                        Text("Aa")
+                            .font(.system(size: 11, weight: .bold, design: .serif))
+                            .foregroundStyle(theme.textColor(colorScheme: colorScheme))
+                    }
+                    .frame(width: 32, height: 32)
+
+                Text(theme.displayName)
+                    .font(.system(size: 10, weight: isSelected ? .bold : .regular))
+                    .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
     }
 }
 

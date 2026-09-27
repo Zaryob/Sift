@@ -45,6 +45,9 @@ struct SettingsView: View {
     @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.serif.rawValue
     @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showFeedIcons: Bool = true
     @AppStorage(ReadingPreferenceKey.showArticlePreviews) private var showArticlePreviews: Bool = true
+    @AppStorage(ReadingPreferenceKey.readerTheme) private var readerThemeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReadingPreferenceKey.readerLineSpacing) private var readerLineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
+    @AppStorage(ReadingPreferenceKey.readerContentWidth) private var readerContentWidthRaw: String = ReaderContentWidth.standard.rawValue
     @AppStorage(NotificationManager.articleAlertsEnabledKey) private var articleAlertsEnabled: Bool = true
     @AppStorage("articleRetentionDays") private var articleRetentionDays: Int = 30
 
@@ -172,7 +175,13 @@ struct SettingsView: View {
     }
 
     private var articleTextSection: some View {
-        Section("Article Text") {
+        Section("Reader Appearance") {
+            Picker("Theme", selection: $readerThemeRaw) {
+                ForEach(ReaderTheme.allCases) { theme in
+                    Text(theme.displayName).tag(theme.rawValue)
+                }
+            }
+
             Picker("Font", selection: $fontDesignRaw) {
                 ForEach(ReaderFontDesign.allCases) { design in
                     Text(design.rawValue).tag(design.rawValue)
@@ -186,9 +195,21 @@ struct SettingsView: View {
                 }
             }
 
+            Picker("Line Spacing", selection: $readerLineSpacingRaw) {
+                ForEach(ReaderLineSpacing.allCases) { spacing in
+                    Text(spacing.rawValue).tag(spacing.rawValue)
+                }
+            }
+
+            Picker("Column Width", selection: $readerContentWidthRaw) {
+                ForEach(ReaderContentWidth.allCases) { width in
+                    Text(width.rawValue).tag(width.rawValue)
+                }
+            }
+
             Text(previewText)
                 .font(.system(size: fontSize, design: fontDesign.design))
-                .lineSpacing(fontSize * 0.25)
+                .lineSpacing(fontSize * (ReaderLineSpacing(rawValue: readerLineSpacingRaw) ?? .normal).multiplier)
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
                 .padding(.vertical, 2)
