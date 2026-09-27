@@ -530,7 +530,7 @@ public struct SiftWidget: Widget {
         }
         .configurationDisplayName("Sift Recent Articles")
         .description("View latest RSS headlines directly on your desktop or Home Screen.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .systemExtraLarge])
     }
 }
 
