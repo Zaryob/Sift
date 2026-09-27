@@ -74,6 +74,33 @@ set of article pairs and building groups from confirmed links. The 30-item pilot
 provides a measured effort estimate before expanding to the full corpus.
 Active-learning suggestions reduce search effort; they do not count as gold labels.
 
+## Agent-created seed labels
+
+To keep implementation moving before reviewer recruitment, an agent may create a
+small, high-confidence **silver** set from recent feed snapshots. The agent should
+group clear coverage of one concrete event, retain separate labels for related but
+independent developments, and add a short rationale to each record. Mark these rows
+`annotationStatus: "agent-provisional"`. Do not describe these labels as human gold,
+use them to claim the M0 accuracy gate, or tune a final threshold as if the set were
+an independent holdout.
+
+The current local seed is `tools/local/sift-m0-agent-labeled-seed.jsonl`; its
+exploratory threshold results are in `tools/local/sift-m0-seed-threshold-sweep.json`.
+Both files are intentionally excluded through the checkout-local `.git/info/exclude`
+and are not part of a commit. The seed has 30 Turkish records, 14 publishers, and
+11 provisional story IDs; four event copies were added from direct publisher pages
+as research candidates, beyond the RSS snapshot. Keep any future feed text and
+labels local as well.
+
+Use the silver seed to expose obvious pipeline failures and compare representation
+or candidate-generation variants. The first current spike run assigned all 30 seed
+records to one predicted cluster at threshold 0.82. A threshold sweep did not reach
+the proposed pairwise F1 gate; at 0.98 it reached F1 0.59 with substantial false
+splits. These are exploratory findings against agent labels, not a validated quality
+claim. Fix representation and cluster assignment before expanding the seed into a
+larger development corpus. Reserve a small set of ambiguous cases for human review;
+human review can focus on adjudication rather than labeling hundreds of articles.
+
 ## Who supplies the labels
 
 The product owner does not need to label the full corpus. Use two paid bilingual
