@@ -91,6 +91,13 @@ struct ArticleDetailView: View {
     #if os(macOS)
     @ToolbarContentBuilder
     private func macOSToolbarItems(for article: FeedItem?) -> some ToolbarContent {
+        if article != nil {
+            activeArticleToolbarItems(for: article)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func activeArticleToolbarItems(for article: FeedItem?) -> some ToolbarContent {
         ToolbarItem(placement: .automatic) {
             Picker("View Mode", selection: $viewMode) {
                 ForEach(DetailViewMode.allCases) { mode in
@@ -101,6 +108,7 @@ struct ArticleDetailView: View {
             .frame(width: 140)
             .disabled(article == nil)
         }
+        .visibilityPriority(.high)
 
         ToolbarItem(placement: .primaryAction) {
             ControlGroup {
@@ -191,6 +199,7 @@ struct ArticleDetailView: View {
             }
             .help("More Actions")
         }
+        .visibilityPriority(.high)
     }
     #endif
 

@@ -591,7 +591,7 @@ struct ArticleListView: View {
             }
         }
         #else
-        ToolbarItem(placement: .automatic) {
+        ToolbarItem(placement: .secondaryAction) {
             Button {
                 viewModel.isAddingFeed = true
             } label: {
@@ -599,9 +599,9 @@ struct ArticleListView: View {
             }
             .help("Add New RSS Feed (⌘N)")
         }
-        .visibilityPriority(.high)
+        .visibilityPriority(.low)
 
-        ToolbarItem(placement: .automatic) {
+        ToolbarItem(placement: .secondaryAction) {
             MacArticleFilterToolbarButton(
                 isActive: $isFilterActive,
                 showOptions: {
@@ -609,6 +609,7 @@ struct ArticleListView: View {
                 }
             )
         }
+        .visibilityPriority(.low)
         #endif
     }
 
@@ -1984,4 +1985,3 @@ extension UIResponder {
     }
 }
 #endif
-
