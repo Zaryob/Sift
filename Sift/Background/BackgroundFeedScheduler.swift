@@ -85,10 +85,6 @@ public final class BackgroundFeedScheduler: ObservableObject {
             }
             Task {
                 await self.refreshService.refreshAllFeeds()
-                await WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
-                await MainActor.run {
-                    WidgetCenter.shared.reloadAllTimelines()
-                }
                 completion(.finished)
             }
         }
@@ -115,10 +111,6 @@ public final class BackgroundFeedScheduler: ObservableObject {
         // Immediately queue the next occurrence so the refresh cycle keeps going.
         scheduleAppRefresh()
         await refreshService.refreshAllFeeds()
-        await WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
-        await MainActor.run {
-            WidgetCenter.shared.reloadAllTimelines()
-        }
     }
     #endif
 }

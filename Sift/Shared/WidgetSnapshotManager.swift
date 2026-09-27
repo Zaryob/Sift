@@ -10,6 +10,8 @@ import Darwin
 public actor WidgetSnapshotManager {
     public static let shared = WidgetSnapshotManager()
 
+    private var lastSavedData: Data?
+
     /// Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
     public static var siftAppDataDirectory: URL {
         #if os(macOS)
@@ -89,7 +91,9 @@ public actor WidgetSnapshotManager {
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
 
-        guard let data = try? encoder.encode(snapshots) else { return }
+        guard let data = try? encoder.encode(snapshots),
+              data != lastSavedData else { return }
+        lastSavedData = data
 
         var targetURLs: [URL] = [Self.sharedCacheURL]
 

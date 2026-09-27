@@ -65,13 +65,6 @@ struct SiftApp: App {
                 do {
                     let service = FeedRefreshService()
                     await service.refreshAllFeeds()
-                    let context = await MainActor.run {
-                        PersistenceController.shared.container.mainContext
-                    }
-                    await WidgetSnapshotManager.shared.updateSnapshot(context: context)
-                    await MainActor.run {
-                        WidgetCenter.shared.reloadAllTimelines()
-                    }
                 }
                 exit(0)
             }

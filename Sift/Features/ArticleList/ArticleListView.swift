@@ -217,11 +217,11 @@ struct ArticleListView: View {
         return baseArticles
     }
 
-    private var filteredArticles: [FeedItem] {
+    private func filteredArticles(from source: [FeedItem]) -> [FeedItem] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let isSearching = !trimmed.isEmpty
 
-        let articles = sourceArticles.filter { article in
+        let articles = source.filter { article in
             if hideRead && article.isRead { return false }
             if !isSearching { return true }
             if article.title.localizedCaseInsensitiveContains(trimmed) { return true }
@@ -236,6 +236,10 @@ struct ArticleListView: View {
 
         let ordered = sortOrder == .oldestFirst ? articles.reversed() : articles
         return ordered
+    }
+
+    private var filteredArticles: [FeedItem] {
+        filteredArticles(from: sourceArticles)
     }
 
     private func timelineSections(
@@ -281,6 +285,14 @@ struct ArticleListView: View {
         sourceArticles.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
     }
 
+    private func unreadCount(in articles: [FeedItem]) -> Int {
+        articles.reduce(into: 0) { count, article in
+            if !article.isRead {
+                count += 1
+            }
+        }
+    }
+
     private var currentScopeTitle: String {
         switch viewModel.selectedSidebarItem {
         case .smart: return String(localized: "Smart Feed")
@@ -320,8 +332,10 @@ struct ArticleListView: View {
     // MARK: - Body
 
     var body: some View {
-        let visibleArticles = filteredArticles
+        let scopedArticles = sourceArticles
+        let visibleArticles = filteredArticles(from: scopedArticles)
         let visibleSections = timelineSections(for: visibleArticles)
+        let scopedUnreadCount = unreadCount(in: scopedArticles)
 
         ZStack(alignment: .bottom) {
             Group {
@@ -354,7 +368,7 @@ struct ArticleListView: View {
                 }
 
                 if viewModel.selectedSidebarItem == .smart, !visibleArticles.isEmpty {
-                    smartFeedSummaryHeader
+                    smartFeedSummaryHeader(sourceCount: scopedArticles.count)
                 }
 
                 if visibleArticles.isEmpty {
@@ -402,7 +416,7 @@ struct ArticleListView: View {
                 await markSelectedArticleReadIfNeeded()
             }
             .navigationTitle(currentNavTitle)
-            .navigationSubtitle(currentNavSubtitle)
+            .navigationSubtitle(currentNavSubtitle(visibleCount: visibleArticles.count, sourceCount: scopedArticles.count, sourceUnreadCount: scopedUnreadCount))
             #if os(macOS)
             .searchable(text: $searchText, prompt: "Search articles, feeds…")
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -432,12 +446,12 @@ struct ArticleListView: View {
                 titleVisibility: .visible
             ) {
                 Button("Mark as Read") {
-                    viewModel.markAllAsRead(in: sourceArticles, context: modelContext)
+                    viewModel.markAllAsRead(in: scopedArticles, context: modelContext)
                     showUndoToast()
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Mark \(currentScopeUnreadCount) unread articles in this view as read?")
+                Text("Mark \(scopedUnreadCount) unread articles in this view as read?")
             }
             .sheet(isPresented: $isShowingFilters) {
                 ArticleFiltersSheet(
@@ -486,7 +500,11 @@ struct ArticleListView: View {
         return currentFeedTitle ?? currentScopeTitle
     }
 
-    private var currentNavSubtitle: String {
+    private func currentNavSubtitle(
+        visibleCount: Int,
+        sourceCount: Int,
+        sourceUnreadCount: Int
+    ) -> String {
         if isShowingStoryPreview, let progress = viewModel.storyPreviewProgress {
             return progress
         }
@@ -504,17 +522,16 @@ struct ArticleListView: View {
             return String(localized: "Updating feeds…")
         }
         if isFilterActive {
-            let count = filteredArticles.count
-            return String(localized: "\(count) articles · \(updatedAgoString)")
+            return String(localized: "\(visibleCount) articles · \(updatedAgoString)")
         }
         if viewModel.selectedSidebarItem == .smart, !allArticles.isEmpty {
-            let filteredOut = max(0, allArticles.count - sourceArticles.count)
+            let filteredOut = max(0, allArticles.count - sourceCount)
             if filteredOut > 0 {
-                return String(localized: "\(sourceArticles.count) curated · \(filteredOut) filtered")
+                return String(localized: "\(sourceCount) curated · \(filteredOut) filtered")
             }
-            return String(localized: "\(sourceArticles.count) curated stories")
+            return String(localized: "\(sourceCount) curated stories")
         }
-        return statusText
+        return statusText(sourceUnreadCount: sourceUnreadCount)
     }
 
     private var selectedFeedItem: Feed? {
@@ -526,11 +543,11 @@ struct ArticleListView: View {
 
     // MARK: - Status
 
-    private var statusText: String {
+    private func statusText(sourceUnreadCount: Int) -> String {
         if viewModel.isRefreshing {
             return String(localized: "Updating feeds…")
         }
-        let unread = currentFeedTitle == nil ? totalUnreadCount : currentScopeUnreadCount
+        let unread = currentFeedTitle == nil ? totalUnreadCount : sourceUnreadCount
         return String(localized: "\(unread) unread · \(updatedAgoString)")
     }
 
@@ -552,7 +569,7 @@ struct ArticleListView: View {
 
     // MARK: - Smart Feed Header
 
-    private var smartFeedSummaryHeader: some View {
+    private func smartFeedSummaryHeader(sourceCount: Int) -> some View {
         Section {
             HStack(alignment: .center, spacing: 12) {
                 ZStack {
@@ -581,13 +598,13 @@ struct ArticleListView: View {
                         }
                     }
 
-                    let filteredOut = max(0, allArticles.count - sourceArticles.count)
+                    let filteredOut = max(0, allArticles.count - sourceCount)
                     if filteredOut > 0 {
-                        Text("\(sourceArticles.count) high-signal stories • \(filteredOut) filtered")
+                        Text("\(sourceCount) high-signal stories • \(filteredOut) filtered")
                             .font(.system(size: 11.5))
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("\(sourceArticles.count) curated stories")
+                        Text("\(sourceCount) curated stories")
                             .font(.system(size: 11.5))
                             .foregroundStyle(.secondary)
                     }

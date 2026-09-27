@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-public struct OPMLItem {
+nonisolated public struct OPMLItem: Sendable {
     public let title: String
     public let xmlURL: String
     public let htmlURL: String?
@@ -15,7 +15,7 @@ public struct OPMLItem {
     }
 }
 
-public final class OPMLService: NSObject, XMLParserDelegate {
+nonisolated public final class OPMLService: NSObject, XMLParserDelegate {
     private var items: [OPMLItem] = []
     /// Stack tracks nested folder names so we correctly restore the parent
     /// category when a nested outline closes.
@@ -34,6 +34,13 @@ public final class OPMLService: NSObject, XMLParserDelegate {
             throw URLError(.cannotParseResponse)
         }
         return items
+    }
+
+    public nonisolated static func loadItems(from url: URL) async throws -> [OPMLItem] {
+        try await Task.detached(priority: .userInitiated) {
+            let data = try Data(contentsOf: url)
+            return try OPMLService().parse(data: data)
+        }.value
     }
 
     public func parser(

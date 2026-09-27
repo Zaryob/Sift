@@ -50,33 +50,6 @@ public final class FaviconManager: ObservableObject {
         return memoryCache.object(forKey: key as NSString)
     }
 
-    /// Returns the cached image immediately if available in memory or on disk.
-    /// Does NOT trigger any network request.
-    public func cachedImage(for feed: Feed) -> PlatformImage? {
-        guard let url = FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL) else {
-            return nil
-        }
-        return cachedImage(for: url)
-    }
-
-    /// Returns the cached image immediately if available in memory or on disk for a given URL.
-    public func cachedImage(for url: URL) -> PlatformImage? {
-        let key = cacheKey(for: url)
-
-        // 1. Check in-memory cache
-        if let memoryImage = memoryCache.object(forKey: key as NSString) {
-            return memoryImage
-        }
-
-        // 2. Check disk cache
-        if let diskImage = loadFromDisk(key: key) {
-            memoryCache.setObject(diskImage, forKey: key as NSString)
-            return diskImage
-        }
-
-        return nil
-    }
-
     // MARK: - Asynchronous Fetch with Deduplication
 
     /// Fetches the favicon for a feed, returning from cache if already downloaded,
@@ -174,11 +147,20 @@ public final class FaviconManager: ObservableObject {
         return nil
     }
 
-    /// Prefetches favicons in the background for a collection of feeds.
+    /// Prefetches favicons without creating an unbounded task per feed.
     public func prefetchFavicons(for feeds: [Feed]) {
-        for feed in feeds {
-            Task {
-                _ = await self.fetchFavicon(for: feed)
+        let urls = feeds.compactMap {
+            FaviconFetcher.faviconURL(
+                for: $0.siteURL,
+                feedURLString: $0.url,
+                iconURLString: $0.iconURL
+            )
+        }
+
+        Task(priority: .utility) {
+            for url in urls {
+                guard !Task.isCancelled else { return }
+                _ = await fetchFavicon(for: url)
             }
         }
     }
@@ -201,15 +183,6 @@ public final class FaviconManager: ObservableObject {
 
     private func diskFileURL(key: String) -> URL? {
         cacheDirectory?.appendingPathComponent("\(key).img")
-    }
-
-    private func loadFromDisk(key: String) -> PlatformImage? {
-        guard let fileURL = diskFileURL(key: key),
-              FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL) else {
-            return nil
-        }
-        return PlatformImage(data: data)
     }
 
     private nonisolated static func readData(from url: URL) async -> Data? {

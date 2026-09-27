@@ -250,8 +250,6 @@ public final class AppViewModel {
         await refreshService.refreshAllFeeds()
         lastRefreshedAt = Date()
         isRefreshing = false
-        await WidgetSnapshotManager.shared.updateSnapshot(context: context ?? PersistenceController.shared.container.mainContext)
-        WidgetCenter.shared.reloadAllTimelines()
     }
 
     /// Runs the M0 clustering spike against recent RSS items without saving derived assignments.
@@ -722,23 +720,24 @@ public final class AppViewModel {
             }
         }
 
-        guard let data = try? Data(contentsOf: url) else {
-            showError("Could not read the OPML file.")
-            return
-        }
-
-        guard let items = try? OPMLService().parse(data: data), !items.isEmpty else {
+        guard let items = try? await OPMLService.loadItems(from: url), !items.isEmpty else {
             showError("The file doesn't contain any recognizable feed subscriptions.")
             return
         }
 
-        for item in items {
-            let targetURL = item.xmlURL
-            let descriptor = FetchDescriptor<Feed>(predicate: #Predicate { $0.url == targetURL })
-            if (try? context.fetch(descriptor).first) == nil {
-                let newFeed = Feed(title: item.title, url: item.xmlURL, siteURL: item.htmlURL, category: item.category, dateAdded: Date())
-                context.insert(newFeed)
-            }
+        let existingURLs = Set(
+            (try? context.fetch(FetchDescriptor<Feed>()).map(\.url)) ?? []
+        )
+        var importedURLs = existingURLs
+        for item in items where importedURLs.insert(item.xmlURL).inserted {
+            let newFeed = Feed(
+                title: item.title,
+                url: item.xmlURL,
+                siteURL: item.htmlURL,
+                category: item.category,
+                dateAdded: Date()
+            )
+            context.insert(newFeed)
         }
         do {
             try context.save()
@@ -747,8 +746,6 @@ public final class AppViewModel {
             return
         }
         await refreshService.refreshAllFeeds()
-        await WidgetSnapshotManager.shared.updateSnapshot(context: context)
-        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func showError(_ message: String) {

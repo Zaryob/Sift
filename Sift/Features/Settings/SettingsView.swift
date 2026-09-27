@@ -625,20 +625,22 @@ struct SettingsView: View {
             opmlStatusMessage = "Import failed: \(error.localizedDescription)"
         case .success(let urls):
             guard let url = urls.first else { return }
-            let accessing = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessing {
-                    url.stopAccessingSecurityScopedResource()
+            isImporting = true
+            Task {
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer {
+                    if accessing {
+                        url.stopAccessingSecurityScopedResource()
+                    }
                 }
-            }
 
-            do {
-                let items = try OPMLService().parse(data: try Data(contentsOf: url))
-                var importedCount = 0
-                for item in items {
-                    let targetURL = item.xmlURL
-                    let descriptor = FetchDescriptor<Feed>(predicate: #Predicate { $0.url == targetURL })
-                    if (try? modelContext.fetch(descriptor).first) == nil {
+                do {
+                    let items = try await OPMLService.loadItems(from: url)
+                    let existingURLs = Set(try modelContext.fetch(FetchDescriptor<Feed>()).map(\.url))
+                    var importedURLs = existingURLs
+                    var importedCount = 0
+
+                    for item in items where importedURLs.insert(item.xmlURL).inserted {
                         modelContext.insert(Feed(
                             title: item.title,
                             url: item.xmlURL,
@@ -648,17 +650,14 @@ struct SettingsView: View {
                         ))
                         importedCount += 1
                     }
-                }
-                try modelContext.save()
-                opmlStatusMessage = "Imported \(importedCount) new subscriptions."
 
-                isImporting = true
-                Task {
+                    try modelContext.save()
+                    opmlStatusMessage = "Imported \(importedCount) new subscriptions."
                     await FeedRefreshService().refreshAllFeeds()
-                    isImporting = false
+                } catch {
+                    opmlStatusMessage = "Import failed: \(error.localizedDescription)"
                 }
-            } catch {
-                opmlStatusMessage = "Import failed: \(error.localizedDescription)"
+                isImporting = false
             }
         }
     }
