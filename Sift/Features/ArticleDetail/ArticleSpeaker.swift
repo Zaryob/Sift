@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import NaturalLanguage
 
 /// Native Text-to-Speech service for listening to articles.
 @MainActor
@@ -34,8 +35,7 @@ public final class ArticleSpeaker: NSObject, ObservableObject, AVSpeechSynthesiz
 
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        let language = Locale.preferredLanguages.first ?? "en-US"
-        let voice = bestAvailableVoice(for: language)
+        let voice = fallbackVoiceIfNeeded(for: "\(title) \(text)")
         let segments = speechSegments(title: title, text: text)
         guard !segments.isEmpty else { return }
 
@@ -46,8 +46,7 @@ public final class ArticleSpeaker: NSObject, ObservableObject, AVSpeechSynthesiz
         for segment in segments {
             let utterance = AVSpeechUtterance(string: segment.text)
             utterance.voice = voice
-            utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.92
-            utterance.pitchMultiplier = 0.98
+            utterance.prefersAssistiveTechnologySettings = true
             utterance.preUtteranceDelay = segment.isTitle ? 0 : 0.04
             utterance.postUtteranceDelay = segment.isParagraphEnd ? 0.28 : 0.12
             activeUtteranceIDs.insert(ObjectIdentifier(utterance))
@@ -124,6 +123,27 @@ public final class ArticleSpeaker: NSObject, ObservableObject, AVSpeechSynthesiz
             ?? matchingVoices.first(where: { $0.quality == .enhanced })
             ?? AVSpeechSynthesisVoice(language: languageIdentifier)
             ?? AVSpeechSynthesisVoice(language: "en-US")
+    }
+
+    /// Keep the voice unset for system-language content so iOS can honor the
+    /// person's default speech voice and rate. Select a language-specific voice
+    /// only when the article is still in another language.
+    private func fallbackVoiceIfNeeded(for text: String) -> AVSpeechSynthesisVoice? {
+        let preferredLanguage = Locale.preferredLanguages.first ?? "en-US"
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(String(text.prefix(2_000)))
+
+        guard let detectedLanguage = recognizer.dominantLanguage?.rawValue else {
+            return nil
+        }
+
+        let preferred = Locale.Language(identifier: preferredLanguage)
+        let detected = Locale.Language(identifier: detectedLanguage)
+        guard !preferred.isEquivalent(to: detected) else {
+            return nil
+        }
+
+        return bestAvailableVoice(for: detectedLanguage)
     }
 
     private func speechSegments(title: String, text: String) -> [(text: String, isTitle: Bool, isParagraphEnd: Bool)] {
