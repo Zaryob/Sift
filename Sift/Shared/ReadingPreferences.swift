@@ -30,6 +30,7 @@ enum MarkReadBehavior: String, CaseIterable, Identifiable {
 enum ReaderFontDesign: String, CaseIterable, Identifiable {
     case system = "System"
     case serif = "Serif"
+    case monospaced = "Monospace"
 
     var id: String { rawValue }
 
@@ -37,6 +38,8 @@ enum ReaderFontDesign: String, CaseIterable, Identifiable {
         switch self {
         case .system: return .default
         case .serif: return .serif
+        case .monospaced: return .monospaced
         }
     }
 }
+

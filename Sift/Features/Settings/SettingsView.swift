@@ -43,6 +43,8 @@ struct SettingsView: View {
     @AppStorage(ReadingPreferenceKey.openLinksInApp) private var openLinksInApp: Bool = true
     @AppStorage(ReadingPreferenceKey.fontSize) private var fontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.serif.rawValue
+    @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showFeedIcons: Bool = true
+    @AppStorage(ReadingPreferenceKey.showArticlePreviews) private var showArticlePreviews: Bool = true
     @AppStorage(NotificationManager.articleAlertsEnabledKey) private var articleAlertsEnabled: Bool = true
     @AppStorage("articleRetentionDays") private var articleRetentionDays: Int = 30
 
@@ -150,6 +152,8 @@ struct SettingsView: View {
                     Text(behavior.rawValue).tag(behavior.rawValue)
                 }
             }
+            Toggle("Show Feed Icons", isOn: $showFeedIcons)
+            Toggle("Show Article Previews", isOn: $showArticlePreviews)
             #if os(iOS)
             Picker("Open Original Article", selection: $openLinksInApp) {
                 Text("In Sift").tag(true)
