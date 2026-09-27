@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sift M0 Story Labeler</title>
+  <style>
+    :root { color-scheme: light dark; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { max-width: 1120px; margin: 0 auto; padding: 24px; }
+    h1, h2, p { margin-top: 0; }
+    h1 { font-size: 1.6rem; }
+    button, select, input { font: inherit; }
+    button, select, input[type="search"] { padding: 8px 12px; border-radius: 8px; }
+    button { cursor: pointer; }
+    button.primary { color: white; background: #b84320; border: 1px solid #b84320; }
+    button:disabled { cursor: default; opacity: .5; }
+    .panel { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 12px; padding: 16px; margin: 14px 0; }
+    .toolbar, .controls, .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .toolbar { justify-content: space-between; }
+    .muted { opacity: .72; }
+    .status { min-height: 1.5em; }
+    .progress { height: 8px; background: color-mix(in srgb, CanvasText 12%, transparent); border-radius: 99px; overflow: hidden; }
+    .progress > div { height: 100%; background: #b84320; width: 0; transition: width .2s ease; }
+    .article-title { font-size: 1.25rem; line-height: 1.35; margin-bottom: 8px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: .9rem; opacity: .75; margin-bottom: 16px; }
+    .excerpt { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .story-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-top: 12px; }
+    .story-card { text-align: left; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); background: Canvas; color: CanvasText; }
+    .story-card[aria-pressed="true"] { outline: 2px solid #b84320; }
+    .story-card small { display: block; opacity: .7; }
+    .queue { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
+    .queue:last-child { border-bottom: 0; }
+    .queue-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .danger { color: #bb2d3b; }
+    [hidden] { display: none !important; }
+    @media (max-width: 640px) { body { padding: 14px; } .queue { grid-template-columns: 1fr auto; } .queue-title { white-space: normal; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sift M0: Hikâye etiketleme</h1>
+    <p class="muted">Bu sayfa dosyayı yalnızca tarayıcı belleğinde işler. Model tahmini göstermez; etiketler gözden geçirenin kaynaklara göre verdiği kararlardır.</p>
+  </header>
+
+  <section class="panel" aria-labelledby="load-heading">
+    <h2 id="load-heading">1. Yerel korpusu aç</h2>
+    <div class="toolbar">
+      <label>JSONL dosyası <input id="file" type="file" accept=".jsonl,.ndjson,.txt,application/json"></label>
+      <span id="load-status" class="status muted" role="status">Dosya seçilmedi.</span>
+    </div>
+    <p class="muted">Her satırda id, title, publisherKey, publishedAt; summary, language ve url alanları isteğe bağlı olabilir. Etiket dosyası oluşturulana kadar kaynak veri diskteki dosyanızda kalır.</p>
+  </section>
+
+  <main id="workspace" hidden>
+    <section class="panel">
+      <div class="toolbar">
+        <div><strong id="progress-label">0 / 0 etiketlendi</strong><div class="progress" aria-label="Etiketleme ilerlemesi"><div id="progress-bar"></div></div></div>
+        <div class="controls">
+          <button id="checkpoint" disabled>Ara kayıt JSONL indir</button>
+          <button id="export" class="primary" disabled>Gold JSONL indir</button>
+        </div>
+      </div>
+      <div class="filters" style="margin-top: 14px">
+        <label>Yayıncı <select id="publisher-filter"><option value="">Tümü</option></select></label>
+        <label>Dil <select id="language-filter"><option value="">Tümü</option></select></label>
+        <label>Ara <input id="search" type="search" placeholder="Başlık, özet veya kaynak"></label>
+        <label><input id="unlabeled-only" type="checkbox" checked> Etiketsizleri göster</label>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="article-heading">
+      <div class="toolbar">
+        <h2 id="article-heading">2. Makaleyi incele</h2>
+        <div class="controls"><button id="previous">Önceki</button><span id="position" class="muted"></span><button id="next">Sonraki</button></div>
+      </div>
+      <div id="article"></div>
+      <h3>Mevcut hikâyeler</h3>
+      <p class="muted">Aynı somut olay veya bölüm hakkındaki makaleleri aynı hikâyeye ekle. Yalnızca aynı kişi, konu veya kurumdan söz etmek yeterli değildir. Emin olmadığın makaleyi etiketsiz bırakıp adjudikasyona ayır.</p>
+      <div id="stories" class="story-list"></div>
+      <div class="controls" style="margin-top: 14px">
+        <button id="new-story" class="primary">Yeni hikâye oluştur ve ekle</button>
+        <button id="add-selected" disabled>Seçili hikâyeye ekle</button>
+        <button id="mark-singleton">Ayrı hikâye olarak etiketle</button>
+        <button id="clear-label" class="danger">Etiketi kaldır</button>
+      </div>
+      <p id="decision-status" class="status muted" role="status"></p>
+    </section>
+
+    <details class="panel">
+      <summary>Hikâye grupları ve etiketli makaleler</summary>
+      <div id="queue"></div>
+    </details>
+  </main>
+
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const fileInput = $('file');
+      const workspace = $('workspace');
+      let rows = [];
+      let currentId = null;
+      let selectedStoryId = '';
+      let nextStoryNumber = 1;
+      const labels = new Map();
+
+      const text = (value) => String(value ?? '').trim();
+      const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const safeHref = (value) => { try { const url = new URL(value); return ['http:','https:'].includes(url.protocol) ? url.href : ''; } catch { return ''; } };
+      const stable = (row, index) => text(row.id || row.articleID || row.url) || `row-${index + 1}`;
+      const storyRows = () => [...new Set(labels.values())].sort((a, b) => a.localeCompare(b));
+      const currentRow = () => rows.find((row) => row._id === currentId);
+      const isLabeled = (id) => labels.has(id);
+
+      function visibleRows() {
+        const publisher = $('publisher-filter').value;
+        const language = $('language-filter').value;
+        const query = $('search').value.trim().toLocaleLowerCase();
+        const unlabeled = $('unlabeled-only').checked;
+        return rows.filter((row) => {
+          if (publisher && text(row.publisherKey) !== publisher) return false;
+          if (language && text(row.language) !== language) return false;
+          if (unlabeled && isLabeled(row._id)) return false;
+          const haystack = [row.title, row.summary, row.publisherKey, row.url].map(text).join(' ').toLocaleLowerCase();
+          return !query || haystack.includes(query);
+        });
+      }
+
+      function refresh() {
+        const current = currentRow();
+        const view = visibleRows();
+        let index = current ? view.findIndex((row) => row._id === current._id) : -1;
+        if (index < 0 && view.length) { index = 0; currentId = view[0]._id; }
+        else if (!view.length) { currentId = null; index = -1; }
+
+        const labeledCount = labels.size;
+        $('progress-label').textContent = `${labeledCount} / ${rows.length} etiketlendi`;
+        $('progress-bar').style.width = `${rows.length ? labeledCount / rows.length * 100 : 0}%`;
+        $('position').textContent = index >= 0 ? `${index + 1} / ${view.length} eşleşme` : 'Gösterilecek makale yok';
+        $('previous').disabled = index <= 0;
+        $('next').disabled = index < 0 || index >= view.length - 1;
+        $('checkpoint').disabled = rows.length === 0 || labeledCount === 0;
+        $('export').disabled = rows.length === 0 || labeledCount !== rows.length;
+        drawArticle(currentRow());
+        drawStories();
+        drawQueue();
+      }
+
+      function drawArticle(row) {
+        if (!row) { $('article').innerHTML = '<p class="muted">Filtreye uygun makale yok.</p>'; return; }
+        const link = safeHref(text(row.url));
+        const meta = [text(row.publisherKey), text(row.language), text(row.publishedAt)].filter(Boolean).map(esc).join(' · ');
+        const linkBlock = link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">Kaynak sayfayı aç</a>` : '';
+        const label = labels.get(row._id);
+        $('article').innerHTML = `
+          <div class="meta"><span>${meta || 'Kaynak bilgisi yok'}</span><span>${esc(row._id)}</span>${linkBlock}</div>
+          <h3 class="article-title">${esc(row.title || 'Başlıksız makale')}</h3>
+          <div class="excerpt">${esc(row.summary || row.fullText || 'RSS özeti yok. Gerekirse kaynak sayfayı açın.')}</div>
+          <p class="status">${label ? `Şu anki etiket: <strong>${esc(label)}</strong>` : '<span class="muted">Henüz etiketlenmedi</span>'}</p>`;
+      }
+
+      function drawStories() {
+        const target = $('stories');
+        target.replaceChildren();
+        const stories = storyRows();
+        selectedStoryId = stories.includes(selectedStoryId) ? selectedStoryId : (stories[0] || '');
+        $('add-selected').disabled = !selectedStoryId || !currentRow();
+        for (const storyId of stories) {
+          const count = [...labels.values()].filter((value) => value === storyId).length;
+          const button = document.createElement('button');
+          button.className = 'story-card';
+          button.type = 'button';
+          button.setAttribute('aria-pressed', storyId === selectedStoryId ? 'true' : 'false');
+          button.innerHTML = `${esc(storyId)}<small>${count} makale · seçip mevcut makaleyi ekle</small>`;
+          button.addEventListener('click', () => { selectedStoryId = storyId; drawStories(); });
+          target.append(button);
+        }
+        if (!stories.length) target.innerHTML = '<p class="muted">Henüz hikâye grubu yok. İlk makaleden yeni grup oluştur.</p>';
+      }
+
+      function drawQueue() {
+        const target = $('queue');
+        const groups = new Map();
+        for (const row of rows) {
+          const story = labels.get(row._id);
+          if (!story) continue;
+          if (!groups.has(story)) groups.set(story, []);
+          groups.get(story).push(row);
+        }
+        if (!groups.size) { target.innerHTML = '<p class="muted">Henüz etiket yok.</p>'; return; }
+        target.innerHTML = [...groups.entries()].sort((a,b) => a[0].localeCompare(b[0])).map(([story, members]) =>
+          `<section><h3>${esc(story)} <small>(${members.length})</small></h3>` + members.map((row) =>
+            `<div class="queue"><span class="queue-title">${esc(row.title || row._id)}</span><span class="muted">${esc(row.publisherKey || '')}</span><button data-open="${esc(row._id)}">Aç</button></div>`
+          ).join('') + '</section>'
+        ).join('');
+        target.querySelectorAll('[data-open]').forEach((button) => button.addEventListener('click', () => {
+          currentId = button.dataset.open;
+          $('unlabeled-only').checked = false;
+          refresh();
+          $('article-heading').scrollIntoView({behavior:'smooth',block:'start'});
+        }));
+      }
+
+      function assign(storyId, message) {
+        const row = currentRow();
+        if (!row) return;
+        labels.set(row._id, storyId);
+        $('decision-status').textContent = message;
+        refresh();
+        $('decision-status').textContent = message;
+      }
+
+      function fillFilter(id, values) {
+        const select = $(id);
+        for (const value of [...new Set(values.filter(Boolean))].sort((a,b) => a.localeCompare(b))) {
+          const option = document.createElement('option'); option.value = value; option.textContent = value; select.append(option);
+        }
+      }
+
+      fileInput.addEventListener('change', async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        try {
+          const lines = (await file.text()).split(/\r?\n/).filter((line) => line.trim());
+          const parsed = lines.map((line, index) => {
+            let row;
+            try { row = JSON.parse(line); } catch (error) { throw new Error(`Satır ${index + 1}: ${error.message}`); }
+            if (!text(row.title) || !text(row.publisherKey) || !text(row.publishedAt)) throw new Error(`Satır ${index + 1}: title, publisherKey ve publishedAt gerekli.`);
+            return {...row, _id: stable(row,index)};
+          });
+          if (!parsed.length) throw new Error('Dosyada makale yok.');
+          if (new Set(parsed.map((row) => row._id)).size !== parsed.length) throw new Error('Dosyada yinelenen id var.');
+          rows = parsed;
+          labels.clear();
+          nextStoryNumber = 1;
+          for (const row of rows) {
+            const storyId = text(row.goldStoryID);
+            if (storyId) labels.set(row._id, storyId);
+          }
+          const existingNumbers = [...labels.values()].map((value) => /^story-(\d+)$/.exec(value)).filter(Boolean).map((match) => Number(match[1]));
+          nextStoryNumber = Math.max(0, ...existingNumbers) + 1;
+          fillFilter('publisher-filter', rows.map((row) => text(row.publisherKey)));
+          fillFilter('language-filter', rows.map((row) => text(row.language)));
+          currentId = rows[0]._id;
+          $('load-status').textContent = `${rows.length} makale belleğe alındı. Hiçbir dosya yüklenmedi.`;
+          $('load-status').className = 'status';
+          $('decision-status').textContent = '';
+          workspace.hidden = false;
+          refresh();
+        } catch (error) {
+          $('load-status').textContent = error.message;
+          $('load-status').className = 'status danger';
+        }
+      });
+
+      ['publisher-filter','language-filter','search','unlabeled-only'].forEach((id) => $(id).addEventListener('input', refresh));
+      $('previous').addEventListener('click', () => {
+        const view = visibleRows(), index = view.findIndex((row) => row._id === currentId);
+        if (index > 0) currentId = view[index - 1]._id;
+        refresh();
+      });
+      $('next').addEventListener('click', () => {
+        const view = visibleRows(), index = view.findIndex((row) => row._id === currentId);
+        if (index >= 0 && index < view.length - 1) currentId = view[index + 1]._id;
+        refresh();
+      });
+      $('new-story').addEventListener('click', () => {
+        const id = `story-${String(nextStoryNumber++).padStart(3,'0')}`;
+        assign(id, `${id} oluşturuldu ve mevcut makaleye atandı.`);
+        selectedStoryId = id;
+      });
+      $('add-selected').addEventListener('click', () => {
+        if (selectedStoryId) assign(selectedStoryId, `Makale ${selectedStoryId} grubuna eklendi.`);
+      });
+      $('mark-singleton').addEventListener('click', () => {
+        const row = currentRow(); if (row) assign(`single-${row._id}`, 'Makale ayrı bir olay olarak etiketlendi.');
+      });
+      $('clear-label').addEventListener('click', () => {
+        const row = currentRow(); if (row) { labels.delete(row._id); $('decision-status').textContent = 'Etiket kaldırıldı; makale adjudikasyona ayrıldı.'; refresh(); }
+      });
+      function downloadLabels(requireComplete) {
+        const pending = rows.filter((row) => !labels.has(row._id));
+        if (requireComplete && pending.length) return;
+        const output = rows.map((row) => {
+          const copy = {...row}; delete copy._id;
+          if (labels.has(row._id)) copy.goldStoryID = labels.get(row._id);
+          else delete copy.goldStoryID;
+          return JSON.stringify(copy);
+        }).join('\n') + '\n';
+        const blob = new Blob([output], {type:'application/x-ndjson;charset=utf-8'});
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a'); anchor.href = url;
+        anchor.download = requireComplete ? 'sift-m0-gold.jsonl' : 'sift-m0-labeling-checkpoint.jsonl'; anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        $('decision-status').textContent = requireComplete
+          ? 'Gold JSONL tarayıcıda oluşturuldu. Dosyanın nereye kaydedileceğine siz karar verin.'
+          : `${labels.size} etiketli kayıt ve etiketsiz kayıtlar ara dosyasına indirildi. Dosyayı tekrar açarak kaldığınız yerden devam edebilirsiniz.`;
+      }
+      $('checkpoint').addEventListener('click', () => downloadLabels(false));
+      $('export').addEventListener('click', () => downloadLabels(true));
+    })();
+  </script>
+</body>
+</html>

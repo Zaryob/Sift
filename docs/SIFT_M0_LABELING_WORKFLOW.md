@@ -42,6 +42,13 @@ reviewers perform the bulk labeling, and a reviewer adjudicates disputed example
    Split calibration and holdout by whole `goldStoryID` groups, then select the
    threshold and false-merge bound using calibration only.
 
+The local review page is [`tools/m0-labeler.html`](../tools/m0-labeler.html). A
+reviewer opens it in a browser, chooses a JSONL snapshot from disk, assigns each
+article to a story group, and explicitly downloads either a checkpoint or completed
+gold JSONL. The page has no server connection and does not persist the article data
+in browser storage. It does not show clustering predictions, which makes it suitable
+for blind holdout labeling.
+
 This changes the workload from searching every item manually into checking a ranked
 set of article pairs and building groups from confirmed links. The 30-item pilot
 provides a measured effort estimate before expanding to the full corpus.
