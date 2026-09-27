@@ -68,7 +68,7 @@ public struct DailyBriefingSheet: View {
                             VStack(spacing: 16) {
                                 ProgressView()
                                     .controlSize(.regular)
-                                Text("Synthesizing your unread articles…")
+                                Text("Downloading missing articles & synthesizing briefing…")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }

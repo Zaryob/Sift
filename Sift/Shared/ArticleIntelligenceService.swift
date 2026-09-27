@@ -66,7 +66,14 @@ public final class ArticleIntelligenceService: ObservableObject {
             )
         }
 
+        isGenerating = true
+        defer { isGenerating = false }
+
         let topItems = Array(items.prefix(5))
+
+        // Pre-fetch missing content for any unread article that only has an excerpt
+        await downloadMissingContentIfNeeded(for: topItems, context: context)
+
         let briefingHash = Self.briefingHash(for: topItems)
         let promptVersion = Self.briefingPromptVersion
         var descriptor = FetchDescriptor<SavedBriefing>(
@@ -88,9 +95,6 @@ public final class ArticleIntelligenceService: ObservableObject {
             )
         }
 
-        isGenerating = true
-        defer { isGenerating = false }
-
         var contextText = ""
         for (index, item) in topItems.enumerated() {
             let feedTitle = item.feed?.title ?? "Unknown source"
@@ -99,7 +103,7 @@ public final class ArticleIntelligenceService: ObservableObject {
             
             Story \(index + 1) from \(feedTitle):
             Title: \(item.title)
-            Excerpt: \(source.prefix(600))
+            Excerpt: \(source.prefix(1000))
             """
         }
 
@@ -216,10 +220,43 @@ public final class ArticleIntelligenceService: ObservableObject {
             guard let item = try context.fetch(descriptor).first else {
                 return String(localized: "You have no unread articles in Sift.")
             }
+            await downloadMissingContentIfNeeded(for: [item], context: context)
             return await summarize(article: item, context: context).text
         } catch {
             return String(localized: "Unable to load article.")
         }
+    }
+
+    /// Concurrently downloads full article content from the web for unread posts that currently only have excerpts.
+    private func downloadMissingContentIfNeeded(for items: [FeedItem], context: ModelContext) async {
+        await withTaskGroup(of: (UUID, ExtractedArticle)?.self) { group in
+            for item in items {
+                if item.extractedArticleData == nil, item.isExcerpt,
+                   let link = item.link, let url = URL(string: link) {
+                    let id = item.id
+                    let summary = item.summary ?? item.content
+                    group.addTask {
+                        if let extracted = try? await ArticleExtractor.fetch(url: url, summary: summary) {
+                            return (id, extracted)
+                        }
+                        return nil
+                    }
+                }
+            }
+
+            for await result in group {
+                if let (id, extracted) = result,
+                   let item = items.first(where: { $0.id == id }),
+                   let data = try? JSONEncoder().encode(extracted) {
+                    item.extractedArticleData = data
+                    item.readingMinutes = extracted.readingMinutes
+                    if item.imageURL == nil {
+                        item.imageURL = extracted.leadImageURL
+                    }
+                }
+            }
+        }
+        try? context.save()
     }
 
     private func generateSummary(title: String, content: String) async -> IntelligenceOutput {
