@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+    <defs>
+        <linearGradient id="lensFill" x1="0" y1="0" x2="1" y2="0.6">
+            <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.94"/>
+            <stop offset="0.45" stop-color="#FFF6EC" stop-opacity="0.82"/>
+            <stop offset="1" stop-color="#FDE6D2" stop-opacity="0.7"/>
+        </linearGradient>
+    </defs>
+    <!-- Frosted lens sweeping in from the right edge -->
+    <path
+        d="M 840 -40 C 650 110 566 320 574 510 C 582 710 720 900 980 1064 L 1080 1064 L 1080 -40 Z"
+        fill="url(#lensFill)"
+    />
+    <!-- Bright rim -->
+    <path
+        d="M 840 -40 C 650 110 566 320 574 510 C 582 710 720 900 980 1064"
+        fill="none"
+        stroke="#FFFFFF"
+        stroke-width="16"
+        stroke-linecap="round"
+    />
+    <!-- Inner refraction line -->
+    <path
+        d="M 866 -40 C 684 112 604 322 612 510 C 620 700 748 880 1000 1044"
+        fill="none"
+        stroke="#F2B98C"
+        stroke-opacity="0.35"
+        stroke-width="6"
+        stroke-linecap="round"
+    />
+</svg>

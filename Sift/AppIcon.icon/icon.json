@@ -2,7 +2,7 @@
   "fill-specializations": [
     {
       "value": {
-        "automatic-gradient": "extended-srgb:0.973,0.943,0.889,1.000"
+        "automatic-gradient": "extended-srgb:0.996,0.972,0.940,1.000"
       }
     },
     {
@@ -14,6 +14,36 @@
     {
       "name": "RSS",
       "layers": [
+        {
+          "name": "Focus Dot",
+          "image-name": "focus-dot.svg",
+          "fill-specializations": [
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-srgb:1.00000,1.00000,1.00000,1.00000"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Glass Lens",
+          "image-name": "sift-arc.svg",
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "extended-srgb:1.00000,1.00000,1.00000,0.16000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "extended-srgb:1.00000,1.00000,1.00000,0.30000"
+              }
+            }
+          ]
+        },
         {
           "name": "Dot",
           "image-name": "dot.svg",

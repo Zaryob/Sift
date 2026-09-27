@@ -43,3 +43,6 @@ playground.xcworkspace/
 
 # App entitlements
 *.entitlements
+
+# Other
+.omc/
