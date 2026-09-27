@@ -76,7 +76,7 @@ struct ContentView: View {
                 NotificationManager.shared.requestAuthorization()
             }
         }
-        .alert("Error", isPresented: $viewModel.showErrorAlert) {
+        .alert("Error", isPresented: $viewModel.isShowingErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(viewModel.errorMessage ?? "An unknown error occurred.")
@@ -140,7 +140,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: PersistenceController.storeFailedNotification)) { _ in
             viewModel.errorMessage = String(localized: "Sift could not open its database and is running in temporary mode. Your subscriptions are safe — please restart the app.")
-            viewModel.showErrorAlert = true
+            viewModel.isShowingErrorAlert = true
         }
     }
 

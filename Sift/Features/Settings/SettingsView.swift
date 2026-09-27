@@ -76,8 +76,8 @@ struct SettingsView: View {
     @AppStorage(ReadingPreferenceKey.openLinksInApp) private var openLinksInApp: Bool = true
     @AppStorage(ReadingPreferenceKey.fontSize) private var fontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.serif.rawValue
-    @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showFeedIcons: Bool = true
-    @AppStorage(ReadingPreferenceKey.showArticlePreviews) private var showArticlePreviews: Bool = true
+    @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showsFeedIcons: Bool = true
+    @AppStorage(ReadingPreferenceKey.showArticlePreviews) private var showsArticlePreviews: Bool = true
     @AppStorage(ReadingPreferenceKey.readerTheme) private var readerThemeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReadingPreferenceKey.readerLineSpacing) private var readerLineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
     @AppStorage(ReadingPreferenceKey.readerContentWidth) private var readerContentWidthRaw: String = ReaderContentWidth.standard.rawValue
@@ -364,8 +364,8 @@ struct SettingsView: View {
                     Text(behavior.rawValue).tag(behavior.rawValue)
                 }
             }
-            Toggle("Show Feed Icons", isOn: $showFeedIcons)
-            Toggle("Show Article Previews", isOn: $showArticlePreviews)
+            Toggle("Show Feed Icons", isOn: $showsFeedIcons)
+            Toggle("Show Article Previews", isOn: $showsArticlePreviews)
             #if os(iOS)
             Picker("Open Original Article", selection: $openLinksInApp) {
                 Text("In Sift").tag(true)

@@ -152,7 +152,7 @@ public final class AppViewModel {
     public var toastMessage: String?
 
     public var errorMessage: String?
-    public var showErrorAlert: Bool = false
+    public var isShowingErrorAlert: Bool = false
     public var isRefreshing: Bool = false
     public private(set) var isBuildingStoryPreview = false
     public private(set) var storyPreviewProgress: String?
@@ -750,6 +750,6 @@ public final class AppViewModel {
 
     private func showError(_ message: String) {
         errorMessage = message
-        showErrorAlert = true
+        isShowingErrorAlert = true
     }
 }

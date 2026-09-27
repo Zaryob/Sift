@@ -158,8 +158,8 @@ struct ArticleListView: View {
     @AppStorage("articleFilterConfigData") private var savedFilterConfigData: Data = Data()
 
     @AppStorage(ReadingPreferenceKey.density) private var densityRaw: String = ArticleDensity.comfortable.rawValue
-    @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showFeedIcons: Bool = true
-    @AppStorage(ReadingPreferenceKey.showArticlePreviews) private var showArticlePreviews: Bool = true
+    @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showsFeedIcons: Bool = true
+    @AppStorage(ReadingPreferenceKey.showArticlePreviews) private var showsArticlePreviews: Bool = true
     @AppStorage(ReadingPreferenceKey.markReadBehavior) private var markReadRaw: String = MarkReadBehavior.whenOpened.rawValue
 
     private var density: ArticleDensity {
@@ -658,9 +658,9 @@ struct ArticleListView: View {
             ArticleRow(
                 article: article,
                 density: density,
-                showFeedIcon: showFeedIcons,
-                showPreview: showArticlePreviews,
-                showSource: currentFeedTitle == nil,
+                showsFeedIcon: showsFeedIcons,
+                showsPreview: showsArticlePreviews,
+                showsSource: currentFeedTitle == nil,
                 isVIP: isVIP
             )
         }
@@ -1182,8 +1182,8 @@ struct ArticleListView: View {
             }
 
             Section("View Options") {
-                Toggle("Show Feed Icons", isOn: $showFeedIcons)
-                Toggle("Show Article Previews", isOn: $showArticlePreviews)
+                Toggle("Show Feed Icons", isOn: $showsFeedIcons)
+                Toggle("Show Article Previews", isOn: $showsArticlePreviews)
                 Toggle("Hide Read Articles", isOn: $hideRead)
 
                 Menu("Density") {
@@ -1864,10 +1864,10 @@ private struct MacArticleFilterToolbarButton: View {
 struct ArticleRow: View {
     let article: FeedItem
     let density: ArticleDensity
-    var showFeedIcon: Bool = true
-    var showPreview: Bool = true
+    var showsFeedIcon: Bool = true
+    var showsPreview: Bool = true
     /// False inside a single feed's list, where the feed name is already the screen's nav title.
-    var showSource: Bool = true
+    var showsSource: Bool = true
     var isVIP: Bool = false
 
     #if os(iOS)
@@ -1909,11 +1909,11 @@ struct ArticleRow: View {
             Circle()
                 .fill(article.isRead ? Color.clear : Color.siftAccent)
                 .frame(width: 7.5, height: 7.5)
-                .frame(width: 10, height: (showFeedIcon && showSource) ? iconSize : 20)
+                .frame(width: 10, height: (showsFeedIcon && showsSource) ? iconSize : 20)
                 .accessibilityHidden(true)
 
             // Feed Favicon / Initial Monogram
-            if showFeedIcon && showSource {
+            if showsFeedIcon && showsSource {
                 if let feed = article.feed {
                     FeedFaviconView(feed: feed, size: iconSize, cornerRadius: iconSize * 0.22)
                 } else {
@@ -1923,7 +1923,7 @@ struct ArticleRow: View {
 
             // Article Content: Header line (Feed Name), Title (Primary Focus), Snippet
             VStack(alignment: .leading, spacing: density == .compact ? 2 : 3.5) {
-                if showSource {
+                if showsSource {
                     // Header: Feed Name + Timestamp (Secondary context)
                     HStack(alignment: .firstTextBaseline) {
                         Text(feedTitle)
@@ -1945,14 +1945,14 @@ struct ArticleRow: View {
                         platform: .iOS
                     )
 
-                    if !showSource {
+                    if !showsSource {
                         Spacer(minLength: 6)
                         trailingMeta
                     }
                 }
 
                 // Article Preview Snippet
-                if showPreview, !snippet.isEmpty, density != .compact {
+                if showsPreview, !snippet.isEmpty, density != .compact {
                     Text(snippet)
                         .font(.system(size: 13.5, weight: .regular))
                         .foregroundStyle(Color.secondary.opacity(article.isRead ? 0.75 : 0.95))
@@ -2034,7 +2034,7 @@ struct ArticleRow: View {
                 )
 
                 // Line 3: Snippet Preview
-                if showPreview, !snippet.isEmpty, density != .compact {
+                if showsPreview, !snippet.isEmpty, density != .compact {
                     Text(snippet)
                         .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.secondary)

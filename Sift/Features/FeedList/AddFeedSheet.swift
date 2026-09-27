@@ -24,8 +24,8 @@ struct AddFeedSheet: View {
     }
 
     private var existingCategories: [String] {
-        let cats = Set(feeds.compactMap { $0.category?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
-        return cats.sorted()
+        let categoryNames = Set(feeds.compactMap { $0.category?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+        return categoryNames.sorted()
     }
 
     var body: some View {
@@ -291,8 +291,8 @@ struct AddFeedSheet: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
-                    if let desc = preview.parsed.feedDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !desc.isEmpty {
-                        Text(HTMLSanitizer.stripTags(from: desc))
+                    if let feedDescription = preview.parsed.feedDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !feedDescription.isEmpty {
+                        Text(HTMLSanitizer.stripTags(from: feedDescription))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
@@ -395,9 +395,9 @@ struct AddFeedSheet: View {
                             selectedFolder = nil
                         }
                         Divider()
-                        ForEach(existingCategories, id: \.self) { cat in
-                            Button(cat) {
-                                selectedFolder = cat
+                        ForEach(existingCategories, id: \.self) { category in
+                            Button(category) {
+                                selectedFolder = category
                             }
                         }
                     } label: {

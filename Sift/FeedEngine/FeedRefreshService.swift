@@ -70,8 +70,8 @@ public actor FeedRefreshService {
                 if let siteURL = parsedFeed.siteURL, !siteURL.isEmpty {
                     feed.siteURL = siteURL
                 }
-                if let desc = parsedFeed.feedDescription, !desc.isEmpty {
-                    feed.feedDescription = desc
+                if let feedDescription = parsedFeed.feedDescription, !feedDescription.isEmpty {
+                    feed.feedDescription = feedDescription
                 }
                 if let icon = parsedFeed.iconURL, !icon.isEmpty {
                     feed.iconURL = icon

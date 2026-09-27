@@ -53,18 +53,18 @@ nonisolated public final class OPMLService: NSObject, XMLParserDelegate {
         guard elementName.lowercased() == "outline" else { return }
 
         let type = attributeDict["type"]?.lowercased()
-        let xmlUrl = attributeDict["xmlUrl"] ?? attributeDict["xmlURL"]
+        let xmlURL = attributeDict["xmlUrl"] ?? attributeDict["xmlURL"]
         let text = attributeDict["text"] ?? attributeDict["title"] ?? "Untitled Feed"
-        let htmlUrl = attributeDict["htmlUrl"] ?? attributeDict["htmlURL"]
+        let htmlURL = attributeDict["htmlUrl"] ?? attributeDict["htmlURL"]
         let inlineCategory = attributeDict["category"]
 
-        if let xmlUrl = xmlUrl, !xmlUrl.isEmpty {
+        if let xmlURL, !xmlURL.isEmpty {
             // Feed item outline — record it, then push nil sentinel so
             // didEndElement stays balanced without affecting the category.
             let item = OPMLItem(
                 title: text,
-                xmlURL: xmlUrl,
-                htmlURL: htmlUrl,
+                xmlURL: xmlURL,
+                htmlURL: htmlURL,
                 category: inlineCategory ?? currentCategory
             )
             items.append(item)
@@ -73,7 +73,7 @@ nonisolated public final class OPMLService: NSObject, XMLParserDelegate {
             // Folder/category outline — push its name so nested feeds see it.
             categoryStack.append(text)
         } else {
-            // Unknown outline with no xmlUrl — push nil sentinel.
+            // Unknown outline with no XML URL — push nil sentinel.
             categoryStack.append(nil)
         }
     }
@@ -129,9 +129,9 @@ nonisolated public final class OPMLService: NSObject, XMLParserDelegate {
 
     private static func formatFeedOutline(_ feed: Feed, indent: String) -> String {
         let title = escapeXML(feed.title)
-        let xmlUrl = escapeXML(feed.url)
-        let htmlUrl = escapeXML(feed.siteURL ?? "")
-        return "\(indent)<outline type=\"rss\" text=\"\(title)\" title=\"\(title)\" xmlUrl=\"\(xmlUrl)\" htmlUrl=\"\(htmlUrl)\"/>\n"
+        let xmlURL = escapeXML(feed.url)
+        let htmlURL = escapeXML(feed.siteURL ?? "")
+        return "\(indent)<outline type=\"rss\" text=\"\(title)\" title=\"\(title)\" xmlUrl=\"\(xmlURL)\" htmlUrl=\"\(htmlURL)\"/>\n"
     }
 
     private static func escapeXML(_ string: String) -> String {

@@ -133,10 +133,10 @@ public enum SmartFeedFilter {
         var sourceCounts: [String: Int] = [:]
         var selectedIDs = Set<UUID>()
 
-        for i in 0..<candidates.count {
+        for candidateIndex in candidates.indices {
             guard selectedIDs.count < budget else { break }
 
-            let candidate = candidates[i]
+            let candidate = candidates[candidateIndex]
 
             // URL deduplication
             if let url = candidate.canonicalURL {
@@ -175,9 +175,9 @@ public enum SmartFeedFilter {
                     if similarity >= 0.65 {
                         isCrossSourceDuplicate = true
                         // Boost representative story that was already selected
-                        let repIdx = existing.candidateIndex
-                        candidates[repIdx].coverageCount += 1
-                        candidates[repIdx].score += 20 // Multi-source coverage signal bonus
+                        let representativeIndex = existing.candidateIndex
+                        candidates[representativeIndex].coverageCount += 1
+                        candidates[representativeIndex].score += 20 // Multi-source coverage signal bonus
                         break
                     }
                 }
@@ -199,7 +199,7 @@ public enum SmartFeedFilter {
                     sourceKey: candidate.sourceKey,
                     date: candidate.item.publicationDate,
                     tokens: candidate.titleTokens,
-                    candidateIndex: i
+                    candidateIndex: candidateIndex
                 ))
             }
             sourceCounts[candidate.sourceKey] = currentSourceCount + 1
@@ -364,9 +364,9 @@ public enum SmartFeedFilter {
         var tokens = Set<String>()
         let words = lower.split { !$0.isLetter && !$0.isNumber }
         for word in words {
-            let str = String(word)
-            if (str.count >= 3 || str.allSatisfy(\.isNumber)) && !stopWords.contains(str) {
-                tokens.insert(str)
+            let token = String(word)
+            if (token.count >= 3 || token.allSatisfy(\.isNumber)) && !stopWords.contains(token) {
+                tokens.insert(token)
             }
         }
         return tokens

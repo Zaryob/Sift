@@ -14,7 +14,7 @@ struct SidebarView: View {
 
     @State private var editingFeedForCategory: Feed?
     @State private var categoryInputText: String = ""
-    @State private var showCategoryPrompt: Bool = false
+    @State private var isShowingCategoryPrompt: Bool = false
     @State private var collapsedFolders: Set<String> = []
 
     private var todayCount: Int {
@@ -162,7 +162,7 @@ struct SidebarView: View {
         .refreshable {
             await viewModel.refreshAll(context: modelContext)
         }
-        .alert("Set Folder / Category", isPresented: $showCategoryPrompt) {
+        .alert("Set Folder / Category", isPresented: $isShowingCategoryPrompt) {
             TextField("Folder Name (e.g. Tech, News)", text: $categoryInputText)
             Button("Save") {
                 if let feed = editingFeedForCategory {
@@ -262,7 +262,7 @@ struct SidebarView: View {
             Button {
                 editingFeedForCategory = feed
                 categoryInputText = feed.category ?? ""
-                showCategoryPrompt = true
+                isShowingCategoryPrompt = true
             } label: {
                 Label("Edit Folder…", systemImage: "folder.badge.gearshape")
             }
