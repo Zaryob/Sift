@@ -29,12 +29,32 @@ struct OPMLFileDocument: FileDocument {
     }
 }
 
+private struct AppleIntelligenceSettingsSection: View {
+    let savedResultCount: Int
+    let onClear: () -> Void
+
+    var body: some View {
+        Section {
+            LabeledContent("Saved Results", value: savedResultCount, format: .number)
+
+            Button("Clear Saved Results", role: .destructive, action: onClear)
+                .disabled(savedResultCount == 0)
+        } header: {
+            Label("Apple Intelligence", systemImage: "sparkles")
+        } footer: {
+            Text("Sift generates each article summary once and reuses the saved result. Apple Intelligence processing stays on this device; if it is unavailable, Sift uses an offline extractive summary.")
+        }
+    }
+}
+
 struct SettingsView: View {
     @StateObject private var loginItemManager = LoginItemManager.shared
     @StateObject private var scheduler = BackgroundFeedScheduler.shared
     @StateObject private var launchAgentManager = LaunchAgentManager.shared
     @Query private var feeds: [Feed]
     @Query private var articles: [FeedItem]
+    @Query private var intelligenceResults: [ArticleIntelligenceResult]
+    @Query private var savedBriefings: [SavedBriefing]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -44,8 +64,16 @@ struct SettingsView: View {
     @AppStorage(ReadingPreferenceKey.openLinksInApp) private var openLinksInApp: Bool = true
     @AppStorage(ReadingPreferenceKey.fontSize) private var fontSize: Double = 16.0
     @AppStorage(ReadingPreferenceKey.fontDesign) private var fontDesignRaw: String = ReaderFontDesign.serif.rawValue
+    @AppStorage(ReadingPreferenceKey.showFeedIcons) private var showFeedIcons: Bool = true
+    @AppStorage(ReadingPreferenceKey.showArticlePreviews) private var showArticlePreviews: Bool = true
+    @AppStorage(ReadingPreferenceKey.readerTheme) private var readerThemeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReadingPreferenceKey.readerLineSpacing) private var readerLineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
+    @AppStorage(ReadingPreferenceKey.readerContentWidth) private var readerContentWidthRaw: String = ReaderContentWidth.standard.rawValue
     @AppStorage(NotificationManager.articleAlertsEnabledKey) private var articleAlertsEnabled: Bool = true
+    @AppStorage("articleRetentionDays") private var articleRetentionDays: Int = 30
 
+    @State private var isPruning: Bool = false
+    @State private var pruningFeedbackMessage: String?
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var opmlStatusMessage: String?
     @State private var isImporting: Bool = false
@@ -61,6 +89,7 @@ struct SettingsView: View {
 
     private let storyTranslationLanguages = ["tr", "de", "es", "fr"]
     private let storyTranslationTarget = "en"
+    @State private var isConfirmingIntelligenceReset: Bool = false
 
     private var fontDesign: ReaderFontDesign {
         ReaderFontDesign(rawValue: fontDesignRaw) ?? .serif
@@ -84,6 +113,18 @@ struct SettingsView: View {
             }
             .translationTask(translationConfiguration) { session in
                 await prepareActiveTranslationLanguage(using: session)
+            }
+            .confirmationDialog(
+                "Clear Apple Intelligence Results?",
+                isPresented: $isConfirmingIntelligenceReset,
+                titleVisibility: .visible
+            ) {
+                Button("Clear Saved Results", role: .destructive) {
+                    clearIntelligenceResults()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Summaries and briefings will be generated again when you request them.")
             }
             .fileImporter(
                 isPresented: $isShowingFileImporter,
@@ -115,6 +156,10 @@ struct SettingsView: View {
                 refreshSection
                 notificationsSection
                 storyTranslationSection
+                AppleIntelligenceSettingsSection(
+                    savedResultCount: intelligenceResults.count + savedBriefings.count,
+                    onClear: { isConfirmingIntelligenceReset = true }
+                )
             }
             .formStyle(.grouped)
             .tabItem { Label("General", systemImage: "gearshape") }
@@ -141,6 +186,10 @@ struct SettingsView: View {
             refreshSection
             notificationsSection
             storyTranslationSection
+            AppleIntelligenceSettingsSection(
+                savedResultCount: intelligenceResults.count + savedBriefings.count,
+                onClear: { isConfirmingIntelligenceReset = true }
+            )
             librarySection
             opmlSection
         }
@@ -303,6 +352,8 @@ struct SettingsView: View {
                     Text(behavior.rawValue).tag(behavior.rawValue)
                 }
             }
+            Toggle("Show Feed Icons", isOn: $showFeedIcons)
+            Toggle("Show Article Previews", isOn: $showArticlePreviews)
             #if os(iOS)
             Picker("Open Original Article", selection: $openLinksInApp) {
                 Text("In Sift").tag(true)
@@ -321,7 +372,13 @@ struct SettingsView: View {
     }
 
     private var articleTextSection: some View {
-        Section("Article Text") {
+        Section("Reader Appearance") {
+            Picker("Theme", selection: $readerThemeRaw) {
+                ForEach(ReaderTheme.allCases) { theme in
+                    Text(theme.displayName).tag(theme.rawValue)
+                }
+            }
+
             Picker("Font", selection: $fontDesignRaw) {
                 ForEach(ReaderFontDesign.allCases) { design in
                     Text(design.rawValue).tag(design.rawValue)
@@ -335,9 +392,21 @@ struct SettingsView: View {
                 }
             }
 
+            Picker("Line Spacing", selection: $readerLineSpacingRaw) {
+                ForEach(ReaderLineSpacing.allCases) { spacing in
+                    Text(spacing.rawValue).tag(spacing.rawValue)
+                }
+            }
+
+            Picker("Column Width", selection: $readerContentWidthRaw) {
+                ForEach(ReaderContentWidth.allCases) { width in
+                    Text(width.rawValue).tag(width.rawValue)
+                }
+            }
+
             Text(previewText)
                 .font(.system(size: fontSize, design: fontDesign.design))
-                .lineSpacing(fontSize * 0.25)
+                .lineSpacing(fontSize * (ReaderLineSpacing(rawValue: readerLineSpacingRaw) ?? .normal).multiplier)
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
                 .padding(.vertical, 2)
@@ -355,20 +424,7 @@ struct SettingsView: View {
                 set: { loginItemManager.setLaunchAtLogin(enabled: $0) }
             ))
 
-            Toggle("Refresh While Sift Is Closed", isOn: Binding(
-                get: { launchAgentManager.isEnabled },
-                set: { launchAgentManager.setEnabled($0, intervalMinutes: scheduler.refreshIntervalMinutes > 0 ? scheduler.refreshIntervalMinutes : 15) }
-            ))
-
-            Picker("Preferred Frequency", selection: Binding(
-                get: { scheduler.refreshIntervalMinutes },
-                set: { newInterval in
-                    scheduler.refreshIntervalMinutes = newInterval
-                    if launchAgentManager.isEnabled {
-                        launchAgentManager.setEnabled(true, intervalMinutes: newInterval > 0 ? newInterval : 15)
-                    }
-                }
-            )) {
+            Picker("Refresh Frequency", selection: $scheduler.refreshIntervalMinutes) {
                 Text("Every 5 Minutes").tag(5)
                 Text("Every 15 Minutes").tag(15)
                 Text("Every 30 Minutes").tag(30)
@@ -378,7 +434,7 @@ struct SettingsView: View {
         } header: {
             Text("Background Refresh")
         } footer: {
-            Text("Launch agents handle background updates when Sift is not running.")
+            Text("Sift continues refreshing your feeds while open or running in the menu bar, and schedules background updates using native macOS scheduling.")
         }
         #else
         Section {
@@ -467,12 +523,51 @@ struct SettingsView: View {
         #endif
     }
 
-    // MARK: - Subscriptions
+    // MARK: - Subscriptions & Storage
 
     private var librarySection: some View {
-        Section("Library") {
+        Section {
             LabeledContent("Subscriptions", value: feeds.count.formatted())
             LabeledContent("Stored Articles", value: articles.count.formatted())
+
+            Picker("Keep Read Articles", selection: $articleRetentionDays) {
+                Text("7 Days").tag(7)
+                Text("14 Days").tag(14)
+                Text("30 Days (Recommended)").tag(30)
+                Text("90 Days").tag(90)
+                Text("Keep All").tag(0)
+            }
+
+            Button {
+                Task {
+                    isPruning = true
+                    let pruningService = DataPruningService(modelContainer: modelContext.container)
+                    let result = try? await pruningService.prune(readRetentionDays: articleRetentionDays)
+                    isPruning = false
+                    if let result {
+                        pruningFeedbackMessage = "Cleaned \(result.totalPruned) expired articles."
+                    }
+                }
+            } label: {
+                if isPruning {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Pruning articles…")
+                    }
+                } else {
+                    settingsActionLabel("Clean Old Articles Now", systemImage: "trash")
+                }
+            }
+            .disabled(isPruning)
+        } header: {
+            Text("Storage & Retention")
+        } footer: {
+            if let msg = pruningFeedbackMessage {
+                Text(msg)
+                    .foregroundStyle(Color.siftAccent)
+            } else {
+                Text("Starred articles are never removed. Read articles older than the chosen retention period are automatically cleaned up to keep Sift fast.")
+            }
         }
     }
 
@@ -554,6 +649,12 @@ struct SettingsView: View {
                 opmlStatusMessage = "Import failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func clearIntelligenceResults() {
+        intelligenceResults.forEach(modelContext.delete)
+        savedBriefings.forEach(modelContext.delete)
+        try? modelContext.save()
     }
 
     private func exportOPML() {

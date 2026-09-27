@@ -17,7 +17,7 @@ public enum FeedParserError: Error, LocalizedError, Equatable {
     }
 }
 
-public final class FeedParser: NSObject, XMLParserDelegate {
+nonisolated public final class FeedParser: NSObject, XMLParserDelegate {
     private enum FeedType {
         case unknown
         case rss
@@ -93,7 +93,11 @@ public final class FeedParser: NSObject, XMLParserDelegate {
         }
     }()
 
-    public func parse(data: Data) throws -> ParsedFeed {
+    nonisolated public override init() {
+        super.init()
+    }
+
+    nonisolated public func parse(data: Data) throws -> ParsedFeed {
         guard !data.isEmpty else {
             throw FeedParserError.emptyData
         }
@@ -345,13 +349,13 @@ public final class FeedParser: NSObject, XMLParserDelegate {
         items.append(parsedItem)
     }
 
+    private static let inlineImageRegex = try? NSRegularExpression(pattern: "<img[^>]+src=[\"']([^\"']+)[\"']", options: .caseInsensitive)
+
     /// Falls back to the first inline `<img>` tag when the feed provides no
     /// enclosure/media:thumbnail/media:content image reference.
     private static func extractFirstImageURL(from html: String?) -> String? {
         guard let html = html, !html.isEmpty else { return nil }
-        guard let regex = try? NSRegularExpression(pattern: "<img[^>]+src=[\"']([^\"']+)[\"']", options: .caseInsensitive) else {
-            return nil
-        }
+        guard let regex = inlineImageRegex else { return nil }
         let range = NSRange(html.startIndex..<html.endIndex, in: html)
         guard let match = regex.firstMatch(in: html, options: [], range: range),
               let urlRange = Range(match.range(at: 1), in: html) else {
@@ -361,16 +365,31 @@ public final class FeedParser: NSObject, XMLParserDelegate {
     }
 
     private func parseDate(_ dateString: String?) -> Date? {
-        guard let dateString = dateString, !dateString.isEmpty else { return nil }
+        guard let dateString = dateString?.trimmingCharacters(in: .whitespacesAndNewlines), !dateString.isEmpty else { return nil }
+        guard let first = dateString.first else { return nil }
 
-        if let date = Self.iso8601FormatterWithMillis.date(from: dateString) {
-            return date
-        }
-        if let date = Self.iso8601FormatterStandard.date(from: dateString) {
-            return date
-        }
-        for formatter in Self.rfc822Formatters {
-            if let date = formatter.date(from: dateString) {
+        if first.isNumber {
+            if let date = Self.iso8601FormatterStandard.date(from: dateString) {
+                return date
+            }
+            if let date = Self.iso8601FormatterWithMillis.date(from: dateString) {
+                return date
+            }
+            for formatter in Self.rfc822Formatters {
+                if let date = formatter.date(from: dateString) {
+                    return date
+                }
+            }
+        } else {
+            for formatter in Self.rfc822Formatters {
+                if let date = formatter.date(from: dateString) {
+                    return date
+                }
+            }
+            if let date = Self.iso8601FormatterStandard.date(from: dateString) {
+                return date
+            }
+            if let date = Self.iso8601FormatterWithMillis.date(from: dateString) {
                 return date
             }
         }

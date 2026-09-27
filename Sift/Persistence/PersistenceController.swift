@@ -1,19 +1,19 @@
 import Foundation
 import SwiftData
 
-public final class PersistenceController {
+nonisolated public final class PersistenceController: @unchecked Sendable {
     public static let appGroupID = "group.io.github.zaryob.sift"
 
-    public static let shared: PersistenceController = {
-        PersistenceController()
-    }()
+    public static let shared = PersistenceController()
 
     public let container: ModelContainer
 
     public init(inMemory: Bool = false) {
         let schema = Schema([
             Feed.self,
-            FeedItem.self
+            FeedItem.self,
+            ArticleIntelligenceResult.self,
+            SavedBriefing.self
         ])
         
         let modelConfiguration: ModelConfiguration
@@ -33,9 +33,25 @@ public final class PersistenceController {
             do {
                 let fallbackConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
                 container = try ModelContainer(for: schema, configurations: [fallbackConfig])
+                // Notify the UI that we are running on a temporary in-memory store.
+                // The user should be told to restart the app; all data in this session
+                // will be lost. This is vastly better than a hard crash.
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: PersistenceController.storeFailedNotification,
+                        object: error
+                    )
+                }
             } catch {
-                fatalError("Could not create ModelContainer: \(error)")
+                // Both persistent and in-memory stores failed — something is fundamentally
+                // wrong with the environment. Crash with a clear message instead of
+                // propagating into undefined state.
+                fatalError("[PersistenceController] Could not create any ModelContainer: \(error)")
             }
         }
     }
+
+    /// Posted on the main thread when the persistent store fails and Sift falls
+    /// back to an in-memory (non-persistent) container. UI should show an alert.
+    public static let storeFailedNotification = Notification.Name("SiftPersistentStoreFailedNotification")
 }

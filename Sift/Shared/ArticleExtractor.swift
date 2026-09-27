@@ -1,5 +1,25 @@
 import Foundation
 
+nonisolated public enum ArticleExtractionError: LocalizedError, Sendable {
+    case invalidResponse
+    case httpStatus(Int)
+    case unsupportedTextEncoding
+    case noReadableContent
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            return String(localized: "The publisher returned an invalid response.")
+        case .httpStatus(let statusCode):
+            return String(localized: "The publisher returned HTTP status \(statusCode).")
+        case .unsupportedTextEncoding:
+            return String(localized: "The downloaded page could not be decoded as text.")
+        case .noReadableContent:
+            return String(localized: "The page was downloaded, but no readable article text was found.")
+        }
+    }
+}
+
 /// The readable body of an article, extracted from the publisher's page.
 nonisolated public struct ExtractedArticle: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
@@ -35,17 +55,19 @@ nonisolated public enum ArticleExtractor {
 
     /// Markup (outside skipped elements) between two blocks beyond which they belong to different regions.
     private static let regionGapThreshold = 2_000
-    private static let minimumWordCount = 120
+    // Some publishers legitimately post very short news updates. Keep a small
+    // floor to reject empty/chrome-only pages without discarding those articles.
+    private static let minimumWordCount = 20
 
     private static let voidElements: Set<String> = [
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr", "param"
     ]
     private static let skippedElements: Set<String> = [
         "script", "style", "noscript", "svg", "template", "iframe", "nav", "header", "footer",
-        "aside", "form", "button", "select", "figure", "table"
+        "aside", "form", "button", "select"
     ]
     private static let blockKinds: [String: ExtractedArticle.Kind] = [
-        "p": .paragraph, "h2": .heading, "h3": .heading, "h4": .heading, "blockquote": .quote, "li": .listItem, "pre": .code
+        "p": .paragraph, "h2": .heading, "h3": .heading, "h4": .heading, "blockquote": .quote, "li": .listItem, "pre": .code, "figcaption": .quote
     ]
 
     private static let tagRegex = try! NSRegularExpression(pattern: "<(/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>")
@@ -68,21 +90,79 @@ nonisolated public enum ArticleExtractor {
         pattern: "<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]*content=[\"']([^\"']+)[\"']|<meta[^>]+content=[\"']([^\"']+)[\"'][^>]*(?:property|name)=[\"'](?:og:image|twitter:image)[\"']",
         options: .caseInsensitive
     )
+    private static let embeddedDescriptionRegex = try! NSRegularExpression(
+        pattern: #"<input[^>]*name=[\"']Description[\"'][^>]*value=\"([\s\S]*?)\"[^>]*>"#,
+        options: .caseInsensitive
+    )
+    private static let jsonLDArticleBodyRegex = try! NSRegularExpression(
+        pattern: #"\"articleBody\"\s*:\s*\"((?:\\.|[^\"\\])*)\""#,
+        options: .caseInsensitive
+    )
+    private static let embeddedJSONScriptRegex = try! NSRegularExpression(
+        pattern: #"<script\b([^>]*)>([\s\S]*?)</script>"#,
+        options: .caseInsensitive
+    )
+    private static let ampLinkRegex = try! NSRegularExpression(
+        pattern: #"<link[^>]+rel=[\"']amphtml[\"'][^>]+href=[\"']([^\"']+)[\"']|<link[^>]+href=[\"']([^\"']+)[\"'][^>]+rel=[\"']amphtml[\"']"#,
+        options: .caseInsensitive
+    )
 
-    @concurrent public static func fetch(url: URL, summary: String?) async throws -> ExtractedArticle? {
+    nonisolated public static func fetch(url: URL, summary: String?) async throws -> ExtractedArticle {
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let html = decode(data, response: http) else {
-            return nil
+        guard let http = response as? HTTPURLResponse else {
+            throw ArticleExtractionError.invalidResponse
         }
-        return extract(html: html, baseURL: http.url ?? url, summary: summary)
+        guard (200..<300).contains(http.statusCode) else {
+            throw ArticleExtractionError.httpStatus(http.statusCode)
+        }
+        guard let html = decode(data, response: http) else {
+            throw ArticleExtractionError.unsupportedTextEncoding
+        }
+        let responseURL = http.url ?? url
+        if let article = extract(html: html, baseURL: responseURL, summary: summary) {
+            return article
+        }
+
+        // Some JavaScript-heavy publishers keep the readable markup only on their AMP page.
+        if let ampURL = ampURL(in: html, baseURL: responseURL), ampURL != responseURL {
+            var ampRequest = URLRequest(url: ampURL, timeoutInterval: 20)
+            ampRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            if let (ampData, ampResponse) = try? await URLSession.shared.data(for: ampRequest),
+               let ampHTTP = ampResponse as? HTTPURLResponse,
+               (200..<300).contains(ampHTTP.statusCode),
+               let ampHTML = decode(ampData, response: ampHTTP),
+               let article = extract(
+                   html: ampHTML,
+                   baseURL: ampHTTP.url ?? ampURL,
+                   summary: summary
+               ) {
+                return article
+            }
+        }
+
+        throw ArticleExtractionError.noReadableContent
     }
 
     public static func extract(html rawHTML: String, baseURL: URL, summary: String?) -> ExtractedArticle? {
         let html = rawHTML.replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
-        let blocks = scanBlocks(in: html)
+        // Some publishers place the article body as entity-encoded HTML in a
+        // hidden Description field instead of rendering paragraph tags directly.
+        let articleHTML = embeddedArticleHTML(in: html)
+        let blocks: [ScannedBlock]
+        if let articleHTML {
+            blocks = scanBlocks(in: articleHTML)
+        } else if let articleBody = embeddedStructuredArticleBody(in: html) ?? embeddedArticleBody(in: html) {
+            blocks = [
+                ScannedBlock(
+                    block: .init(kind: .paragraph, text: articleBody),
+                    gapBefore: 0
+                )
+            ]
+        } else {
+            blocks = scanBlocks(in: html)
+        }
         guard !blocks.isEmpty else { return nil }
 
         let runs = splitIntoRuns(blocks)
@@ -104,8 +184,14 @@ nonisolated public enum ArticleExtractor {
 
         let result = ExtractedArticle(blocks: article, leadImageURL: leadImage(in: html, baseURL: baseURL))
         let summaryWords = summary.map { HTMLSanitizer.stripTags(from: $0).split(whereSeparator: \.isWhitespace).count } ?? 0
-        // Not worth showing if it isn't clearly more than the feed already gave us.
-        guard result.wordCount >= minimumWordCount, Double(result.wordCount) > Double(summaryWords) * 1.3 else {
+
+        // Must have at least a minimal prose body to be a valid article
+        guard result.wordCount >= minimumWordCount else {
+            return nil
+        }
+
+        // If the RSS feed already provided a large article (300+ words), only reject if our scraped text is significantly shorter
+        if summaryWords >= 300, result.wordCount < Int(Double(summaryWords) * 0.75) {
             return nil
         }
         return result
@@ -306,6 +392,141 @@ nonisolated public enum ArticleExtractor {
         guard range.location != NSNotFound else { return nil }
         let value = HTMLSanitizer.decodeEntities(ns.substring(with: range))
         return URL(string: value, relativeTo: baseURL)?.absoluteString
+    }
+
+    private static func embeddedArticleHTML(in html: String) -> String? {
+        let ns = html as NSString
+        guard let match = embeddedDescriptionRegex.firstMatch(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ), match.range(at: 1).location != NSNotFound else {
+            return nil
+        }
+
+        let encoded = ns.substring(with: match.range(at: 1))
+        let decoded = HTMLSanitizer.decodeEntities(encoded)
+        return decoded.contains("<p") ? decoded : nil
+    }
+
+    private static func embeddedArticleBody(in html: String) -> String? {
+        let ns = html as NSString
+        guard let match = jsonLDArticleBodyRegex.firstMatch(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ), match.range(at: 1).location != NSNotFound else {
+            return nil
+        }
+
+        let escapedBody = ns.substring(with: match.range(at: 1))
+        guard let json = "\"\(escapedBody)\"".data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(String.self, from: json) else {
+            return nil
+        }
+
+        let text = HTMLSanitizer.normalizeWhitespace(
+            HTMLSanitizer.stripTags(from: HTMLSanitizer.decodeEntities(decoded))
+        )
+        return text.isEmpty ? nil : text
+    }
+
+    /// Reads schema.org JSON-LD (including nested @graph nodes) and the serialized
+    /// application state emitted by Next.js/Nuxt sites.
+    private static func embeddedStructuredArticleBody(in html: String) -> String? {
+        let ns = html as NSString
+        var candidates: [(priority: Int, text: String)] = []
+
+        for match in embeddedJSONScriptRegex.matches(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ) {
+            let attributes = ns.substring(with: match.range(at: 1)).lowercased()
+            let isJSONLD = attributes.contains("application/ld+json")
+            let isApplicationState = attributes.contains("__next_data__")
+                || attributes.contains("__nuxt_data__")
+                || attributes.contains("__nuxt__")
+            guard isJSONLD || isApplicationState else { continue }
+
+            let source = HTMLSanitizer.decodeEntities(ns.substring(with: match.range(at: 2)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let data = source.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) else {
+                continue
+            }
+            collectArticleText(
+                from: object,
+                isJSONLD: isJSONLD,
+                candidates: &candidates
+            )
+        }
+
+        return candidates
+            .filter { $0.text.split(whereSeparator: \.isWhitespace).count >= minimumWordCount }
+            .max {
+                if $0.priority != $1.priority { return $0.priority < $1.priority }
+                return $0.text.count < $1.text.count
+            }?
+            .text
+    }
+
+    private static func collectArticleText(
+        from value: Any,
+        isJSONLD: Bool,
+        candidates: inout [(priority: Int, text: String)]
+    ) {
+        if let dictionary = value as? [String: Any] {
+            for (key, child) in dictionary {
+                let normalizedKey = key.lowercased()
+                    .filter { $0.isLetter || $0.isNumber }
+                if let string = child as? String {
+                    let priority: Int?
+                    switch normalizedKey {
+                    case "articlebody":
+                        priority = 100
+                    case "articlecontent", "storybody", "bodytext":
+                        priority = 90
+                    case "body", "text":
+                        priority = isJSONLD ? 80 : 60
+                    case "content":
+                        priority = isJSONLD ? 70 : 50
+                    case "description":
+                        priority = isJSONLD ? 40 : nil
+                    default:
+                        priority = nil
+                    }
+                    if let priority {
+                        let text = HTMLSanitizer.normalizeWhitespace(
+                            HTMLSanitizer.stripTags(
+                                from: HTMLSanitizer.decodeEntities(string)
+                            )
+                        )
+                        if !text.isEmpty {
+                            candidates.append((priority, text))
+                        }
+                    }
+                }
+                collectArticleText(from: child, isJSONLD: isJSONLD, candidates: &candidates)
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                collectArticleText(from: child, isJSONLD: isJSONLD, candidates: &candidates)
+            }
+        }
+    }
+
+    private static func ampURL(in html: String, baseURL: URL) -> URL? {
+        let ns = html as NSString
+        guard let match = ampLinkRegex.firstMatch(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ) else {
+            return nil
+        }
+        let range = match.range(at: 1).location != NSNotFound
+            ? match.range(at: 1)
+            : match.range(at: 2)
+        guard range.location != NSNotFound else { return nil }
+        let value = HTMLSanitizer.decodeEntities(ns.substring(with: range))
+        return URL(string: value, relativeTo: baseURL)?.absoluteURL
     }
 
     private static func decode(_ data: Data, response: HTTPURLResponse) -> String? {

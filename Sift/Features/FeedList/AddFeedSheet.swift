@@ -233,7 +233,7 @@ struct AddFeedSheet: View {
                         selectDiscoveredChoice(choice)
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: "dot.radiowaves.up.and.right")
+                            Image(systemName: "dot.radiowaves.up.forward")
                                 .font(.body.weight(.semibold))
                                 .foregroundStyle(Color.siftAccent)
                                 .frame(width: 20)
@@ -434,29 +434,13 @@ struct AddFeedSheet: View {
             iconURLString: preview.parsed.iconURL
         )
 
-        return Group {
-            if let faviconURL {
-                AsyncImage(url: faviconURL) { phase in
-                    if case .success(let image) = phase {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    } else {
-                        faviconPlaceholder
-                    }
-                }
-            } else {
-                faviconPlaceholder
-            }
-        }
-        .frame(width: 38, height: 38)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        return FeedFaviconView(url: faviconURL, size: 38, cornerRadius: 8)
     }
 
     private var faviconPlaceholder: some View {
         ZStack {
             Color.siftAccent.opacity(0.12)
-            Image(systemName: "dot.radiowaves.up.and.right")
+            Image(systemName: "dot.radiowaves.up.forward")
                 .font(.body.weight(.bold))
                 .foregroundStyle(Color.siftAccent)
         }
@@ -552,12 +536,14 @@ struct AddFeedSheet: View {
     private func confirmSubscription() {
         guard let preview = selectedPreview else { return }
         isSubscribing = true
-        do {
-            try viewModel.subscribe(to: preview, folder: selectedFolder, context: modelContext)
-            dismiss()
-        } catch {
-            inlineErrorMessage = error.localizedDescription
-            isSubscribing = false
+        Task {
+            do {
+                try await viewModel.subscribe(to: preview, folder: selectedFolder, context: modelContext)
+                dismiss()
+            } catch {
+                inlineErrorMessage = error.localizedDescription
+                isSubscribing = false
+            }
         }
     }
 

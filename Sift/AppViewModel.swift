@@ -6,6 +6,7 @@ import WidgetKit
 
 public enum SidebarItem: Hashable, Identifiable {
     case all
+    case today
     case unread
     case starred
     case feed(UUID)
@@ -13,6 +14,7 @@ public enum SidebarItem: Hashable, Identifiable {
     public var id: String {
         switch self {
         case .all: return "all"
+        case .today: return "today"
         case .unread: return "unread"
         case .starred: return "starred"
         case .feed(let uuid): return "feed-\(uuid.uuidString)"
@@ -93,9 +95,11 @@ public enum FeedLookupError: LocalizedError {
 public final class AppViewModel {
     public var selectedSidebarItem: SidebarItem? = .all
     public var selectedArticle: FeedItem?
+    public var articleOpenRequestID = UUID()
     
     public var isAddingFeed: Bool = false
     public var isShowingSettings: Bool = false
+    public var isShowingDailyBriefing: Bool = false
 
     public var lastRefreshedAt: Date? = Date()
     public var lastMarkedReadArticles: [FeedItem] = []
@@ -136,6 +140,11 @@ public final class AppViewModel {
         }
     }
 
+    public func openArticle(_ article: FeedItem) {
+        selectedArticle = article
+        articleOpenRequestID = UUID()
+    }
+
     public func selectPreviousArticle(in articles: [FeedItem]) {
         guard !articles.isEmpty else { return }
         guard let current = selectedArticle, let index = articles.firstIndex(where: { $0.id == current.id }) else {
@@ -159,10 +168,10 @@ public final class AppViewModel {
         }
         do {
             try context.save()
-            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            Task { await WidgetSnapshotManager.shared.updateSnapshot(context: context) }
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
-            print("Failed to save read state: \(error)")
+            showError(String(localized: "Failed to save read state: \(error.localizedDescription)"))
         }
     }
 
@@ -175,10 +184,10 @@ public final class AppViewModel {
         toastMessage = nil
         do {
             try context.save()
-            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            Task { await WidgetSnapshotManager.shared.updateSnapshot(context: context) }
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
-            print("Failed to undo mark as read: \(error)")
+            showError(String(localized: "Failed to undo mark as read: \(error.localizedDescription)"))
         }
     }
 
@@ -194,7 +203,7 @@ public final class AppViewModel {
         await refreshService.refreshAllFeeds()
         lastRefreshedAt = Date()
         isRefreshing = false
-        WidgetSnapshotManager.shared.updateSnapshot(context: context ?? PersistenceController.shared.container.mainContext)
+        await WidgetSnapshotManager.shared.updateSnapshot(context: context ?? PersistenceController.shared.container.mainContext)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -424,7 +433,7 @@ public final class AppViewModel {
     }
 
     /// Saves the feed and articles already fetched for the preview; nothing is downloaded again.
-    public func subscribe(to preview: FeedPreview, folder: String?, context: ModelContext) throws {
+    public func subscribe(to preview: FeedPreview, folder: String?, context: ModelContext) async throws {
         let parsed = preview.parsed
         let newFeed = Feed(
             title: parsed.title,
@@ -458,7 +467,7 @@ public final class AppViewModel {
         }
 
         try context.save()
-        WidgetSnapshotManager.shared.updateSnapshot(context: context)
+        await WidgetSnapshotManager.shared.updateSnapshot(context: context)
         WidgetCenter.shared.reloadAllTimelines()
 
         isAddingFeed = false
@@ -482,7 +491,11 @@ public final class AppViewModel {
 
     public func updateFeedCategory(_ feed: Feed, category: String?, context: ModelContext) {
         feed.category = category?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : category
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            showError(String(localized: "Failed to update folder: \(error.localizedDescription)"))
+        }
     }
 
     public func deleteFeed(_ feed: Feed, context: ModelContext) {
@@ -492,31 +505,46 @@ public final class AppViewModel {
         context.delete(feed)
         do {
             try context.save()
-            WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            Task { await WidgetSnapshotManager.shared.updateSnapshot(context: context) }
             WidgetCenter.shared.reloadAllTimelines()
         } catch {
-            print("Failed to delete feed: \(error)")
+            showError(String(localized: "Failed to delete feed: \(error.localizedDescription)"))
         }
     }
 
-    /// Fetches and caches the article's full text. Failures are remembered for a day so a page
-    /// that can't be extracted isn't re-downloaded every time it's opened.
-    public func loadFullTextIfNeeded(for article: FeedItem, context: ModelContext) async {
+    /// Fetches and caches the article's full text on-demand whenever the article is opened.
+    /// If the feed already contains the complete text, no external web request is made.
+    @discardableResult
+    public func loadFullTextIfNeeded(for article: FeedItem, force: Bool = false, context: ModelContext) async -> String? {
         guard article.extractedArticleData == nil,
-              let link = article.link, let url = URL(string: link) else { return }
-        if let attempted = article.extractionAttemptedAt, Date().timeIntervalSince(attempted) < 86_400 {
-            return
+              let link = article.link, let url = URL(string: link) else { return nil }
+
+        // If the RSS feed itself already provided an extensive, complete article (>= 400 words),
+        // no need to crawl the site unless forced
+        if !force, article.feedWordCount >= 400 {
+            return nil
         }
 
-        let result = try? await ArticleExtractor.fetch(url: url, summary: article.summary ?? article.content)
         article.extractionAttemptedAt = Date()
-        if let result, let data = try? JSONEncoder().encode(result) {
+        do {
+            let result = try await ArticleExtractor.fetch(url: url, summary: article.summary ?? article.content)
+            let data = try JSONEncoder().encode(result)
             article.extractedArticleData = data
+            article.readingMinutes = result.readingMinutes
             if article.imageURL == nil {
                 article.imageURL = result.leadImageURL
             }
+            try context.save()
+            return nil
+        } catch {
+            try? context.save()
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                return nil
+            }
+            let reason = error.localizedDescription
+            print("[ArticleExtractor] Failed to download \(url.absoluteString): \(reason)")
+            return reason
         }
-        try? context.save()
     }
 
     public func openArticleExternally(_ article: FeedItem) {
@@ -578,12 +606,15 @@ public final class AppViewModel {
                 context.insert(newFeed)
             }
         }
-        try? context.save()
-        await refreshService.refreshAllFeeds()
-        await MainActor.run {
-            WidgetSnapshotManager.shared.updateSnapshot(context: context)
-            WidgetCenter.shared.reloadAllTimelines()
+        do {
+            try context.save()
+        } catch {
+            showError(String(localized: "Failed to save imported feeds: \(error.localizedDescription)"))
+            return
         }
+        await refreshService.refreshAllFeeds()
+        await WidgetSnapshotManager.shared.updateSnapshot(context: context)
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func showError(_ message: String) {

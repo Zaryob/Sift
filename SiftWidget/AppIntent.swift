@@ -8,11 +8,13 @@
 import WidgetKit
 import AppIntents
 
-struct ConfigurationAppIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource { "Configuration" }
-    static var description: IntentDescription { "This is an example widget." }
+/// Opens Sift and navigates to the "All Articles" view.
+struct OpenSiftIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open Sift"
+    static var description = IntentDescription("Opens the Sift RSS reader.")
+    static var openAppWhenRun: Bool = true
 
-    // An example configurable parameter.
-    @Parameter(title: "Favorite Emoji", default: "😃")
-    var favoriteEmoji: String
+    func perform() async throws -> some IntentResult {
+        return .result()
+    }
 }

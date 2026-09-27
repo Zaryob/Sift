@@ -8,7 +8,8 @@ struct SidebarView: View {
     @Bindable var viewModel: AppViewModel
 
     @Query(sort: \Feed.title) private var feeds: [Feed]
-    @Query private var allArticles: [FeedItem]
+    @Query(filter: #Predicate<FeedItem> { !$0.isRead }) private var unreadArticles: [FeedItem]
+    @Query(filter: #Predicate<FeedItem> { $0.isStarred }) private var starredArticles: [FeedItem]
     @Environment(\.modelContext) private var modelContext
 
     @State private var editingFeedForCategory: Feed?
@@ -16,12 +17,17 @@ struct SidebarView: View {
     @State private var showCategoryPrompt: Bool = false
     @State private var collapsedFolders: Set<String> = []
 
+    private var todayCount: Int {
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        return unreadArticles.filter { $0.publicationDate >= startOfToday }.count
+    }
+
     private var unreadCount: Int {
-        allArticles.filter { !$0.isRead }.count
+        unreadArticles.count
     }
 
     private var starredCount: Int {
-        allArticles.filter { $0.isStarred }.count
+        starredArticles.count
     }
 
     private var categorizedFeeds: [String: [Feed]] {
@@ -38,8 +44,19 @@ struct SidebarView: View {
         categorizedFeeds[""] ?? []
     }
 
+    private var feedUnreadCounts: [UUID: Int] {
+        var counts: [UUID: Int] = [:]
+        for item in unreadArticles {
+            if let feedID = item.feed?.id {
+                counts[feedID, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
     private func categoryUnreadCount(_ categoryName: String) -> Int {
-        (categorizedFeeds[categoryName] ?? []).reduce(0) { $0 + $1.unreadCount }
+        let counts = feedUnreadCounts
+        return (categorizedFeeds[categoryName] ?? []).reduce(0) { $0 + (counts[$1.id] ?? 0) }
     }
 
     private func expansionBinding(for folder: String) -> Binding<Bool> {
@@ -67,9 +84,28 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $viewModel.selectedSidebarItem) {
             Section("Library") {
-                libraryRow("All Articles", systemImage: "tray.full", item: .all, count: allArticles.isEmpty ? nil : allArticles.count)
+                libraryRow("All Articles", systemImage: "tray.full", item: .all, count: unreadCount > 0 ? unreadCount : nil)
+                libraryRow("Today", systemImage: "sun.max", item: .today, count: todayCount > 0 ? todayCount : nil)
                 libraryRow("Unread", systemImage: "circlebadge", item: .unread, count: unreadCount)
                 libraryRow("Starred", systemImage: "star", item: .starred, count: starredCount)
+
+                Button {
+                    viewModel.isShowingDailyBriefing = true
+                } label: {
+                    Label {
+                        HStack {
+                            Text("Daily Briefing")
+                            Spacer()
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.siftAccent)
+                        }
+                    } icon: {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(Color.purple)
+                    }
+                }
+                .buttonStyle(.plain)
             }
 
             Section("Feeds") {
@@ -132,6 +168,12 @@ struct SidebarView: View {
         } message: {
             Text("Enter a folder name for this feed or leave empty to remove from folder.")
         }
+        .onAppear {
+            NotificationManager.shared.updateBadgeCount(unreadArticles.count)
+        }
+        .onChange(of: unreadArticles.count) { _, newCount in
+            NotificationManager.shared.updateBadgeCount(newCount)
+        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -176,6 +218,8 @@ struct SidebarView: View {
         switch item {
         case .all:
             return Color.siftAccent
+        case .today:
+            return Color.orange
         case .unread:
             return Color.blue
         case .starred:
@@ -192,8 +236,15 @@ struct SidebarView: View {
                 Text(feed.title)
                     .lineLimit(1)
                 Spacer()
-                if feed.unreadCount > 0 {
-                    countText(feed.unreadCount)
+                if feed.refreshError != nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .help(feed.refreshError ?? "")
+                }
+                let unread = feedUnreadCounts[feed.id] ?? 0
+                if unread > 0 {
+                    countText(unread)
                 }
             }
         } icon: {
@@ -231,60 +282,5 @@ struct SidebarView: View {
         Text("\(count)")
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
-    }
-}
-
-
-struct FeedFaviconView: View {
-    let feed: Feed?
-    var title: String = ""
-    var size: CGFloat = 16
-    var cornerRadius: CGFloat = 4
-
-    init(feed: Feed, size: CGFloat = 16, cornerRadius: CGFloat? = nil) {
-        self.feed = feed
-        self.size = size
-        self.cornerRadius = cornerRadius ?? size * 0.22
-    }
-
-    init(title: String, size: CGFloat = 16, cornerRadius: CGFloat? = nil) {
-        self.feed = nil
-        self.title = title
-        self.size = size
-        self.cornerRadius = cornerRadius ?? size * 0.22
-    }
-
-    private var faviconURL: URL? {
-        guard let feed else { return nil }
-        return FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
-    }
-
-    var body: some View {
-        Group {
-            if let url = faviconURL {
-                AsyncImage(url: url) { phase in
-                    if case .success(let image) = phase {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                    } else {
-                        placeholderIcon
-                    }
-                }
-            } else {
-                placeholderIcon
-            }
-        }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-    }
-
-    private var placeholderIcon: some View {
-        ZStack {
-            Color.siftAccent.opacity(0.15)
-            Image(systemName: "dot.radiowaves.up.and.right")
-                .font(.system(size: size * 0.5, weight: .bold))
-                .foregroundStyle(Color.siftAccent)
-        }
     }
 }

@@ -125,4 +125,45 @@ final class FeedParserTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(feed.items.count, 1)
         XCTAssertEqual(feed.items[0].title, "Good Article")
     }
+
+    func testHTMLReturnedInsteadOfXML() {
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Just a moment...</title></head>
+        <body>
+            <h1>Attention Required! | Cloudflare</h1>
+            <p>Please complete the security check to access example.com.</p>
+        </body>
+        </html>
+        """.data(using: .utf8)!
+
+        let parser = FeedParser()
+        XCTAssertThrowsError(try parser.parse(data: html)) { error in
+            XCTAssertTrue(error is FeedParserError)
+        }
+    }
+
+    func testCDATAWithHTMLEntities() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0">
+        <channel>
+            <title><![CDATA[<strong>Tech</strong> News &amp; Insights]]></title>
+            <item>
+                <title><![CDATA[Breaking: Swift 6.2 Released &amp; Ready]]></title>
+                <guid>cdata-1</guid>
+                <description><![CDATA[<p>Here is a detailed recap with <em>markup</em> &amp; code.</p>]]></description>
+            </item>
+        </channel>
+        </rss>
+        """.data(using: .utf8)!
+
+        let parser = FeedParser()
+        let feed = try parser.parse(data: xml)
+
+        XCTAssertTrue(feed.title.contains("Tech"))
+        XCTAssertEqual(feed.items.count, 1)
+        XCTAssertTrue(feed.items[0].title.contains("Breaking: Swift 6.2 Released"))
+    }
 }

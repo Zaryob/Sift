@@ -1,8 +1,8 @@
 import Foundation
 
-public struct FaviconFetcher {
+public struct FaviconFetcher: Sendable {
     /// Returns a favicon URL for the given Feed metadata or URL
-    public static func faviconURL(for siteURLString: String?, feedURLString: String?, iconURLString: String?) -> URL? {
+    nonisolated public static func faviconURL(for siteURLString: String?, feedURLString: String?, iconURLString: String?) -> URL? {
         if let iconURLString = iconURLString,
            let url = URL(string: iconURLString),
            url.scheme != nil {

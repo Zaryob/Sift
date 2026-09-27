@@ -6,26 +6,75 @@ struct ContentView: View {
     @State private var viewModel = AppViewModel()
     @Environment(\.modelContext) private var modelContext
     @Query(filter: #Predicate<FeedItem> { !$0.isRead }) private var unreadItems: [FeedItem]
-    // On iPhone the app should open on something to read, not on a filter picker.
+    @Query private var feeds: [Feed]
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = false
+    @State private var isShowingOnboarding: Bool = false
+
+    // NavigationSplitView state
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
 
-    var body: some View {
-        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-            SidebarView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 225, max: 260)
-        } content: {
-            ArticleListView(viewModel: viewModel)
-                .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 400)
-        } detail: {
-            ArticleDetailView(viewModel: viewModel, article: viewModel.selectedArticle)
+    #if os(macOS)
+    @State private var macLayoutMode: MacLayoutMode?
+
+    private enum MacLayoutMode: Equatable {
+        case singleColumn
+        case listAndReader
+        case threeColumn
+
+        static let sidebarMinimumWidth: CGFloat = 180
+        static let listMinimumWidth: CGFloat = 260
+        static let readerMinimumWidth: CGFloat = 480
+
+        init(width: CGFloat) {
+            let threeColumnMinimum = Self.sidebarMinimumWidth
+                + Self.listMinimumWidth
+                + Self.readerMinimumWidth
+            let listAndReaderMinimum = Self.listMinimumWidth + Self.readerMinimumWidth
+
+            if width >= threeColumnMinimum {
+                self = .threeColumn
+            } else if width >= listAndReaderMinimum {
+                self = .listAndReader
+            } else {
+                self = .singleColumn
+            }
         }
-        .navigationSplitViewStyle(.balanced)
-        #if os(macOS)
-        .frame(minWidth: 760, minHeight: 520)
-        #endif
+
+        var columnVisibility: NavigationSplitViewVisibility {
+            switch self {
+            case .singleColumn:
+                .detailOnly
+            case .listAndReader:
+                .doubleColumn
+            case .threeColumn:
+                .all
+            }
+        }
+    }
+    #endif
+
+    var body: some View {
+        Group {
+            #if os(macOS)
+            macRootView
+            #else
+            iosRootView
+            #endif
+        }
         .background(WindowAccessor())
         .sheet(isPresented: $viewModel.isAddingFeed) {
             AddFeedSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $viewModel.isShowingDailyBriefing) {
+            DailyBriefingSheet()
+        }
+        .sheet(isPresented: $isShowingOnboarding) {
+            OnboardingView(viewModel: viewModel) {
+                hasCompletedOnboarding = true
+                isShowingOnboarding = false
+                NotificationManager.shared.requestAuthorization()
+            }
         }
         .alert("Error", isPresented: $viewModel.showErrorAlert) {
             Button("OK", role: .cancel) {}
@@ -83,19 +132,27 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            NotificationManager.shared.updateBadgeCount(unreadItems.count)
-            DispatchQueue.main.async {
-                WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
+            isShowingOnboarding = !hasCompletedOnboarding
+            Task {
+                await WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
                 WidgetCenter.shared.reloadAllTimelines()
-                viewModel.refreshAllFeeds(context: modelContext)
+
+                // Check if last refreshed recently (within 5 minutes) before triggering auto-refresh on appear
+                let shouldRefresh: Bool
+                if let last = viewModel.lastRefreshedAt {
+                    shouldRefresh = Date().timeIntervalSince(last) > 300
+                } else {
+                    shouldRefresh = true
+                }
+                if shouldRefresh {
+                    viewModel.refreshAllFeeds(context: modelContext)
+                }
 
                 #if os(macOS)
                 if let pending = AppDelegate.pendingURL {
                     AppDelegate.pendingURL = nil
                     if pending.isFileURL {
-                        Task {
-                            await viewModel.importOPMLFile(at: pending, context: modelContext)
-                        }
+                        await viewModel.importOPMLFile(at: pending, context: modelContext)
                     } else {
                         viewModel.handleDeepLink(pending, context: modelContext)
                     }
@@ -103,8 +160,113 @@ struct ContentView: View {
                 #endif
             }
         }
-        .onChange(of: unreadItems.count) { _, newCount in
-            NotificationManager.shared.updateBadgeCount(newCount)
+        .onReceive(NotificationCenter.default.publisher(for: PersistenceController.storeFailedNotification)) { _ in
+            viewModel.errorMessage = String(localized: "Sift could not open its database and is running in temporary mode. Your subscriptions are safe — please restart the app.")
+            viewModel.showErrorAlert = true
         }
     }
+
+    // MARK: - iOS Root View
+    #if os(iOS)
+    private var iosRootView: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
+            SidebarView(viewModel: viewModel)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 260)
+        } content: {
+            ArticleListView(viewModel: viewModel)
+                .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 400)
+        } detail: {
+            ArticleDetailView(
+                viewModel: viewModel,
+                article: viewModel.selectedArticle
+            )
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+    #endif
+
+    // MARK: - macOS Root View
+    #if os(macOS)
+    private var macRootView: some View {
+        GeometryReader { proxy in
+            let layoutMode = MacLayoutMode(width: proxy.size.width)
+
+            Group {
+                if layoutMode == .singleColumn {
+                    compactMacSplitView
+                } else {
+                    regularMacSplitView
+                }
+            }
+            .onAppear {
+                updateMacLayoutMode(layoutMode)
+            }
+            .onChange(of: layoutMode) { _, newMode in
+                updateMacLayoutMode(newMode)
+            }
+        }
+        .frame(minWidth: 480, minHeight: 480)
+        .onChange(of: viewModel.selectedArticle?.id) { _, newID in
+            preferredCompactColumn = newID == nil ? .content : .detail
+        }
+    }
+
+    private var regularMacSplitView: some View {
+        NavigationSplitView(
+            columnVisibility: $columnVisibility,
+            preferredCompactColumn: $preferredCompactColumn
+        ) {
+            SidebarView(viewModel: viewModel)
+                .navigationSplitViewColumnWidth(
+                    min: MacLayoutMode.sidebarMinimumWidth,
+                    ideal: 220,
+                    max: 260
+                )
+        } content: {
+            ArticleListView(viewModel: viewModel)
+                .navigationSplitViewColumnWidth(
+                    min: MacLayoutMode.listMinimumWidth,
+                    ideal: 300,
+                    max: 360
+                )
+        } detail: {
+            ArticleDetailView(
+                viewModel: viewModel,
+                article: viewModel.selectedArticle
+            )
+            .frame(minWidth: MacLayoutMode.readerMinimumWidth)
+        }
+        .navigationSplitViewStyle(.prominentDetail)
+    }
+
+    private var compactMacSplitView: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(viewModel: viewModel)
+                .navigationSplitViewColumnWidth(
+                    min: MacLayoutMode.sidebarMinimumWidth,
+                    ideal: 220,
+                    max: 260
+                )
+        } detail: {
+            if let article = viewModel.selectedArticle {
+                ArticleDetailView(
+                    viewModel: viewModel,
+                    article: article,
+                    onBackToList: {
+                        viewModel.selectedArticle = nil
+                    }
+                )
+            } else {
+                ArticleListView(viewModel: viewModel)
+            }
+        }
+        .navigationSplitViewStyle(.prominentDetail)
+    }
+
+    private func updateMacLayoutMode(_ newMode: MacLayoutMode) {
+        guard macLayoutMode != newMode else { return }
+        macLayoutMode = newMode
+        columnVisibility = newMode.columnVisibility
+    }
+    #endif
 }

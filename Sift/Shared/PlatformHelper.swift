@@ -52,3 +52,19 @@ public enum Platform {
         #endif
     }
 }
+
+#if os(macOS)
+public typealias PlatformImage = NSImage
+#else
+public typealias PlatformImage = UIImage
+#endif
+
+extension Image {
+    public init(platformImage: PlatformImage) {
+        #if os(macOS)
+        self.init(nsImage: platformImage)
+        #else
+        self.init(uiImage: platformImage)
+        #endif
+    }
+}

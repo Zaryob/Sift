@@ -1,12 +1,12 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 #if os(macOS)
 import AppKit
 #else
 import UIKit
 #endif
 
-public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
+nonisolated public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     public static let shared = NotificationManager()
     
     public static let openArticleNotification = Notification.Name("SiftOpenArticleNotification")
@@ -20,10 +20,23 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     override private init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
+        cleanUpTemporaryAttachments()
+    }
+
+    private func cleanUpTemporaryAttachments() {
+        let tempDir = FileManager.default.temporaryDirectory
+        if let files = try? FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil) {
+            for file in files {
+                let name = file.lastPathComponent
+                if (name.hasPrefix("notif_") || name.hasPrefix("appicon_")) && name.hasSuffix(".png") {
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
+        }
     }
 
     /// Updates the unread count badge shown on the app icon (iOS Home Screen / macOS Dock).
-    public func updateBadgeCount(_ count: Int) {
+    nonisolated public func updateBadgeCount(_ count: Int) {
         UNUserNotificationCenter.current().setBadgeCount(count) { error in
             if let error = error {
                 print("Failed to set badge count: \(error)")
@@ -31,8 +44,13 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         }
     }
 
+    private var isRequestingAuth = false
+
     public func requestAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+        guard !isRequestingAuth else { return }
+        isRequestingAuth = true
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
+            self?.isRequestingAuth = false
             if let error = error {
                 print("Notification permission error: \(error)")
             } else {
@@ -60,14 +78,15 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo
+        let articleIDStr = response.notification.request.content.userInfo["articleID"] as? String
+        let feedIDStr = response.notification.request.content.userInfo["feedID"] as? String
         DispatchQueue.main.async {
             Platform.showMainWindow()
             
-            if let articleIDStr = userInfo["articleID"] as? String,
+            if let articleIDStr,
                let url = URL(string: "rssreader://article/\(articleIDStr)") {
                 NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
-            } else if let feedIDStr = userInfo["feedID"] as? String,
+            } else if let feedIDStr,
                       let url = URL(string: "rssreader://feed/\(feedIDStr)") {
                 NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
             }
@@ -76,7 +95,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     }
 
     /// Sends an individual notification for a single newly arrived article
-    public func sendArticleNotification(
+    nonisolated public func sendArticleNotification(
         articleTitle: String,
         feedTitle: String,
         articleID: UUID,
@@ -143,18 +162,11 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     private func createNotificationAttachment(from faviconURL: URL?) async -> UNNotificationAttachment? {
         let tempDir = FileManager.default.temporaryDirectory
 
-        // 1. Try to download and convert remote favicon
-        if let faviconURL = faviconURL {
-            let sessionConfig = URLSessionConfiguration.ephemeral
-            sessionConfig.timeoutIntervalForRequest = 2.5
-            let session = URLSession(configuration: sessionConfig)
-
-            if let (data, response) = try? await session.data(from: faviconURL),
-               let httpResp = response as? HTTPURLResponse,
-               (200...299).contains(httpResp.statusCode),
-               !data.isEmpty {
-
-                let fileURL = tempDir.appendingPathComponent("notif_\(UUID().uuidString).png")
+        // 1. Try to load or download favicon via local FaviconManager cache
+        if let faviconURL = faviconURL,
+           let data = await FaviconManager.shared.faviconData(for: faviconURL),
+           !data.isEmpty {
+            let fileURL = tempDir.appendingPathComponent("notif_\(UUID().uuidString).png")
                 #if os(macOS)
                 if let image = NSImage(data: data),
                    let tiffData = image.tiffRepresentation,
@@ -174,12 +186,14 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
                     }
                 }
                 #endif
-            }
         }
 
         // 2. Fallback to application brand icon as attachment if favicon is not available
         #if os(macOS)
-        if let appIcon = NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName),
+        let appIcon = await MainActor.run {
+            NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName)
+        }
+        if let appIcon,
            let tiffData = appIcon.tiffRepresentation,
            let bitmapRep = NSBitmapImageRep(data: tiffData),
            let pngData = bitmapRep.representation(using: .png, properties: [:]) {
@@ -190,7 +204,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             }
         }
         #else
-        if let appIcon = UIImage(named: "AppIcon") ?? UIImage(systemName: "dot.radiowaves.up.and.right"),
+        if let appIcon = UIImage(named: "AppIcon") ?? UIImage(systemName: "dot.radiowaves.up.forward"),
            let pngData = appIcon.pngData() {
             let fileURL = tempDir.appendingPathComponent("appicon_\(UUID().uuidString).png")
             try? pngData.write(to: fileURL)

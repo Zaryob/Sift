@@ -40,6 +40,7 @@ public final class WindowActionTarget: NSObject {
     public func setupCloseButton(on window: NSWindow) {
         self.mainWindow = window
         window.tabbingMode = .disallowed
+        window.minSize = CGSize(width: 480, height: 480)
         
         // Intercept close button WITHOUT replacing SwiftUI's internal window delegate
         if let closeButton = window.standardWindowButton(.closeButton) {

@@ -5,6 +5,7 @@ import WidgetKit
 public actor FeedRefreshService {
     private let httpClient: FeedHTTPClientProtocol
     private let modelContainer: ModelContainer
+    private let pruningService: DataPruningService
     private var refreshingFeedIDs: Set<UUID> = []
 
     public init(
@@ -12,11 +13,13 @@ public actor FeedRefreshService {
         modelContainer: ModelContainer? = nil
     ) {
         self.httpClient = httpClient
-        self.modelContainer = modelContainer ?? PersistenceController.shared.container
+        let container = modelContainer ?? PersistenceController.shared.container
+        self.modelContainer = container
+        self.pruningService = DataPruningService(modelContainer: container)
     }
 
     /// Refresh a single feed by ID
-    public func refreshFeed(id feedID: UUID) async throws {
+    public func refreshFeed(id feedID: UUID, updateWidgetAndBadge: Bool = true) async throws {
         guard !refreshingFeedIDs.contains(feedID) else {
             return
         }
@@ -41,10 +44,13 @@ public actor FeedRefreshService {
         feed.lastRefreshAttempt = Date()
 
         do {
+            // If local items were removed, force a complete response so a previous 304
+            // doesn't leave the feed permanently empty.
+            let hasLocalItems = !feed.items.isEmpty
             let result = try await httpClient.fetchFeed(
                 from: feedURL,
-                etag: feed.etag,
-                lastModified: feed.lastModified
+                etag: hasLocalItems ? feed.etag : nil,
+                lastModified: hasLocalItems ? feed.lastModified : nil
             )
 
             switch result {
@@ -84,6 +90,11 @@ public actor FeedRefreshService {
                 try context.save()
 
                 let faviconURL = FaviconFetcher.faviconURL(for: feed.siteURL, feedURLString: feed.url, iconURLString: feed.iconURL)
+                if let faviconURL {
+                    Task { @MainActor in
+                        _ = await FaviconManager.shared.fetchFavicon(for: faviconURL)
+                    }
+                }
 
                 // Post an individual notification for each newly arrived article (up to 5 to avoid notification flood)
                 for newArticle in newlyInserted.prefix(5) {
@@ -97,10 +108,14 @@ public actor FeedRefreshService {
                 }
             }
 
-            // Update Widget snapshot and notify WidgetKit for every feed check
-            WidgetSnapshotManager.shared.updateSnapshot(context: context)
-            WidgetCenter.shared.reloadAllTimelines()
-            refreshBadge(context: context)
+            // Update Widget snapshot and notify WidgetKit only if requested (e.g. single feed refresh from UI)
+            if updateWidgetAndBadge {
+                await WidgetSnapshotManager.shared.updateSnapshot(context: context)
+                await MainActor.run {
+                    WidgetCenter.shared.reloadAllTimelines()
+                }
+                refreshBadge(context: context)
+            }
 
         } catch {
             feed.refreshError = error.localizedDescription
@@ -132,7 +147,7 @@ public actor FeedRefreshService {
                 activeCount += 1
                 group.addTask {
                     do {
-                        try await self.refreshFeed(id: feedID)
+                        try await self.refreshFeed(id: feedID, updateWidgetAndBadge: false)
                     } catch {
                         print("Feed refresh failed for \(feedID): \(error)")
                     }
@@ -141,9 +156,16 @@ public actor FeedRefreshService {
         }
 
         // Final snapshot update after all feeds finish refreshing
-        WidgetSnapshotManager.shared.updateSnapshot(context: context)
-        WidgetCenter.shared.reloadAllTimelines()
+        await WidgetSnapshotManager.shared.updateSnapshot(context: context)
+        await MainActor.run {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
         refreshBadge(context: context)
+
+        // Automatically prune expired articles according to user retention setting (default 30 days)
+        let retentionDays = UserDefaults.standard.integer(forKey: "articleRetentionDays")
+        let effectiveRetention = retentionDays > 0 ? retentionDays : 30
+        _ = try? await pruningService.prune(readRetentionDays: effectiveRetention)
     }
 
     /// Recomputes the total unread count and updates the app icon / dock badge.

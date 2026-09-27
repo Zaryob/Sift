@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ArticleSnapshot: Identifiable, Codable, Equatable {
+nonisolated public struct ArticleSnapshot: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public let title: String
     public let feedTitle: String

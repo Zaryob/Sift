@@ -4,17 +4,13 @@ import SwiftData
 import AppKit
 
 struct MenuBarExtraView: View {
-    @Query(sort: \FeedItem.publicationDate, order: .reverse) private var articles: [FeedItem]
+    @Query(filter: #Predicate<FeedItem> { !$0.isRead }, sort: \FeedItem.publicationDate, order: .reverse) private var unreadArticles: [FeedItem]
     private let refreshService = FeedRefreshService()
-
-    private var unreadArticles: [FeedItem] {
-        articles.filter { !$0.isRead }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Label("Sift", systemImage: "dot.radiowaves.up.and.right")
+                Label("Sift", systemImage: "dot.radiowaves.up.forward")
                     .font(.headline)
                 Spacer()
                 if !unreadArticles.isEmpty {
@@ -46,8 +42,9 @@ struct MenuBarExtraView: View {
 
                 ForEach(unreadArticles.prefix(6)) { item in
                     Button {
-                        if let link = item.link, let url = URL(string: link) {
-                            NSWorkspace.shared.open(url)
+                        WindowActionTarget.shared.showMainWindow()
+                        if let url = URL(string: "rssreader://article/\(item.id.uuidString)") {
+                            NotificationCenter.default.post(name: .siftHandleDeepLink, object: url)
                         }
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {

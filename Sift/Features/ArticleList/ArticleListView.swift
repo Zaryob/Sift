@@ -79,8 +79,7 @@ struct ArticleFilterConfig: Codable, Equatable {
 
         if !excludedFeedIDs.isEmpty {
             let count = excludedFeedIDs.count
-            let noun = count == 1 ? String(localized: "feed excluded") : String(localized: "feeds excluded")
-            parts.append("\(count) \(noun)")
+            parts.append(String(localized: "\(count) feeds excluded"))
         }
 
         if parts.isEmpty {
@@ -195,6 +194,9 @@ struct ArticleListView: View {
             return allArticles.filter { $0.feed?.id == feedID }
         }
         switch viewModel.selectedSidebarItem {
+        case .today:
+            let startOfToday = Calendar.current.startOfDay(for: Date())
+            return allArticles.filter { $0.publicationDate >= startOfToday }
         case .unread:
             return allArticles.filter { !$0.isRead }
         case .starred:
@@ -212,31 +214,55 @@ struct ArticleListView: View {
     }
 
     private var filteredArticles: [FeedItem] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isSearching = !trimmed.isEmpty
+
         let articles = sourceArticles.filter { article in
             if hideRead && article.isRead { return false }
-            if searchText.isEmpty { return true }
-            let query = searchText.lowercased()
-            let titleMatch = article.title.lowercased().contains(query)
-            let authorMatch = article.author?.lowercased().contains(query) ?? false
-            let summaryMatch = article.summary?.lowercased().contains(query) ?? false
-            let feedMatch = article.feed?.title.lowercased().contains(query) ?? false
-            return titleMatch || authorMatch || summaryMatch || feedMatch
+            if !isSearching { return true }
+            if article.title.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let author = article.author, author.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let snippet = article.snippet, snippet.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let summary = article.summary, summary.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let feedTitle = article.feed?.title, feedTitle.localizedCaseInsensitiveContains(trimmed) { return true }
+            return false
         }
 
-        switch sortOrder {
-        case .newestFirst:
-            return articles.sorted { $0.publicationDate > $1.publicationDate }
-        case .oldestFirst:
-            return articles.sorted { $0.publicationDate < $1.publicationDate }
-        }
+        let ordered = sortOrder == .oldestFirst ? articles.reversed() : articles
+        return ordered
     }
 
     private var timelineSections: [(section: TimelineSection, articles: [FeedItem])] {
-        let grouped = Dictionary(grouping: filteredArticles) { TimelineSection(for: $0.publicationDate) }
-        return TimelineSection.allCases.compactMap { section in
-            guard let articles = grouped[section], !articles.isEmpty else { return nil }
-            return (section, articles)
+        var today: [FeedItem] = []
+        var yesterday: [FeedItem] = []
+        var thisWeek: [FeedItem] = []
+        var older: [FeedItem] = []
+
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfToday = calendar.startOfDay(for: now)
+        let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday) ?? startOfToday
+        let weekAgo = calendar.date(byAdding: .day, value: -7, to: startOfToday) ?? startOfToday
+
+        for article in filteredArticles {
+            let date = article.publicationDate
+            if date >= startOfToday {
+                today.append(article)
+            } else if date >= startOfYesterday {
+                yesterday.append(article)
+            } else if date >= weekAgo {
+                thisWeek.append(article)
+            } else {
+                older.append(article)
+            }
         }
+
+        var result: [(section: TimelineSection, articles: [FeedItem])] = []
+        if !today.isEmpty { result.append((.today, today)) }
+        if !yesterday.isEmpty { result.append((.yesterday, yesterday)) }
+        if !thisWeek.isEmpty { result.append((.thisWeek, thisWeek)) }
+        if !older.isEmpty { result.append((.older, older)) }
+        return result
     }
 
     private var totalUnreadCount: Int {
@@ -244,11 +270,12 @@ struct ArticleListView: View {
     }
 
     private var currentScopeUnreadCount: Int {
-        baseArticles.filter { !$0.isRead }.count
+        sourceArticles.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
     }
 
     private var currentScopeTitle: String {
         switch viewModel.selectedSidebarItem {
+        case .today: return String(localized: "Today")
         case .unread: return String(localized: "Unread")
         case .starred: return String(localized: "Starred")
         case .all, .none: return String(localized: "All Articles")
@@ -447,7 +474,7 @@ struct ArticleListView: View {
         }
         if isFilterActive {
             let count = filteredArticles.count
-            return "\(String(localized: "\(count) articles")) · \(updatedAgoString)"
+            return String(localized: "\(count) articles · \(updatedAgoString)")
         } else {
             return statusText
         }
@@ -467,22 +494,22 @@ struct ArticleListView: View {
             return String(localized: "Updating feeds…")
         }
         let unread = currentFeedTitle == nil ? totalUnreadCount : currentScopeUnreadCount
-        return "\(String(localized: "\(unread) unread")) · \(updatedAgoString)"
+        return String(localized: "\(unread) unread · \(updatedAgoString)")
     }
 
     private var updatedAgoString: String {
         guard let last = viewModel.lastRefreshedAt else {
-            return "Updated recently"
+            return String(localized: "Updated recently")
         }
         let seconds = Date().timeIntervalSince(last)
         if seconds < 60 {
-            return "Updated just now"
+            return String(localized: "Updated just now")
         } else if seconds < 3600 {
             let mins = Int(seconds / 60)
-            return "Updated \(mins)m ago"
+            return String(localized: "Updated \(mins)m ago")
         } else {
             let hours = Int(seconds / 3600)
-            return "Updated \(hours)h ago"
+            return String(localized: "Updated \(hours)h ago")
         }
     }
 
@@ -532,7 +559,7 @@ struct ArticleListView: View {
         }
         .contextMenu {
             Button {
-                viewModel.selectedArticle = article
+                viewModel.openArticle(article)
             } label: {
                 Label("Open", systemImage: "book")
             }
@@ -596,17 +623,14 @@ struct ArticleListView: View {
             }
         }
         #else
-        ToolbarItem(placement: .automatic) {
+        ToolbarItemGroup(placement: .automatic) {
             Button {
                 viewModel.isAddingFeed = true
             } label: {
                 Label("Add Feed", systemImage: "plus")
             }
             .help("Add New RSS Feed (⌘N)")
-        }
-        .visibilityPriority(.high)
 
-        ToolbarItem(placement: .automatic) {
             MacArticleFilterToolbarButton(
                 isActive: $isFilterActive,
                 showOptions: {
@@ -614,6 +638,7 @@ struct ArticleListView: View {
                 }
             )
         }
+        .visibilityPriority(.high)
         #endif
     }
 
@@ -670,7 +695,8 @@ struct ArticleListView: View {
                         .foregroundStyle(Color.siftAccent)
                 }
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.borderless)
             .fixedSize()
 
             Spacer(minLength: 4)
@@ -1689,7 +1715,10 @@ struct ArticleRow: View {
     #endif
 
     private var snippet: String {
-        HTMLSanitizer.stripTags(from: article.summary ?? article.content ?? "")
+        if let snippet = article.snippet, !snippet.isEmpty {
+            return snippet
+        }
+        return HTMLSanitizer.stripTags(from: article.summary ?? article.content ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -1709,17 +1738,13 @@ struct ArticleRow: View {
 
     #if os(iOS)
     private var iosMailRow: some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Unread dot
-            ZStack(alignment: .top) {
-                if !article.isRead {
-                    Circle()
-                        .fill(Color.siftAccent)
-                        .frame(width: 6.5, height: 6.5)
-                        .padding(.top, 4)
-                }
-            }
-            .frame(width: 7)
+        HStack(alignment: .top, spacing: 9) {
+            // Unread dot column (fixed width ensures all favicons vertically align across rows)
+            Circle()
+                .fill(article.isRead ? Color.clear : Color.siftAccent)
+                .frame(width: 7.5, height: 7.5)
+                .frame(width: 10, height: (showFeedIcon && showSource) ? iconSize : 20)
+                .accessibilityHidden(true)
 
             // Feed Favicon / Initial Monogram
             if showFeedIcon && showSource {
@@ -1730,14 +1755,14 @@ struct ArticleRow: View {
                 }
             }
 
-            // Article Content: Header line, Title, Snippet
-            VStack(alignment: .leading, spacing: density == .compact ? 2 : 3) {
+            // Article Content: Header line (Feed Name), Title (Primary Focus), Snippet
+            VStack(alignment: .leading, spacing: density == .compact ? 2 : 3.5) {
                 if showSource {
-                    // Header: Feed Name + Timestamp
+                    // Header: Feed Name + Timestamp (Secondary context)
                     HStack(alignment: .firstTextBaseline) {
                         Text(feedTitle)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(article.isRead ? Color.primary.opacity(0.75) : Color.primary)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(article.isRead ? Color.secondary.opacity(0.7) : Color.secondary)
                             .lineLimit(1)
 
                         Spacer(minLength: 6)
@@ -1746,12 +1771,12 @@ struct ArticleRow: View {
                     }
                 }
 
-                // Article Title (+ trailing time/star inline when the header line is gone)
+                // Article Title: Primary visual focal point
                 HStack(alignment: .firstTextBaseline) {
                     Text(article.title.isEmpty ? "Untitled" : article.title)
-                        .font(.system(size: 16, weight: article.isRead ? .regular : .semibold))
-                        .foregroundStyle(article.isRead ? Color.primary.opacity(0.78) : Color.primary)
-                        .lineSpacing(1.2)
+                        .font(.system(size: 16, weight: article.isRead ? .medium : .semibold))
+                        .foregroundStyle(article.isRead ? Color.primary.opacity(0.7) : Color.primary)
+                        .lineSpacing(2)
                         .lineLimit(density == .compact ? 1 : 2)
 
                     if !showSource {
@@ -1763,9 +1788,9 @@ struct ArticleRow: View {
                 // Article Preview Snippet
                 if showPreview, !snippet.isEmpty, density != .compact {
                     Text(snippet)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(Color.primary.opacity(article.isRead ? 0.58 : 0.7))
-                        .lineSpacing(1.1)
+                        .font(.system(size: 13.5, weight: .regular))
+                        .foregroundStyle(Color.secondary.opacity(article.isRead ? 0.75 : 0.95))
+                        .lineSpacing(1.5)
                         .lineLimit(density == .spacious ? 2 : 1)
                         .padding(.top, 1)
                 }
@@ -1776,8 +1801,8 @@ struct ArticleRow: View {
     @ViewBuilder
     private var trailingMeta: some View {
         Text(formattedTime(for: article.publicationDate))
-            .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(.secondary)
+            .font(.system(size: 12.5, weight: .regular))
+            .foregroundStyle(Color.secondary.opacity(0.8))
 
         if article.isStarred {
             Image(systemName: "star.fill")
@@ -1847,12 +1872,25 @@ struct ArticleRow: View {
     }
     #endif
 
+    private static let shortTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f
+    }()
+
+    private static let monthDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("dMMM")
+        return f
+    }()
+
     private func formattedTime(for date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) || calendar.isDateInYesterday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
+            return Self.shortTimeFormatter.string(from: date)
         } else {
-            return date.formatted(.dateTime.month(.abbreviated).day())
+            return Self.monthDayFormatter.string(from: date)
         }
     }
 }
@@ -1919,8 +1957,8 @@ final class DictationObserver: ObservableObject {
     func startPolling() {
         checkDictationState()
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
                 self?.checkDictationState()
             }
         }
@@ -1933,46 +1971,18 @@ final class DictationObserver: ObservableObject {
     }
 
     func startDictation() {
-        isDictating = true
+        // App Store Safe: Dictation is invoked natively via system keyboard microphone.
+        // We only observe whether dictation mode is active.
         startPolling()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            if let responder = UIResponder.currentFirstResponder {
-                if responder.responds(to: Selector(("startDictation"))) {
-                    responder.perform(Selector(("startDictation")))
-                    return
-                }
-            }
-            if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
-               dictationClass.responds(to: Selector(("sharedInstance"))) {
-                if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
-                    if controller.responds(to: Selector(("startDictation"))) {
-                        controller.perform(Selector(("startDictation")))
-                    }
-                }
-            }
-        }
     }
 
     func stopDictation() {
-        isDictating = false
-        if let responder = UIResponder.currentFirstResponder {
-            if responder.responds(to: Selector(("stopDictation"))) {
-                responder.perform(Selector(("stopDictation")))
-                return
-            }
-        }
-        if let dictationClass = NSClassFromString("UIDictationController") as? NSObject.Type,
-           dictationClass.responds(to: Selector(("sharedInstance"))) {
-            if let controller = dictationClass.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
-                if controller.responds(to: Selector(("stopDictation"))) {
-                    controller.perform(Selector(("stopDictation")))
-                }
-            }
-        }
+        stopPolling()
     }
 
     @objc func handleKeyboardHide() {
         isDictating = false
+        stopPolling()
     }
 
     @objc func handleDictationBegin() {
@@ -1986,17 +1996,8 @@ final class DictationObserver: ObservableObject {
     @objc func checkDictationState() {
         var active = false
 
-        // Check 1: UIDictationController state
-        if let cls = NSClassFromString("UIDictationController") as? NSObject.Type,
-           cls.responds(to: Selector(("sharedInstance"))),
-           let instance = cls.perform(Selector(("sharedInstance")))?.takeUnretainedValue() as? NSObject {
-            if let state = instance.value(forKey: "state") as? Int, state != 0 {
-                active = true
-            }
-        }
-
-        // Check 2: Responder textInputMode
-        if !active, let mode = UIResponder.currentFirstResponder?.textInputMode {
+        // Public App Store-safe check: Responder textInputMode
+        if let mode = UIResponder.currentFirstResponder?.textInputMode {
             let className = String(describing: type(of: mode))
             let lang = mode.primaryLanguage ?? ""
             if className.localizedCaseInsensitiveContains("dictation") || lang.localizedCaseInsensitiveContains("dictation") {

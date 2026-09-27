@@ -17,11 +17,16 @@ public struct OPMLItem {
 
 public final class OPMLService: NSObject, XMLParserDelegate {
     private var items: [OPMLItem] = []
-    private var currentCategory: String?
+    /// Stack tracks nested folder names so we correctly restore the parent
+    /// category when a nested outline closes.
+    private var categoryStack: [String?] = []
+
+    /// The innermost active category, if any.
+    private var currentCategory: String? { categoryStack.last ?? nil }
 
     public func parse(data: Data) throws -> [OPMLItem] {
         items.removeAll()
-        currentCategory = nil
+        categoryStack.removeAll()
 
         let parser = XMLParser(data: data)
         parser.delegate = self
@@ -38,26 +43,31 @@ public final class OPMLService: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        let name = elementName.lowercased()
-        if name == "outline" {
-            let type = attributeDict["type"]?.lowercased()
-            let xmlUrl = attributeDict["xmlUrl"] ?? attributeDict["xmlURL"]
-            let text = attributeDict["text"] ?? attributeDict["title"] ?? "Untitled Feed"
-            let htmlUrl = attributeDict["htmlUrl"] ?? attributeDict["htmlURL"]
-            let category = attributeDict["category"]
+        guard elementName.lowercased() == "outline" else { return }
 
-            if let xmlUrl = xmlUrl, !xmlUrl.isEmpty {
-                let item = OPMLItem(
-                    title: text,
-                    xmlURL: xmlUrl,
-                    htmlURL: htmlUrl,
-                    category: category ?? currentCategory
-                )
-                items.append(item)
-            } else if type == nil {
-                // Outer outline representing a Category/Folder
-                currentCategory = text
-            }
+        let type = attributeDict["type"]?.lowercased()
+        let xmlUrl = attributeDict["xmlUrl"] ?? attributeDict["xmlURL"]
+        let text = attributeDict["text"] ?? attributeDict["title"] ?? "Untitled Feed"
+        let htmlUrl = attributeDict["htmlUrl"] ?? attributeDict["htmlURL"]
+        let inlineCategory = attributeDict["category"]
+
+        if let xmlUrl = xmlUrl, !xmlUrl.isEmpty {
+            // Feed item outline — record it, then push nil sentinel so
+            // didEndElement stays balanced without affecting the category.
+            let item = OPMLItem(
+                title: text,
+                xmlURL: xmlUrl,
+                htmlURL: htmlUrl,
+                category: inlineCategory ?? currentCategory
+            )
+            items.append(item)
+            categoryStack.append(nil) // sentinel for the closing </outline>
+        } else if type == nil || type == "folder" {
+            // Folder/category outline — push its name so nested feeds see it.
+            categoryStack.append(text)
+        } else {
+            // Unknown outline with no xmlUrl — push nil sentinel.
+            categoryStack.append(nil)
         }
     }
 
@@ -67,8 +77,10 @@ public final class OPMLService: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
-        if elementName.lowercased() == "outline" {
-            // Reset category when leaving category outline
+        guard elementName.lowercased() == "outline" else { return }
+        // Restore the parent folder context.
+        if !categoryStack.isEmpty {
+            categoryStack.removeLast()
         }
     }
 

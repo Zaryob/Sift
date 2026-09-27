@@ -6,12 +6,17 @@ import WidgetKit
 import BackgroundTasks
 #endif
 
+@MainActor
 public final class BackgroundFeedScheduler: ObservableObject {
     public static let shared = BackgroundFeedScheduler()
 
     #if os(iOS)
     /// Identifier registered in Info.plist under BGTaskSchedulerPermittedIdentifiers
     public static let backgroundTaskIdentifier = "io.github.zaryob.sift.refresh"
+    #endif
+
+    #if os(macOS)
+    private var macActivityScheduler: NSBackgroundActivityScheduler?
     #endif
 
     private var timerTask: Task<Void, Never>?
@@ -31,28 +36,64 @@ public final class BackgroundFeedScheduler: ObservableObject {
     }
 
     public func syncOnLaunch() {
-        print("[BackgroundFeedScheduler] Synchronizing background timers on launch...")
+        print("[BackgroundFeedScheduler] Synchronizing background timers and activity scheduler on launch...")
         scheduleNextRefresh()
     }
 
-    /// In-process timer that only keeps refreshing while the app is actually running
-    /// (foreground or briefly backgrounded). On iOS this is not sufficient once the app
-    /// is suspended or terminated — see scheduleAppRefresh() for the real background path.
+    /// Schedules periodic feed refreshes across platforms using sandbox-compliant APIs.
+    /// - On macOS: Runs in-process timer while active/in menu bar, plus NSBackgroundActivityScheduler.
+    /// - On iOS: Runs in-process timer while active, plus BGAppRefreshTask when backgrounded.
     public func scheduleNextRefresh() {
         timerTask?.cancel()
 
-        guard refreshIntervalMinutes > 0 else { return }
+        guard refreshIntervalMinutes > 0 else {
+            #if os(macOS)
+            macActivityScheduler?.invalidate()
+            macActivityScheduler = nil
+            #endif
+            return
+        }
 
         let interval = TimeInterval(refreshIntervalMinutes * 60)
 
+        // 1. In-process timer for when app is open or running in MenuBar
         timerTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
                 if Task.isCancelled { break }
-                print("Executing background feed refresh...")
+                print("[BackgroundFeedScheduler] Executing periodic feed refresh...")
                 await refreshService.refreshAllFeeds()
             }
         }
+
+        #if os(macOS)
+        // 2. Sandboxed native macOS scheduler (NSBackgroundActivityScheduler)
+        macActivityScheduler?.invalidate()
+        let scheduler = NSBackgroundActivityScheduler(identifier: "io.github.zaryob.sift.backgroundactivity")
+        scheduler.repeats = true
+        scheduler.interval = interval
+        scheduler.tolerance = max(60, interval / 4)
+        scheduler.qualityOfService = .utility
+        scheduler.schedule { [weak self] completion in
+            guard let self = self else {
+                completion(.finished)
+                return
+            }
+            if scheduler.shouldDefer {
+                completion(.deferred)
+                return
+            }
+            Task {
+                await self.refreshService.refreshAllFeeds()
+                await WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
+                await MainActor.run {
+                    WidgetCenter.shared.reloadAllTimelines()
+                }
+                completion(.finished)
+            }
+        }
+        self.macActivityScheduler = scheduler
+        #endif
     }
 
     #if os(iOS)
@@ -74,8 +115,8 @@ public final class BackgroundFeedScheduler: ObservableObject {
         // Immediately queue the next occurrence so the refresh cycle keeps going.
         scheduleAppRefresh()
         await refreshService.refreshAllFeeds()
+        await WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
         await MainActor.run {
-            WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
             WidgetCenter.shared.reloadAllTimelines()
         }
     }

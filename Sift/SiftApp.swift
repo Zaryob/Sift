@@ -17,10 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         // Register notification delegate immediately at app startup
         _ = NotificationManager.shared
-        NotificationManager.shared.requestAuthorization()
+        if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            NotificationManager.shared.requestAuthorization()
+        }
 
-        // Synchronize launchd background daemon and timers whenever a new app version or build runs
-        LaunchAgentManager.shared.syncOnLaunch()
+        // Synchronize background feed scheduler
         BackgroundFeedScheduler.shared.syncOnLaunch()
     }
 
@@ -61,16 +62,26 @@ struct SiftApp: App {
         #if os(macOS)
         if CommandLine.arguments.contains("--background-refresh") {
             Task {
-                let service = FeedRefreshService()
-                await service.refreshAllFeeds()
-                WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
-                WidgetCenter.shared.reloadAllTimelines()
+                do {
+                    let service = FeedRefreshService()
+                    await service.refreshAllFeeds()
+                    let context = await MainActor.run {
+                        PersistenceController.shared.container.mainContext
+                    }
+                    await WidgetSnapshotManager.shared.updateSnapshot(context: context)
+                    await MainActor.run {
+                        WidgetCenter.shared.reloadAllTimelines()
+                    }
+                }
                 exit(0)
             }
         }
-        #endif
+        #else
         _ = NotificationManager.shared
-        NotificationManager.shared.requestAuthorization()
+        if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            NotificationManager.shared.requestAuthorization()
+        }
+        #endif
     }
 
     var body: some Scene {
@@ -81,6 +92,7 @@ struct SiftApp: App {
         }
         .modelContainer(PersistenceController.shared.container)
         .defaultSize(width: 1100, height: 720)
+        .windowResizability(.contentSize)
         .windowToolbarStyle(.unified)
 
         Settings {

@@ -4,9 +4,12 @@ import SwiftData
 import Darwin
 #endif
 
-public final class WidgetSnapshotManager {
+/// Actor-isolated widget snapshot manager.
+/// Using `actor` guarantees that concurrent calls from FeedRefreshService,
+/// BackgroundFeedScheduler, and MainActor code can never corrupt the plist file.
+public actor WidgetSnapshotManager {
     public static let shared = WidgetSnapshotManager()
-    
+
     /// Standard generic macOS AppData directory: ~/Library/Application Support/Sift/
     public static var siftAppDataDirectory: URL {
         #if os(macOS)
@@ -35,20 +38,23 @@ public final class WidgetSnapshotManager {
     }
 
     public func updateSnapshot(context: ModelContext) {
-        let descriptor = FetchDescriptor<FeedItem>(
+        var descriptor = FetchDescriptor<FeedItem>(
             sortBy: [
                 SortDescriptor(\.publicationDate, order: .reverse),
                 SortDescriptor(\.discoveredDate, order: .reverse)
             ]
         )
-        
+        descriptor.fetchLimit = 10
+
         do {
-            var items: [FeedItem] = (try? context.fetch(descriptor)) ?? []
+            var items: [FeedItem] = try context.fetch(descriptor)
             if items.isEmpty {
-                items = (try? context.fetch(FetchDescriptor<FeedItem>())) ?? []
+                var fallbackDescriptor = FetchDescriptor<FeedItem>()
+                fallbackDescriptor.fetchLimit = 10
+                items = try context.fetch(fallbackDescriptor)
                 items.sort { $0.publicationDate > $1.publicationDate }
             }
-            
+
             let snapshots = items.prefix(10).map { item in
                 let rawText = (item.summary?.isEmpty == false ? item.summary : item.content)
                 let cleanedSnippet: String? = rawText.flatMap { text in
@@ -78,15 +84,15 @@ public final class WidgetSnapshotManager {
 
     public func saveSnapshots(_ snapshots: [ArticleSnapshot]) {
         guard !snapshots.isEmpty else { return }
-        
+
         // Encode using Apple's high-performance native binary PropertyList format
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
-        
+
         guard let data = try? encoder.encode(snapshots) else { return }
-        
+
         var targetURLs: [URL] = [Self.sharedCacheURL]
-        
+
         // Also write to container App Support as fallback
         let containerAppSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         if let containerSift = containerAppSupport?.appendingPathComponent("Sift", isDirectory: true) {
@@ -94,7 +100,7 @@ public final class WidgetSnapshotManager {
             targetURLs.append(containerSift.appendingPathComponent("widget_articles.plist"))
         }
 
-        // Also write to App Group if configured
+        // Also write to App Group (primary cross-process path)
         let appGroupID = PersistenceController.appGroupID
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             targetURLs.append(groupURL.appendingPathComponent("widget_articles.plist"))
@@ -107,16 +113,19 @@ public final class WidgetSnapshotManager {
     }
 
     public static func loadSnapshots() -> [ArticleSnapshot] {
-        var candidateURLs: [URL] = [sharedCacheURL]
-        
-        let containerAppSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        if let containerSift = containerAppSupport?.appendingPathComponent("Sift", isDirectory: true) {
-            candidateURLs.append(containerSift.appendingPathComponent("widget_articles.plist"))
-        }
+        var candidateURLs: [URL] = []
 
+        // Prefer App Group first — it's the standard cross-process path
         let appGroupID = PersistenceController.appGroupID
         if let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) {
             candidateURLs.append(groupURL.appendingPathComponent("widget_articles.plist"))
+        }
+
+        candidateURLs.append(sharedCacheURL)
+
+        let containerAppSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        if let containerSift = containerAppSupport?.appendingPathComponent("Sift", isDirectory: true) {
+            candidateURLs.append(containerSift.appendingPathComponent("widget_articles.plist"))
         }
 
         let plistDecoder = PropertyListDecoder()
