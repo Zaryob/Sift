@@ -60,10 +60,17 @@ struct SiftApp: App {
         #if os(macOS)
         if CommandLine.arguments.contains("--background-refresh") {
             Task {
-                let service = FeedRefreshService()
-                await service.refreshAllFeeds()
-                WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
-                WidgetCenter.shared.reloadAllTimelines()
+                do {
+                    let service = FeedRefreshService()
+                    await service.refreshAllFeeds()
+                    let context = await MainActor.run {
+                        PersistenceController.shared.container.mainContext
+                    }
+                    await WidgetSnapshotManager.shared.updateSnapshot(context: context)
+                    await MainActor.run {
+                        WidgetCenter.shared.reloadAllTimelines()
+                    }
+                }
                 exit(0)
             }
         }

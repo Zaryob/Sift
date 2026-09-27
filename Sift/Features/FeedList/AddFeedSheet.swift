@@ -536,12 +536,14 @@ struct AddFeedSheet: View {
     private func confirmSubscription() {
         guard let preview = selectedPreview else { return }
         isSubscribing = true
-        do {
-            try viewModel.subscribe(to: preview, folder: selectedFolder, context: modelContext)
-            dismiss()
-        } catch {
-            inlineErrorMessage = error.localizedDescription
-            isSubscribing = false
+        Task {
+            do {
+                try await viewModel.subscribe(to: preview, folder: selectedFolder, context: modelContext)
+                dismiss()
+            } catch {
+                inlineErrorMessage = error.localizedDescription
+                isSubscribing = false
+            }
         }
     }
 

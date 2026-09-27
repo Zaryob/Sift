@@ -106,8 +106,10 @@ public actor FeedRefreshService {
             }
 
             // Update Widget snapshot and notify WidgetKit for every feed check
-            WidgetSnapshotManager.shared.updateSnapshot(context: context)
-            WidgetCenter.shared.reloadAllTimelines()
+            await WidgetSnapshotManager.shared.updateSnapshot(context: context)
+            await MainActor.run {
+                WidgetCenter.shared.reloadAllTimelines()
+            }
             refreshBadge(context: context)
 
         } catch {
@@ -149,8 +151,10 @@ public actor FeedRefreshService {
         }
 
         // Final snapshot update after all feeds finish refreshing
-        WidgetSnapshotManager.shared.updateSnapshot(context: context)
-        WidgetCenter.shared.reloadAllTimelines()
+        await WidgetSnapshotManager.shared.updateSnapshot(context: context)
+        await MainActor.run {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
         refreshBadge(context: context)
 
         // Automatically prune expired articles according to user retention setting (default 30 days)

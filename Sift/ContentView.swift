@@ -129,18 +129,26 @@ struct ContentView: View {
                 isShowingOnboarding = true
             }
             NotificationManager.shared.updateBadgeCount(unreadItems.count)
-            DispatchQueue.main.async {
-                WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
+            Task {
+                await WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
                 WidgetCenter.shared.reloadAllTimelines()
-                viewModel.refreshAllFeeds(context: modelContext)
+
+                // Check if last refreshed recently (within 5 minutes) before triggering auto-refresh on appear
+                let shouldRefresh: Bool
+                if let last = viewModel.lastRefreshedAt {
+                    shouldRefresh = Date().timeIntervalSince(last) > 300
+                } else {
+                    shouldRefresh = true
+                }
+                if shouldRefresh {
+                    viewModel.refreshAllFeeds(context: modelContext)
+                }
 
                 #if os(macOS)
                 if let pending = AppDelegate.pendingURL {
                     AppDelegate.pendingURL = nil
                     if pending.isFileURL {
-                        Task {
-                            await viewModel.importOPMLFile(at: pending, context: modelContext)
-                        }
+                        await viewModel.importOPMLFile(at: pending, context: modelContext)
                     } else {
                         viewModel.handleDeepLink(pending, context: modelContext)
                     }
@@ -150,6 +158,10 @@ struct ContentView: View {
         }
         .onChange(of: unreadItems.count) { _, newCount in
             NotificationManager.shared.updateBadgeCount(newCount)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PersistenceController.storeFailedNotification)) { _ in
+            viewModel.errorMessage = String(localized: "Sift could not open its database and is running in temporary mode. Your subscriptions are safe — please restart the app.")
+            viewModel.showErrorAlert = true
         }
     }
 

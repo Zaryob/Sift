@@ -6,6 +6,7 @@ import WidgetKit
 import BackgroundTasks
 #endif
 
+@MainActor
 public final class BackgroundFeedScheduler: ObservableObject {
     public static let shared = BackgroundFeedScheduler()
 
@@ -84,8 +85,8 @@ public final class BackgroundFeedScheduler: ObservableObject {
             }
             Task {
                 await self.refreshService.refreshAllFeeds()
+                await WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
                 await MainActor.run {
-                    WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
                     WidgetCenter.shared.reloadAllTimelines()
                 }
                 completion(.finished)
@@ -102,18 +103,10 @@ public final class BackgroundFeedScheduler: ObservableObject {
         guard refreshIntervalMinutes > 0 else { return }
         let request = BGAppRefreshTaskRequest(identifier: Self.backgroundTaskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: TimeInterval(refreshIntervalMinutes * 60))
-        if #available(iOS 27.0, *) {
-            BGTaskScheduler.shared.submitTaskRequest(request) { error in
-                if let error = error {
-                    print("[BackgroundFeedScheduler] Failed to schedule BGAppRefreshTask: \(error)")
-                }
-            }
-        } else {
-            do {
-                try BGTaskScheduler.shared.submit(request)
-            } catch {
-                print("[BackgroundFeedScheduler] Failed to schedule BGAppRefreshTask: \(error)")
-            }
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("[BackgroundFeedScheduler] Failed to schedule BGAppRefreshTask: \(error)")
         }
     }
 
@@ -122,8 +115,8 @@ public final class BackgroundFeedScheduler: ObservableObject {
         // Immediately queue the next occurrence so the refresh cycle keeps going.
         scheduleAppRefresh()
         await refreshService.refreshAllFeeds()
+        await WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
         await MainActor.run {
-            WidgetSnapshotManager.shared.updateSnapshot(context: PersistenceController.shared.container.mainContext)
             WidgetCenter.shared.reloadAllTimelines()
         }
     }
