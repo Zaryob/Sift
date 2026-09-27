@@ -15,6 +15,12 @@ private struct GeneratedArticleDigest {
 
     @Guide(description: "Short topic labels for the article.", .maximumCount(4))
     let topics: [String]
+
+    @Guide(
+        description: "Zero-based IDs of blocks that are promotional boilerplate, subscription requests, product pitches, social-media calls to action, or unrelated recommendations.",
+        .maximumCount(12)
+    )
+    let irrelevantBlockIDs: [Int]
 }
 #endif
 
@@ -27,13 +33,14 @@ public final class ArticleIntelligenceService: ObservableObject {
     @Published public private(set) var activeModelKind: IntelligenceModelKind?
     @Published public private(set) var latestBriefing: String?
 
-    private static let articlePromptVersion = 2
+    private static let articlePromptVersion = 3
     private static let briefingPromptVersion = 1
 
     private init() {}
 
     public func summarize(article: FeedItem, context: ModelContext) async -> IntelligenceOutput {
-        let content = preferredContent(for: article)
+        let blocks = preferredBlocks(for: article)
+        let content = blocks.joined(separator: "\n")
         let contentHash = Self.contentHash(title: article.title, content: content)
 
         // A persisted result is authoritative for this prompt version. Full-text extraction
@@ -45,16 +52,22 @@ public final class ArticleIntelligenceService: ObservableObject {
                 text: cached.summary,
                 keyPoints: cached.keyPoints ?? [],
                 topics: cached.topics ?? [],
+                irrelevantBlockIDs: cached.irrelevantBlockIDs ?? [],
                 modelKind: cached.modelKind,
                 isCached: true
             )
         }
 
-        let generated = await generateSummary(title: article.title, content: content)
+        let generated = await generateSummary(
+            title: article.title,
+            content: content,
+            indexedBlocks: blocks
+        )
         let result = ArticleIntelligenceResult(
             summary: generated.text,
             keyPoints: generated.keyPoints,
             topics: generated.topics,
+            irrelevantBlockIDs: generated.irrelevantBlockIDs,
             modelKind: generated.modelKind,
             sourceContentHash: contentHash,
             promptVersion: Self.articlePromptVersion,
@@ -67,7 +80,7 @@ public final class ArticleIntelligenceService: ObservableObject {
 
     /// Compatibility path for callers that don't have a persisted article.
     public func summarize(title: String, content: String) async -> String {
-        await generateSummary(title: title, content: content).text
+        await generateSummary(title: title, content: content, indexedBlocks: [content]).text
     }
 
     public func generateBriefing(
@@ -261,20 +274,31 @@ public final class ArticleIntelligenceService: ObservableObject {
         try? context.save()
     }
 
-    private func generateSummary(title: String, content: String) async -> IntelligenceOutput {
+    private func generateSummary(
+        title: String,
+        content: String,
+        indexedBlocks: [String]
+    ) async -> IntelligenceOutput {
         isGenerating = true
         defer { isGenerating = false }
 
         let cleanContent = HTMLSanitizer.stripTags(from: content)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let sample = String(cleanContent.prefix(4_000))
+        let blockSample = indexedBlocks.enumerated()
+            .map { "[BLOCK \($0.offset)] \($0.element)" }
+            .joined(separator: "\n")
 
         let prompt = """
         Provide a 2 to 3 sentence spoken executive summary of this article.
         Use only the supplied article. Preserve key facts, names, numbers, and dates.
+        Also identify only blocks that are clearly unrelated promotional or publisher
+        boilerplate. Do not mark reporting, quotations, captions, or factual article text.
 
         Title: \(title)
         Content: \(sample)
+        Numbered blocks:
+        \(blockSample.prefix(6_000))
         """
 
         #if canImport(FoundationModels)
@@ -326,6 +350,7 @@ public final class ArticleIntelligenceService: ObservableObject {
                         text: response.content.summary,
                         keyPoints: response.content.keyPoints,
                         topics: response.content.topics,
+                        irrelevantBlockIDs: response.content.irrelevantBlockIDs,
                         modelKind: .privateCloudCompute,
                         isCached: false
                     )
@@ -346,6 +371,7 @@ public final class ArticleIntelligenceService: ObservableObject {
                 text: response.content.summary,
                 keyPoints: response.content.keyPoints,
                 topics: response.content.topics,
+                irrelevantBlockIDs: response.content.irrelevantBlockIDs,
                 modelKind: .onDevice,
                 isCached: false
             )
@@ -406,6 +432,15 @@ public final class ArticleIntelligenceService: ObservableObject {
             }
         }
         return article.content ?? article.summary ?? article.snippet ?? ""
+    }
+
+    private func preferredBlocks(for article: FeedItem) -> [String] {
+        if let extracted = article.extractedArticle, !extracted.blocks.isEmpty {
+            return extracted.blocks.map(\.text)
+        }
+        let content = article.content ?? article.summary ?? article.snippet ?? ""
+        let paragraphs = HTMLSanitizer.paragraphs(from: content)
+        return paragraphs.isEmpty ? [content] : paragraphs
     }
 
     private static func contentHash(title: String, content: String) -> String {

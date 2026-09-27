@@ -26,6 +26,7 @@ public final class ArticleIntelligenceResult {
     // attributes existed can be migrated without inventing mandatory values.
     public var keyPoints: [String]?
     public var topics: [String]?
+    public var irrelevantBlockIDs: [Int]?
     public var modelKindRawValue: String
     public var sourceContentHash: String
     public var promptVersion: Int
@@ -37,6 +38,7 @@ public final class ArticleIntelligenceResult {
         summary: String,
         keyPoints: [String] = [],
         topics: [String] = [],
+        irrelevantBlockIDs: [Int] = [],
         modelKind: IntelligenceModelKind,
         sourceContentHash: String,
         promptVersion: Int,
@@ -47,6 +49,7 @@ public final class ArticleIntelligenceResult {
         self.summary = summary
         self.keyPoints = keyPoints
         self.topics = topics
+        self.irrelevantBlockIDs = irrelevantBlockIDs
         self.modelKindRawValue = modelKind.rawValue
         self.sourceContentHash = sourceContentHash
         self.promptVersion = promptVersion
@@ -96,6 +99,7 @@ public struct IntelligenceOutput: Sendable {
     public let text: String
     public let keyPoints: [String]
     public let topics: [String]
+    public let irrelevantBlockIDs: [Int]
     public let modelKind: IntelligenceModelKind
     public let isCached: Bool
 
@@ -103,12 +107,14 @@ public struct IntelligenceOutput: Sendable {
         text: String,
         keyPoints: [String] = [],
         topics: [String] = [],
+        irrelevantBlockIDs: [Int] = [],
         modelKind: IntelligenceModelKind,
         isCached: Bool
     ) {
         self.text = text
         self.keyPoints = keyPoints
         self.topics = topics
+        self.irrelevantBlockIDs = irrelevantBlockIDs
         self.modelKind = modelKind
         self.isCached = isCached
     }

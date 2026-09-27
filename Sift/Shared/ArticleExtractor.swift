@@ -94,6 +94,18 @@ nonisolated public enum ArticleExtractor {
         pattern: #"<input[^>]*name=[\"']Description[\"'][^>]*value=\"([\s\S]*?)\"[^>]*>"#,
         options: .caseInsensitive
     )
+    private static let jsonLDArticleBodyRegex = try! NSRegularExpression(
+        pattern: #"\"articleBody\"\s*:\s*\"((?:\\.|[^\"\\])*)\""#,
+        options: .caseInsensitive
+    )
+    private static let embeddedJSONScriptRegex = try! NSRegularExpression(
+        pattern: #"<script\b([^>]*)>([\s\S]*?)</script>"#,
+        options: .caseInsensitive
+    )
+    private static let ampLinkRegex = try! NSRegularExpression(
+        pattern: #"<link[^>]+rel=[\"']amphtml[\"'][^>]+href=[\"']([^\"']+)[\"']|<link[^>]+href=[\"']([^\"']+)[\"'][^>]+rel=[\"']amphtml[\"']"#,
+        options: .caseInsensitive
+    )
 
     nonisolated public static func fetch(url: URL, summary: String?) async throws -> ExtractedArticle {
         var request = URLRequest(url: url, timeoutInterval: 20)
@@ -108,18 +120,49 @@ nonisolated public enum ArticleExtractor {
         guard let html = decode(data, response: http) else {
             throw ArticleExtractionError.unsupportedTextEncoding
         }
-        guard let article = extract(html: html, baseURL: http.url ?? url, summary: summary) else {
-            throw ArticleExtractionError.noReadableContent
+        let responseURL = http.url ?? url
+        if let article = extract(html: html, baseURL: responseURL, summary: summary) {
+            return article
         }
-        return article
+
+        // Some JavaScript-heavy publishers keep the readable markup only on their AMP page.
+        if let ampURL = ampURL(in: html, baseURL: responseURL), ampURL != responseURL {
+            var ampRequest = URLRequest(url: ampURL, timeoutInterval: 20)
+            ampRequest.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            if let (ampData, ampResponse) = try? await URLSession.shared.data(for: ampRequest),
+               let ampHTTP = ampResponse as? HTTPURLResponse,
+               (200..<300).contains(ampHTTP.statusCode),
+               let ampHTML = decode(ampData, response: ampHTTP),
+               let article = extract(
+                   html: ampHTML,
+                   baseURL: ampHTTP.url ?? ampURL,
+                   summary: summary
+               ) {
+                return article
+            }
+        }
+
+        throw ArticleExtractionError.noReadableContent
     }
 
     public static func extract(html rawHTML: String, baseURL: URL, summary: String?) -> ExtractedArticle? {
         let html = rawHTML.replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
         // Some publishers place the article body as entity-encoded HTML in a
         // hidden Description field instead of rendering paragraph tags directly.
-        let articleHTML = embeddedArticleHTML(in: html) ?? html
-        let blocks = scanBlocks(in: articleHTML)
+        let articleHTML = embeddedArticleHTML(in: html)
+        let blocks: [ScannedBlock]
+        if let articleHTML {
+            blocks = scanBlocks(in: articleHTML)
+        } else if let articleBody = embeddedStructuredArticleBody(in: html) ?? embeddedArticleBody(in: html) {
+            blocks = [
+                ScannedBlock(
+                    block: .init(kind: .paragraph, text: articleBody),
+                    gapBefore: 0
+                )
+            ]
+        } else {
+            blocks = scanBlocks(in: html)
+        }
         guard !blocks.isEmpty else { return nil }
 
         let runs = splitIntoRuns(blocks)
@@ -363,6 +406,127 @@ nonisolated public enum ArticleExtractor {
         let encoded = ns.substring(with: match.range(at: 1))
         let decoded = HTMLSanitizer.decodeEntities(encoded)
         return decoded.contains("<p") ? decoded : nil
+    }
+
+    private static func embeddedArticleBody(in html: String) -> String? {
+        let ns = html as NSString
+        guard let match = jsonLDArticleBodyRegex.firstMatch(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ), match.range(at: 1).location != NSNotFound else {
+            return nil
+        }
+
+        let escapedBody = ns.substring(with: match.range(at: 1))
+        guard let json = "\"\(escapedBody)\"".data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(String.self, from: json) else {
+            return nil
+        }
+
+        let text = HTMLSanitizer.normalizeWhitespace(
+            HTMLSanitizer.stripTags(from: HTMLSanitizer.decodeEntities(decoded))
+        )
+        return text.isEmpty ? nil : text
+    }
+
+    /// Reads schema.org JSON-LD (including nested @graph nodes) and the serialized
+    /// application state emitted by Next.js/Nuxt sites.
+    private static func embeddedStructuredArticleBody(in html: String) -> String? {
+        let ns = html as NSString
+        var candidates: [(priority: Int, text: String)] = []
+
+        for match in embeddedJSONScriptRegex.matches(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ) {
+            let attributes = ns.substring(with: match.range(at: 1)).lowercased()
+            let isJSONLD = attributes.contains("application/ld+json")
+            let isApplicationState = attributes.contains("__next_data__")
+                || attributes.contains("__nuxt_data__")
+                || attributes.contains("__nuxt__")
+            guard isJSONLD || isApplicationState else { continue }
+
+            let source = HTMLSanitizer.decodeEntities(ns.substring(with: match.range(at: 2)))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let data = source.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) else {
+                continue
+            }
+            collectArticleText(
+                from: object,
+                isJSONLD: isJSONLD,
+                candidates: &candidates
+            )
+        }
+
+        return candidates
+            .filter { $0.text.split(whereSeparator: \.isWhitespace).count >= minimumWordCount }
+            .max {
+                if $0.priority != $1.priority { return $0.priority < $1.priority }
+                return $0.text.count < $1.text.count
+            }?
+            .text
+    }
+
+    private static func collectArticleText(
+        from value: Any,
+        isJSONLD: Bool,
+        candidates: inout [(priority: Int, text: String)]
+    ) {
+        if let dictionary = value as? [String: Any] {
+            for (key, child) in dictionary {
+                let normalizedKey = key.lowercased()
+                    .filter { $0.isLetter || $0.isNumber }
+                if let string = child as? String {
+                    let priority: Int?
+                    switch normalizedKey {
+                    case "articlebody":
+                        priority = 100
+                    case "articlecontent", "storybody", "bodytext":
+                        priority = 90
+                    case "body", "text":
+                        priority = isJSONLD ? 80 : 60
+                    case "content":
+                        priority = isJSONLD ? 70 : 50
+                    case "description":
+                        priority = isJSONLD ? 40 : nil
+                    default:
+                        priority = nil
+                    }
+                    if let priority {
+                        let text = HTMLSanitizer.normalizeWhitespace(
+                            HTMLSanitizer.stripTags(
+                                from: HTMLSanitizer.decodeEntities(string)
+                            )
+                        )
+                        if !text.isEmpty {
+                            candidates.append((priority, text))
+                        }
+                    }
+                }
+                collectArticleText(from: child, isJSONLD: isJSONLD, candidates: &candidates)
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                collectArticleText(from: child, isJSONLD: isJSONLD, candidates: &candidates)
+            }
+        }
+    }
+
+    private static func ampURL(in html: String, baseURL: URL) -> URL? {
+        let ns = html as NSString
+        guard let match = ampLinkRegex.firstMatch(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ) else {
+            return nil
+        }
+        let range = match.range(at: 1).location != NSNotFound
+            ? match.range(at: 1)
+            : match.range(at: 2)
+        guard range.location != NSNotFound else { return nil }
+        let value = HTMLSanitizer.decodeEntities(ns.substring(with: range))
+        return URL(string: value, relativeTo: baseURL)?.absoluteURL
     }
 
     private static func decode(_ data: Data, response: HTTPURLResponse) -> String? {

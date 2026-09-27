@@ -501,22 +501,32 @@ struct AISummaryCard: View {
     @State private var isLoading: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                Label("Apple Intelligence Summary", systemImage: "sparkles")
-                    .font(.system(size: 11.5, weight: .bold))
+                Image(systemName: "apple.intelligence")
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.siftAccent)
-                    .textCase(.uppercase)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Apple Intelligence")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(textColor)
+                    Text("Summary")
+                        .font(.caption)
+                        .foregroundStyle(secondaryColor)
+                }
 
                 Spacer()
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(secondaryColor)
-                        .padding(4)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
             }
 
             if isLoading {
@@ -529,8 +539,8 @@ struct AISummaryCard: View {
                 .padding(.vertical, 6)
             } else if let summaryText {
                 Text(summaryText)
-                    .font(.system(size: 14))
-                    .lineSpacing(4)
+                    .font(.body)
+                    .lineSpacing(5)
                     .foregroundStyle(textColor)
 
                 AISummaryDetailsView(
@@ -547,14 +557,15 @@ struct AISummaryCard: View {
                 }
             }
         }
-        .padding(14)
-        .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.siftAccent.opacity(0.08))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.siftAccent.opacity(0.25), lineWidth: 1)
-                }
+        .padding(18)
+        .glassEffect(
+            .regular.tint(Color.siftAccent.opacity(0.13)),
+            in: .rect(cornerRadius: 24)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 0.75)
+                .allowsHitTesting(false)
         }
         .task {
             guard summaryText == nil else { return }
@@ -899,13 +910,19 @@ struct ArticleBodyContentView: View {
         return HTMLSanitizer.paragraphs(from: article.content ?? article.summary ?? "")
     }
 
+    private var irrelevantBlockIDs: Set<Int> {
+        let latest = article.intelligenceResults.max { $0.generatedAt < $1.generatedAt }
+        return Set(latest?.irrelevantBlockIDs ?? [])
+    }
+
     var body: some View {
         let spacing = readerFontSize * 0.75
         if let extracted = article.extractedArticle {
             VStack(alignment: .leading, spacing: spacing) {
-                ForEach(extracted.blocks, id: \.self) { block in
-                    ArticleBlockRowView(
+                ForEach(Array(extracted.blocks.enumerated()), id: \.offset) { index, block in
+                    FilterableArticleBlockView(
                         block: block,
+                        isIrrelevant: irrelevantBlockIDs.contains(index),
                         readerFontSize: readerFontSize,
                         fontDesign: fontDesign,
                         lineSpacingMultiplier: lineSpacingMultiplier,
@@ -943,6 +960,93 @@ struct ArticleBodyContentView: View {
                 cachedParagraphs = HTMLSanitizer.paragraphs(from: article.content ?? article.summary ?? "")
             }
         }
+    }
+}
+
+private struct FilterableArticleBlockView: View {
+    let block: ExtractedArticle.Block
+    let isIrrelevant: Bool
+    let readerFontSize: Double
+    let fontDesign: Font.Design
+    let lineSpacingMultiplier: CGFloat
+    let textColor: Color
+    let secondaryTextColor: Color
+
+    @State private var isRevealed = false
+
+    var body: some View {
+        if isIrrelevant && !isRevealed {
+            Button {
+                withAnimation(.smooth(duration: 0.35)) {
+                    isRevealed = true
+                }
+            } label: {
+                IrrelevantContentBand()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Promotional content hidden. Double-tap to reveal.")
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                ArticleBlockRowView(
+                    block: block,
+                    readerFontSize: readerFontSize,
+                    fontDesign: fontDesign,
+                    lineSpacingMultiplier: lineSpacingMultiplier,
+                    textColor: textColor,
+                    secondaryTextColor: secondaryTextColor
+                )
+
+                if isIrrelevant {
+                    Button("Hide promotional content") {
+                        withAnimation(.smooth(duration: 0.3)) {
+                            isRevealed = false
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(secondaryTextColor)
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+private struct IrrelevantContentBand: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "scribble.variable")
+                .font(.system(size: 16, weight: .semibold))
+
+            Text("Promotional content hidden")
+                .font(.subheadline.weight(.medium))
+
+            Spacer()
+
+            Image(systemName: "eye")
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(.white.opacity(0.82))
+        .padding(.horizontal, 14)
+        .frame(minHeight: 48)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.82),
+                            Color.siftAccent.opacity(0.34),
+                            Color.black.opacity(0.76)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.white.opacity(0.14), lineWidth: 0.75)
+                }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
