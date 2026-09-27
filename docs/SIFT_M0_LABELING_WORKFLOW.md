@@ -86,7 +86,7 @@ an independent holdout.
 
 The current local seed is `tools/local/sift-m0-agent-labeled-seed.jsonl`; exploratory
 reports are in `tools/local/sift-m0-seed-threshold-sweep*.json` and
-`tools/local/sift-m0-multilingual-seed-report.json`. These files are intentionally
+`tools/local/sift-m0-multilingual-*-report.json`. These files are intentionally
 excluded through the checkout-local `.git/info/exclude` and are not part of a commit.
 The seed now has 54 records from 29 publishers across Turkish (30), English (12),
 German (4), Spanish (4), and French (4), grouped into 17 provisional story IDs.
@@ -107,12 +107,21 @@ rows; the 12 English rows needed no translation. The run took about 102 seconds 
 54 rows on the recorded Mac16,1 / macOS 27.0 machine (about 1.9 seconds per article).
 These are silver-set diagnostics only: the threshold was not independently chosen,
 the labels were agent-created, and this is not an M0 pass. In particular, the seed
-shows that the current cross-language approach misses some clear matches and that
-per-article Translation latency needs work. Keep the failing multilingual cases as
-regression examples; test batching/caching and representation changes against the
-same private seed, then validate the decision on human-reviewed calibration and
-holdout data before making a quality claim. Do not require a person to label hundreds
-of articles before implementation work can proceed.
+shows that the current cross-language approach misses some clear matches. A follow-up
+`m0-spike-3` pass now reuses one TranslationSession per installed source/target pair
+and submits requests in batches of at most 12. Apple's API recommends batching, but
+this local run took 103.3 seconds versus 102.0 seconds for `m0-spike-2`; all 54
+predicted assignments and the pairwise metrics were identical. Treat this as a
+maintainability/API-shape improvement, not a measured speedup. Both runs translated
+every eligible row from scratch, unlike the intended incremental app pipeline.
+
+Next: cache derived analysis per article content hash and pipeline/model version,
+reprocess only new or changed items, and retain recent cluster centroids for candidate
+matching. Keep the failing multilingual cases as regression examples. The silver set
+can guide implementation, but M0's accuracy gate still needs an independently
+reviewed calibration/holdout set; the product owner should not have to label hundreds
+of articles. Until then, run M1 in shadow mode and do not make story clustering the
+default reading experience.
 
 ## Who supplies the labels
 

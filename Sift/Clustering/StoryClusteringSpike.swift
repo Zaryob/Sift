@@ -64,7 +64,7 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-2"
+    public static let pipelineVersion = "m0-spike-3"
 
     public enum TranslationStrategy: String, Sendable {
         case lowLatency
@@ -84,6 +84,16 @@ public actor StoryClusteringSpike {
         var memberCount: Int
         var publisherKeys: Set<String>
         var lastUpdatedAt: Date
+    }
+
+    private struct PreparedArticle {
+        let article: StoryClusteringArticle
+        let startedAt: ContinuousClock.Instant
+        let sourceText: String
+        let detectedLanguage: String?
+        var normalizedText: String?
+        var translationReadiness: String
+        var failure: StoryClusteringReadiness?
     }
 
     public init() {}
@@ -137,69 +147,106 @@ public actor StoryClusteringSpike {
         }
         defer { model.unload() }
 
+        let sortedArticles = articles.sorted(by: {
+            if $0.publishedAt == $1.publishedAt { return $0.id.uuidString < $1.id.uuidString }
+            return $0.publishedAt < $1.publishedAt
+        })
+        var preparedByID: [UUID: PreparedArticle] = [:]
+        var translationGroups: [String: [UUID]] = [:]
+
+        for article in sortedArticles {
+            let start = ContinuousClock.now
+            let sourceText = Self.analysisText(for: article)
+            let wordCount = sourceText.split(whereSeparator: \.isWhitespace).count
+            let detectedLanguage = wordCount >= 8 ? Self.detectLanguage(in: sourceText) : nil
+            let failure: StoryClusteringReadiness? = wordCount < 8
+                ? .insufficientText
+                : (detectedLanguage == nil ? .unsupportedLanguage : nil)
+            let needsTranslation = detectedLanguage != nil && detectedLanguage != analysisLocale
+            preparedByID[article.id] = PreparedArticle(
+                article: article,
+                startedAt: start,
+                sourceText: sourceText,
+                detectedLanguage: detectedLanguage,
+                normalizedText: needsTranslation || failure != nil ? nil : sourceText,
+                translationReadiness: needsTranslation ? "pending" : (failure == nil ? "notNeeded" : "unsupported"),
+                failure: failure
+            )
+            if let detectedLanguage, needsTranslation {
+                translationGroups[detectedLanguage, default: []].append(article.id)
+            }
+        }
+
+        let availability = LanguageAvailability()
+        for sourceLanguageCode in translationGroups.keys.sorted() {
+            let articleIDs = translationGroups[sourceLanguageCode] ?? []
+            let sourceLanguage = Locale.Language(identifier: sourceLanguageCode)
+            let status = await availability.status(from: sourceLanguage, to: targetLanguage)
+            guard status == .installed else {
+                let readiness: StoryClusteringReadiness = status == .supported
+                    ? .translationNotInstalled
+                    : .unsupportedLanguage
+                for articleID in articleIDs {
+                    preparedByID[articleID]?.translationReadiness = status == .supported
+                        ? "waitingForAsset"
+                        : "unsupported"
+                    preparedByID[articleID]?.failure = readiness
+                }
+                continue
+            }
+
+            let session = TranslationSession(
+                installedSource: sourceLanguage,
+                target: targetLanguage,
+                preferredStrategy: translationStrategy.frameworkValue
+            )
+            // TranslationSession can translate many same-language requests in one
+            // batch. Keep chunks bounded so a large feed cannot create one huge
+            // request while still amortizing session and framework overhead.
+            for chunkStart in stride(from: 0, to: articleIDs.count, by: 12) {
+                let chunk = Array(articleIDs[chunkStart..<min(chunkStart + 12, articleIDs.count)])
+                let requests = chunk.compactMap { articleID -> TranslationSession.Request? in
+                    guard let prepared = preparedByID[articleID] else { return nil }
+                    return TranslationSession.Request(
+                        sourceText: prepared.sourceText,
+                        clientIdentifier: articleID.uuidString
+                    )
+                }
+                do {
+                    let responses = try await session.translations(from: requests)
+                    for (articleID, response) in zip(chunk, responses) {
+                        preparedByID[articleID]?.normalizedText = response.targetText
+                        preparedByID[articleID]?.translationReadiness = "installed"
+                    }
+                } catch {
+                    for articleID in chunk {
+                        preparedByID[articleID]?.translationReadiness = "installed"
+                        preparedByID[articleID]?.failure = .processingFailed
+                    }
+                }
+            }
+        }
+
         var clusters: [CandidateCluster] = []
         var assignments: [StoryClusteringAssignment] = []
 
-        for article in articles.sorted(by: {
-            if $0.publishedAt == $1.publishedAt { return $0.id.uuidString < $1.id.uuidString }
-            return $0.publishedAt < $1.publishedAt
-        }) {
-            let start = ContinuousClock.now
-            let sourceText = Self.analysisText(for: article)
-            guard sourceText.split(whereSeparator: \.isWhitespace).count >= 8 else {
+        for article in sortedArticles {
+            guard let prepared = preparedByID[article.id] else { continue }
+            if let failure = prepared.failure {
                 assignments.append(Self.assignment(
                     article: article,
                     clusterID: nil,
-                    language: nil,
-                    translationReadiness: "notAttempted",
-                    readiness: .insufficientText,
-                    similarity: nil,
-                    publisherCount: 0,
-                    startedAt: start
-                ))
-                continue
-            }
-
-            let detectedLanguage = Self.detectLanguage(in: sourceText)
-            guard let detectedLanguage else {
-                assignments.append(Self.assignment(
-                    article: article,
-                    clusterID: nil,
-                    language: nil,
-                    translationReadiness: "unsupported",
-                    readiness: .unsupportedLanguage,
-                    similarity: nil,
-                    publisherCount: 0,
-                    startedAt: start
-                ))
-                continue
-            }
-
-            let normalized: (text: String, readiness: String, failure: StoryClusteringReadiness?)
-            if detectedLanguage == analysisLocale {
-                normalized = (sourceText, "notNeeded", nil)
-            } else {
-                normalized = await translateIfInstalled(
-                    sourceText,
-                    sourceLanguage: Locale.Language(identifier: detectedLanguage),
-                    targetLanguage: targetLanguage,
-                    strategy: translationStrategy
-                )
-            }
-
-            if let failure = normalized.failure {
-                assignments.append(Self.assignment(
-                    article: article,
-                    clusterID: nil,
-                    language: detectedLanguage,
-                    translationReadiness: normalized.readiness,
+                    language: prepared.detectedLanguage,
+                    translationReadiness: prepared.translationReadiness,
                     readiness: failure,
                     similarity: nil,
                     publisherCount: 0,
-                    startedAt: start
+                    startedAt: prepared.startedAt
                 ))
                 continue
             }
+            guard let normalizedText = prepared.normalizedText,
+                  let detectedLanguage = prepared.detectedLanguage else { continue }
 
             let vector: [Double]?
             if detectedLanguage == analysisLocale {
@@ -210,7 +257,7 @@ public actor StoryClusteringSpike {
                 )
             } else {
                 vector = Self.meanPooledVector(
-                    for: normalized.text,
+                    for: normalizedText,
                     language: targetNaturalLanguage,
                     model: model
                 )
@@ -220,11 +267,11 @@ public actor StoryClusteringSpike {
                     article: article,
                     clusterID: nil,
                     language: detectedLanguage,
-                    translationReadiness: normalized.readiness,
+                    translationReadiness: prepared.translationReadiness,
                     readiness: .embeddingUnavailable,
                     similarity: nil,
                     publisherCount: 0,
-                    startedAt: start
+                    startedAt: prepared.startedAt
                 ))
                 continue
             }
@@ -276,12 +323,12 @@ public actor StoryClusteringSpike {
             assignments.append(Self.assignment(
                 article: article,
                 clusterID: clusterID,
-                language: detectedLanguage,
-                translationReadiness: normalized.readiness,
+                language: prepared.detectedLanguage,
+                translationReadiness: prepared.translationReadiness,
                 readiness: .ready,
                 similarity: similarity,
                 publisherCount: clusters[clusterIndex].publisherKeys.count,
-                startedAt: start
+                startedAt: prepared.startedAt
             ))
         }
 
@@ -378,34 +425,6 @@ public actor StoryClusteringSpike {
         candidateWindow: TimeInterval
     ) -> Bool {
         articleTime.timeIntervalSince(clusterTime) > candidateWindow
-    }
-
-    private func translateIfInstalled(
-        _ text: String,
-        sourceLanguage: Locale.Language,
-        targetLanguage: Locale.Language,
-        strategy: TranslationStrategy
-    ) async -> (text: String, readiness: String, failure: StoryClusteringReadiness?) {
-        let availability = LanguageAvailability()
-        let status = await availability.status(from: sourceLanguage, to: targetLanguage)
-        guard status == .installed else {
-            return (
-                text,
-                status == .supported ? "waitingForAsset" : "unsupported",
-                status == .supported ? .translationNotInstalled : .unsupportedLanguage
-            )
-        }
-
-        do {
-            let session = TranslationSession(
-                installedSource: sourceLanguage,
-                target: targetLanguage,
-                preferredStrategy: strategy.frameworkValue
-            )
-            return (try await session.translate(text).targetText, "installed", nil)
-        } catch {
-            return (text, "installed", .processingFailed)
-        }
     }
 
     private static func detectLanguage(in text: String) -> String? {
