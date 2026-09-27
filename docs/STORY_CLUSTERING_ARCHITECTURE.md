@@ -214,12 +214,15 @@ Key decisions:
   Apple's Translation framework distinguishes a language pair being *supported*
   from actually being *installed* on-device; installing an uninstalled pairing can
   require user-facing download consent. `SiftAgent.app` runs headless and must never
-  attempt to trigger that UI. Instead, the main app runs a **Translation Preflight**
-  step whenever it's foregrounded: it looks at the languages actually seen across the
-  user's feeds, diffs them against `analysisLocale`, and — while the user is present
-  — prepares/downloads the needed pairings. `SiftAgent.app` only ever consumes items
-  already `.installed`; anything still `.waitingForAsset` is simply retried on the
-  next pipeline pass rather than blocking or erroring.
+  attempt to trigger that UI. The main app's Settings preview reports the M0 source
+  language pairs against English using the selected Translation strategy. The user
+  explicitly starts provisioning; SwiftUI `.translationTask` calls
+  `TranslationSession.prepareTranslation()` so Apple can ask permission and download
+  the on-device assets. After that, readiness is queried again with the same strategy.
+  The clustering spike also preflights with its selected strategy and handles a
+  session that becomes unavailable after the check. Headless work only consumes
+  already-installed pairs; items still waiting for assets remain unassigned and RSS
+  refresh continues normally.
 - **Bounded candidate set.** New items are only compared against clusters updated in
   the last 72h, not the full corpus — keeps assignment O(recent clusters), not
   O(history).
@@ -457,9 +460,13 @@ selected strategy and session failures are surfaced as
 failure. A one-item rerun with strategy-matched preflight correctly reported
 `translationNotInstalled` / `waitingForAsset`. Apple documents `.installed` as
 ready for the requested language pair, and warns that readiness may change before
-translation; keep the runtime error path as well as preflight checks
+translation. Settings now offers explicit foreground provisioning through
+SwiftUI's Translation task; the benchmark executable cannot display Apple's consent
+UI, so language downloads must be approved from the app before rerunning it. Keep
+the runtime error path as well as preflight checks
 ([status](https://developer.apple.com/documentation/translation/languageavailability/status),
-[session readiness](https://developer.apple.com/documentation/translation/translationsession/isready)).
+[session readiness](https://developer.apple.com/documentation/translation/translationsession/isready),
+[preparing language downloads](https://developer.apple.com/documentation/translation/translationsession/preparetranslation())).
 
 All RSS snapshots, publisher text, silver labels, predictions, and reports remain
 checkout-local and are excluded from Git. The native extractor source is committed

@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 import UserNotifications
+import Translation
 #if os(iOS)
 import UIKit
 #endif
@@ -51,6 +52,15 @@ struct SettingsView: View {
     @State private var isShowingFileImporter: Bool = false
     @State private var isShowingFileExporter: Bool = false
     @State private var exportDocument: OPMLFileDocument?
+    @State private var translationConfiguration: TranslationSession.Configuration?
+    @State private var translationStatuses: [String: String] = [:]
+    @State private var pendingTranslationLanguages: [String] = []
+    @State private var activeTranslationLanguage: String?
+    @State private var isPreparingTranslationLanguages = false
+    @State private var translationPreparationMessage: String?
+
+    private let storyTranslationLanguages = ["tr", "de", "es", "fr"]
+    private let storyTranslationTarget = "en"
 
     private var fontDesign: ReaderFontDesign {
         ReaderFontDesign(rawValue: fontDesignRaw) ?? .serif
@@ -70,6 +80,10 @@ struct SettingsView: View {
             .task(id: scenePhase) {
                 // Re-read on becoming active so returning from System Settings updates the switch.
                 await refreshNotificationStatus()
+                await refreshTranslationStatuses()
+            }
+            .translationTask(translationConfiguration) { session in
+                await prepareActiveTranslationLanguage(using: session)
             }
             .fileImporter(
                 isPresented: $isShowingFileImporter,
@@ -100,6 +114,7 @@ struct SettingsView: View {
             Form {
                 refreshSection
                 notificationsSection
+                storyTranslationSection
             }
             .formStyle(.grouped)
             .tabItem { Label("General", systemImage: "gearshape") }
@@ -125,12 +140,153 @@ struct SettingsView: View {
             articleTextSection
             refreshSection
             notificationsSection
+            storyTranslationSection
             librarySection
             opmlSection
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    // MARK: - On-device Story Analysis
+
+    private var storyTranslationSection: some View {
+        Section {
+            Text("Sift can compare Turkish, German, Spanish, and French coverage through an English analysis language. Apple's Translation models stay on this device; RSS reading does not depend on them.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            ForEach(storyTranslationLanguages, id: \.self) { languageCode in
+                LabeledContent(
+                    "\(languageName(for: languageCode)) → \(languageName(for: storyTranslationTarget))",
+                    value: translationStatuses[languageCode] ?? "Checking availability…"
+                )
+            }
+
+            Button(isPreparingTranslationLanguages ? "Preparing language models…" : "Prepare on-device languages") {
+                beginTranslationLanguagePreparation()
+            }
+            .disabled(isPreparingTranslationLanguages)
+
+            if let translationPreparationMessage {
+                Text(translationPreparationMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Apple may ask for permission before downloading a supported language pair. Story analysis remains unavailable until the required pair is installed.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("On-Device Story Analysis (Preview)")
+        } footer: {
+            Text("This preview only prepares local language assets. Feed refresh and reading work as usual without them.")
+        }
+    }
+
+    @MainActor
+    private func refreshTranslationStatuses() async {
+        let availability = LanguageAvailability(preferredStrategy: .lowLatency)
+        var nextStatuses: [String: String] = [:]
+        let target = Locale.Language(identifier: storyTranslationTarget)
+
+        for languageCode in storyTranslationLanguages {
+            let source = Locale.Language(identifier: languageCode)
+            let status = await availability.status(from: source, to: target)
+            nextStatuses[languageCode] = translationStatusDescription(status)
+        }
+
+        translationStatuses = nextStatuses
+    }
+
+    @MainActor
+    private func beginTranslationLanguagePreparation() {
+        guard !isPreparingTranslationLanguages else { return }
+        isPreparingTranslationLanguages = true
+        translationPreparationMessage = "Checking which language pairs can be prepared…"
+
+        Task { @MainActor in
+            let availability = LanguageAvailability(preferredStrategy: .lowLatency)
+            let target = Locale.Language(identifier: storyTranslationTarget)
+            var availableLanguages: [String] = []
+
+            for languageCode in storyTranslationLanguages {
+                let source = Locale.Language(identifier: languageCode)
+                let status = await availability.status(from: source, to: target)
+                translationStatuses[languageCode] = translationStatusDescription(status)
+                if status != .unsupported {
+                    availableLanguages.append(languageCode)
+                }
+            }
+
+            guard !availableLanguages.isEmpty else {
+                isPreparingTranslationLanguages = false
+                translationPreparationMessage = "Apple Translation does not support these language pairs with the low-latency strategy on this device."
+                return
+            }
+
+            pendingTranslationLanguages = availableLanguages
+            translationPreparationMessage = "Apple will request permission for each supported language pair that is not already installed."
+            prepareNextTranslationLanguage()
+        }
+    }
+
+    @MainActor
+    private func prepareNextTranslationLanguage() {
+        guard !pendingTranslationLanguages.isEmpty else {
+            activeTranslationLanguage = nil
+            translationConfiguration = nil
+            isPreparingTranslationLanguages = false
+            translationPreparationMessage = "Language preparation finished. Refreshing on-device readiness…"
+            Task { await refreshTranslationStatuses() }
+            return
+        }
+
+        let languageCode = pendingTranslationLanguages.removeFirst()
+        activeTranslationLanguage = languageCode
+        translationPreparationMessage = "Preparing \(languageName(for: languageCode)) → \(languageName(for: storyTranslationTarget))…"
+        translationConfiguration = TranslationSession.Configuration(
+            source: Locale.Language(identifier: languageCode),
+            target: Locale.Language(identifier: storyTranslationTarget),
+            preferredStrategy: .lowLatency
+        )
+    }
+
+    @MainActor
+    private func prepareActiveTranslationLanguage(using session: TranslationSession) async {
+        guard isPreparingTranslationLanguages, let languageCode = activeTranslationLanguage else { return }
+
+        do {
+            try await session.prepareTranslation()
+            let availability = LanguageAvailability(preferredStrategy: .lowLatency)
+            let status = await availability.status(
+                from: Locale.Language(identifier: languageCode),
+                to: Locale.Language(identifier: storyTranslationTarget)
+            )
+            translationStatuses[languageCode] = translationStatusDescription(status)
+            prepareNextTranslationLanguage()
+        } catch {
+            translationStatuses[languageCode] = "Not prepared"
+            pendingTranslationLanguages.removeAll()
+            activeTranslationLanguage = nil
+            translationConfiguration = nil
+            isPreparingTranslationLanguages = false
+            translationPreparationMessage = "Could not prepare \(languageName(for: languageCode)): \(error.localizedDescription)"
+        }
+    }
+
+    private func translationStatusDescription(_ status: LanguageAvailability.Status) -> String {
+        switch status {
+        case .installed: "Ready on device"
+        case .supported: "Available to download"
+        case .unsupported: "Not supported on this device"
+        @unknown default: "Availability unknown"
+        }
+    }
+
+    private func languageName(for code: String) -> String {
+        Locale.current.localizedString(forIdentifier: code)?.capitalized ?? code.uppercased()
     }
 
     // MARK: - Reading
