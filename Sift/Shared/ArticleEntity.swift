@@ -39,11 +39,10 @@ public struct ArticleEntityQuery: EntityQuery {
     @MainActor
     public func entities(for identifiers: [UUID]) async throws -> [ArticleEntity] {
         let context = ModelContext(PersistenceController.shared.container)
-        let items = try context.fetch(FetchDescriptor<FeedItem>())
-        let requestedIDs = Set(identifiers)
-        return items
-            .filter { requestedIDs.contains($0.id) }
-            .map(ArticleEntity.init(article:))
+        let descriptor = FetchDescriptor<FeedItem>(
+            predicate: #Predicate { identifiers.contains($0.id) }
+        )
+        return try context.fetch(descriptor).map(ArticleEntity.init(article:))
     }
 
     @MainActor

@@ -7,16 +7,31 @@ public enum SmartFeedFilter {
 
     private struct ScoredCandidate {
         let item: FeedItem
-        let score: Int
+        var score: Int
         let canonicalURL: String?
         let normalizedTitle: String
         let titleTokens: Set<String>
         let sourceKey: String
+        let isVIP: Bool
+        var coverageCount: Int = 1
     }
 
-    public static func filteredArticles(from articles: [FeedItem]) -> [FeedItem] {
+    /// Loads the user-designated VIP feed IDs stored in UserDefaults.
+    public static func loadStoredVIPFeedIDs() -> Set<UUID> {
+        guard let raw = UserDefaults.standard.string(forKey: "vipFeedIDs"), !raw.isEmpty else {
+            return []
+        }
+        return Set(raw.split(separator: ",").compactMap { UUID(uuidString: String($0)) })
+    }
+
+    /// Curates a list of articles into a high-signal Smart Feed digest.
+    /// - Parameters:
+    ///   - articles: The complete list of feed items.
+    ///   - vipFeedIDs: Optional set of VIP feed IDs. If nil, automatically loads from user settings.
+    public static func filteredArticles(from articles: [FeedItem], vipFeedIDs: Set<UUID>? = nil) -> [FeedItem] {
         guard !articles.isEmpty else { return [] }
 
+        let effectiveVIPs = vipFeedIDs ?? loadStoredVIPFeedIDs()
         let now = Date()
 
         // 1. Separate starred articles and collect eligible candidates in a single O(N) pass
@@ -26,13 +41,14 @@ public enum SmartFeedFilter {
         var starredIDs = Set<UUID>()
 
         for article in articles {
+            let isVIP = (article.feed?.id).map { effectiveVIPs.contains($0) } ?? false
             let ageHours = max(0, now.timeIntervalSince(article.publicationDate) / 3_600)
 
             if article.isStarred {
                 starredIDs.insert(article.id)
                 // Recent or unread starred items also participate in candidate scoring for ranking
                 if ageHours <= 720 || !article.isRead {
-                    let scoreVal = computeScore(for: article, ageHours: ageHours, isStarred: true)
+                    let scoreVal = computeScore(for: article, ageHours: ageHours, isStarred: true, isVIP: isVIP)
                     let urlKey = canonicalURLKey(article.link)
                     let normTitle = normalizeFullTitle(article.title)
                     let tokens = extractSubstantiveTokens(article.title)
@@ -43,25 +59,30 @@ public enum SmartFeedFilter {
                         canonicalURL: urlKey,
                         normalizedTitle: normTitle,
                         titleTokens: tokens,
-                        sourceKey: srcKey
+                        sourceKey: srcKey,
+                        isVIP: isVIP
                     ))
                 }
                 continue
             }
 
-            // Exclude high-confidence advertising/promotional noise
-            guard !isHighConfidenceNoise(article.title) else { continue }
-
-            // Stale threshold:
-            // - Read articles older than 48 hours do not belong in a fresh Smart Feed
-            // - Unread articles older than 14 days are considered stale backlog (accessible in All Articles)
-            if article.isRead {
-                guard ageHours <= 48 else { continue }
-            } else {
-                guard ageHours <= 336 else { continue } // 14 days
+            // Exclude high-confidence advertising/promotional noise unless from a trusted VIP feed
+            if !isVIP {
+                guard !isHighConfidenceNoise(article.title) else { continue }
             }
 
-            let scoreVal = computeScore(for: article, ageHours: ageHours, isStarred: false)
+            // Stale threshold:
+            // - Read articles older than 48 hours (72h for VIP) do not belong in a fresh Smart Feed
+            // - Unread articles older than 14 days (30 days for VIP) are considered backlog
+            if article.isRead {
+                let maxReadHours: Double = isVIP ? 72 : 48
+                guard ageHours <= maxReadHours else { continue }
+            } else {
+                let maxUnreadHours: Double = isVIP ? 720 : 336
+                guard ageHours <= maxUnreadHours else { continue }
+            }
+
+            let scoreVal = computeScore(for: article, ageHours: ageHours, isStarred: false, isVIP: isVIP)
             let urlKey = canonicalURLKey(article.link)
             let normTitle = normalizeFullTitle(article.title)
             let tokens = extractSubstantiveTokens(article.title)
@@ -73,14 +94,15 @@ public enum SmartFeedFilter {
                 canonicalURL: urlKey,
                 normalizedTitle: normTitle,
                 titleTokens: tokens,
-                sourceKey: srcKey
+                sourceKey: srcKey,
+                isVIP: isVIP
             ))
         }
 
         // 2. Determine budget: dynamically scale with library size to curate signal over noise
         let budget = selectionBudget(for: articles.count, candidateCount: candidates.count)
 
-        // 3. Sort candidates by score descending (fast O(N log N) on lightweight struct with precomputed Int scores)
+        // 3. Sort candidates by initial score descending (fast O(N log N) on lightweight struct)
         candidates.sort {
             if $0.score == $1.score {
                 return $0.item.publicationDate > $1.item.publicationDate
@@ -94,17 +116,19 @@ public enum SmartFeedFilter {
         if uniqueSources <= 2 {
             maxPerSource = budget
         } else {
-            maxPerSource = max(4, Int(ceil(Double(budget) / Double(uniqueSources) * 2.2)))
+            maxPerSource = max(3, Int(ceil(Double(budget) / Double(uniqueSources) * 2.2)))
         }
 
         var seenURLs = Set<String>()
         var seenNormalizedTitles = Set<String>()
-        var selectedBySource: [(sourceKey: String, date: Date, tokens: Set<String>)] = []
+        var selectedBySource: [(sourceKey: String, date: Date, tokens: Set<String>, candidateIndex: Int)] = []
         var sourceCounts: [String: Int] = [:]
         var selectedIDs = Set<UUID>()
 
-        for candidate in candidates {
+        for i in 0..<candidates.count {
             guard selectedIDs.count < budget else { break }
+
+            let candidate = candidates[i]
 
             // URL deduplication
             if let url = candidate.canonicalURL {
@@ -120,21 +144,36 @@ public enum SmartFeedFilter {
                 }
             }
 
-            // Diversity limit per feed/source
+            // Diversity limit per feed/source (VIP feeds get up to double the normal cap)
             let currentSourceCount = sourceCounts[candidate.sourceKey, default: 0]
-            if currentSourceCount >= maxPerSource {
+            let effectiveMax = candidate.isVIP ? (maxPerSource * 2) : maxPerSource
+            if currentSourceCount >= effectiveMax {
                 continue
             }
 
-            // Cross-source syndication / near-duplicate check (only across DIFFERENT feeds within 48h window)
-            if candidate.titleTokens.count >= 5 {
+            // Cross-source syndication / near-duplicate check & Story Velocity Boost
+            // If another outlet covered this exact story within 48h, boost the representative story!
+            if candidate.titleTokens.count >= 4 {
                 let candidateDate = candidate.item.publicationDate
-                let isCrossSourceDuplicate = selectedBySource.contains { existing in
-                    guard existing.sourceKey != candidate.sourceKey else { return false }
-                    guard existing.tokens.count >= 5 else { return false }
-                    guard abs(existing.date.timeIntervalSince(candidateDate)) <= 172_800 else { return false }
-                    return titleSimilarity(candidate.titleTokens, existing.tokens) >= 0.82
+                var isCrossSourceDuplicate = false
+
+                for existingIndex in 0..<selectedBySource.count {
+                    let existing = selectedBySource[existingIndex]
+                    guard existing.sourceKey != candidate.sourceKey else { continue }
+                    guard existing.tokens.count >= 4 else { continue }
+                    guard abs(existing.date.timeIntervalSince(candidateDate)) <= 172_800 else { continue }
+
+                    let similarity = titleSimilarity(candidate.titleTokens, existing.tokens)
+                    if similarity >= 0.65 {
+                        isCrossSourceDuplicate = true
+                        // Boost representative story that was already selected
+                        let repIdx = existing.candidateIndex
+                        candidates[repIdx].coverageCount += 1
+                        candidates[repIdx].score += 20 // Multi-source coverage signal bonus
+                        break
+                    }
                 }
+
                 if isCrossSourceDuplicate {
                     continue
                 }
@@ -151,7 +190,8 @@ public enum SmartFeedFilter {
                 selectedBySource.append((
                     sourceKey: candidate.sourceKey,
                     date: candidate.item.publicationDate,
-                    tokens: candidate.titleTokens
+                    tokens: candidate.titleTokens,
+                    candidateIndex: i
                 ))
             }
             sourceCounts[candidate.sourceKey] = currentSourceCount + 1
@@ -167,25 +207,31 @@ public enum SmartFeedFilter {
 
     /// Evaluates whether an incoming newly discovered article meets the quality bar
     /// required to appear in the Smart Feed and warrant a system alert / notification.
-    public static func qualifiesForSmartFeedNotification(_ article: FeedItem) -> Bool {
+    public static func qualifiesForSmartFeedNotification(_ article: FeedItem, vipFeedIDs: Set<UUID>? = nil) -> Bool {
         if article.isStarred {
             return true
         }
+
+        let effectiveVIPs = vipFeedIDs ?? loadStoredVIPFeedIDs()
+        let isVIP = (article.feed?.id).map { effectiveVIPs.contains($0) } ?? false
 
         let cleanTitle = article.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cleanTitle.count >= 15 else {
             return false
         }
 
-        guard !isHighConfidenceNoise(cleanTitle) else {
-            return false
+        // VIP feeds bypass generic noise checks unless explicitly clickbait
+        if !isVIP {
+            guard !isHighConfidenceNoise(cleanTitle) else {
+                return false
+            }
         }
 
         guard !isClickbait(cleanTitle) else {
             return false
         }
 
-        let score = computeScore(for: article, ageHours: 0, isStarred: false)
+        let score = computeScore(for: article, ageHours: 0, isStarred: false, isVIP: isVIP)
         return score >= 85
     }
 
@@ -209,61 +255,74 @@ public enum SmartFeedFilter {
         if candidateCount <= 30 {
             return candidateCount
         }
-        // Scaled budget: curves gently between 30 and 75 articles
-        let dynamicBudget = Int(sqrt(Double(totalCount)) * 2.4)
-        return min(75, max(30, min(candidateCount, dynamicBudget)))
+        // Scaled budget: curves gently between 30 and 80 articles
+        let dynamicBudget = Int(sqrt(Double(totalCount)) * 2.5)
+        return min(80, max(30, min(candidateCount, dynamicBudget)))
     }
 
-    private static func computeScore(for article: FeedItem, ageHours: Double, isStarred: Bool) -> Int {
+    private static func computeScore(for article: FeedItem, ageHours: Double, isStarred: Bool, isVIP: Bool) -> Int {
         var score = 40
 
-        // Recency scoring
-        if ageHours < 12 {
+        // Recency scoring (Breaking & Freshness Curve)
+        if ageHours < 3 {
+            score += 45 // Breaking / Hot
+        } else if ageHours < 8 {
             score += 35
-        } else if ageHours < 24 {
-            score += 25
-        } else if ageHours < 48 {
-            score += 15
+        } else if ageHours < 18 {
+            score += 26
+        } else if ageHours < 36 {
+            score += 18
+        } else if ageHours < 72 {
+            score += 8
         } else if ageHours < 168 { // 7 days
-            score += 5
+            score += 2
         } else {
             score -= 15
         }
 
         // Read status preference
         if article.isRead {
-            score -= 15
+            score -= 18
         } else {
             score += 20
         }
 
         // Starred bonus
         if isStarred {
-            score += 40
+            score += 45
         }
 
-        // Content depth & substance (zero JSON decoding or HTML stripping)
-        if let minutes = article.readingMinutes, minutes >= 2 {
-            score += 10
-        } else if let snippet = article.snippet, snippet.count >= 120 {
+        // VIP source bonus
+        if isVIP {
+            score += 35
+        }
+
+        // Content depth & substance
+        if let minutes = article.readingMinutes, minutes >= 3 {
+            score += 12
+        } else if let minutes = article.readingMinutes, minutes >= 1 {
+            score += 6
+        } else if let snippet = article.snippet, snippet.count >= 140 {
             score += 6
         }
 
+        // Extracted full text available
         if article.extractedArticleData != nil {
-            score += 8
+            score += 10
         }
 
+        // Rich image thumbnail available
         if let imageURL = article.imageURL, !imageURL.isEmpty {
-            score += 4
+            score += 5
         }
 
         // Quality and headline penalties
         if article.title.count < 15 {
-            score -= 10
+            score -= 12
         }
 
         if isClickbait(article.title) {
-            score -= 20
+            score -= 25
         }
 
         return score
@@ -308,7 +367,7 @@ public enum SmartFeedFilter {
     private static func titleSimilarity(_ lhs: Set<String>, _ rhs: Set<String>) -> Double {
         guard !lhs.isEmpty, !rhs.isEmpty else { return 0 }
         let intersectionCount = lhs.intersection(rhs).count
-        guard intersectionCount >= 4 else { return 0 }
+        guard intersectionCount >= 3 else { return 0 }
         let unionCount = lhs.union(rhs).count
         guard unionCount > 0 else { return 0 }
         return Double(intersectionCount) / Double(unionCount)
@@ -325,15 +384,26 @@ public enum SmartFeedFilter {
         "deal of the day",
         "coupon code",
         "promo code",
+        "discount code",
+        "black friday",
+        "cyber monday",
+        "giveaway",
+        "enter to win",
+        "sweepstakes",
         "we're hiring",
         "we are hiring",
         "job opening",
+        "career opportunity",
         "sponsorlu içerik",
         "sponsorlu icerik",
         "reklam içeriği",
         "reklam icerigi",
         "iş ilanı",
-        "is ilani"
+        "is ilani",
+        "çekiliş",
+        "cekilis",
+        "fırsat ürünü",
+        "indirim kuponu"
     ]
 
     private static func isHighConfidenceNoise(_ title: String) -> Bool {
@@ -348,12 +418,17 @@ public enum SmartFeedFilter {
         "this one trick",
         "the internet is losing it",
         "shocking reason",
+        "wait until you see",
+        "blow your mind",
+        "can't stop talking about",
         "inanamayacaksınız",
         "inanamayacaksiniz",
         "şoke eden",
         "soke eden",
         "herkes bunu konuşuyor",
-        "herkes bunu konusuyor"
+        "herkes bunu konusuyor",
+        "gözlerinize inanamayacaksınız",
+        "akıllara durgunluk"
     ]
 
     private static func isClickbait(_ title: String) -> Bool {

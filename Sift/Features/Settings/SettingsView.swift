@@ -475,7 +475,7 @@ struct SettingsView: View {
             if notificationStatus == .denied {
                 Text("Notifications for Sift are turned off in System Settings. Turning this on opens them.")
             } else {
-                Text("Get notified when new articles arrive in the background.")
+                Text("Only high-signal stories that qualify for your Smart Feed trigger notifications. Promotional and low-priority posts are delivered silently.")
             }
         }
     }

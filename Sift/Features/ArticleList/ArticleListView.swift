@@ -197,7 +197,7 @@ struct ArticleListView: View {
         }
         switch viewModel.selectedSidebarItem {
         case .smart:
-            return SmartFeedFilter.filteredArticles(from: allArticles)
+            return SmartFeedFilter.filteredArticles(from: allArticles, vipFeedIDs: vipFeedIDs)
         case .today:
             let startOfToday = Calendar.current.startOfDay(for: Date())
             return allArticles.filter { $0.publicationDate >= startOfToday }
@@ -238,7 +238,9 @@ struct ArticleListView: View {
         return ordered
     }
 
-    private var timelineSections: [(section: TimelineSection, articles: [FeedItem])] {
+    private func timelineSections(
+        for articles: [FeedItem]
+    ) -> [(section: TimelineSection, articles: [FeedItem])] {
         var today: [FeedItem] = []
         var yesterday: [FeedItem] = []
         var thisWeek: [FeedItem] = []
@@ -250,7 +252,7 @@ struct ArticleListView: View {
         let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday) ?? startOfToday
         let weekAgo = calendar.date(byAdding: .day, value: -7, to: startOfToday) ?? startOfToday
 
-        for article in filteredArticles {
+        for article in articles {
             let date = article.publicationDate
             if date >= startOfToday {
                 today.append(article)
@@ -318,6 +320,9 @@ struct ArticleListView: View {
     // MARK: - Body
 
     var body: some View {
+        let visibleArticles = filteredArticles
+        let visibleSections = timelineSections(for: visibleArticles)
+
         ZStack(alignment: .bottom) {
             Group {
                 if isShowingStoryPreview {
@@ -348,7 +353,11 @@ struct ArticleListView: View {
                     }
                 }
 
-                if filteredArticles.isEmpty {
+                if viewModel.selectedSidebarItem == .smart, !visibleArticles.isEmpty {
+                    smartFeedSummaryHeader
+                }
+
+                if visibleArticles.isEmpty {
                     Section {
                         emptyStateView
                             .listRowSeparator(.hidden)
@@ -356,7 +365,7 @@ struct ArticleListView: View {
                             .padding(.top, 40)
                     }
                 } else {
-                    ForEach(timelineSections, id: \.section) { group in
+                    ForEach(visibleSections, id: \.section) { group in
                         Section {
                             ForEach(group.articles) { article in
                                 articleRowLink(article)
@@ -499,7 +508,11 @@ struct ArticleListView: View {
             return String(localized: "\(count) articles · \(updatedAgoString)")
         }
         if viewModel.selectedSidebarItem == .smart, !allArticles.isEmpty {
-            return String(localized: "\(sourceArticles.count) selected from \(allArticles.count) articles")
+            let filteredOut = max(0, allArticles.count - sourceArticles.count)
+            if filteredOut > 0 {
+                return String(localized: "\(sourceArticles.count) curated · \(filteredOut) filtered")
+            }
+            return String(localized: "\(sourceArticles.count) curated stories")
         }
         return statusText
     }
@@ -537,16 +550,85 @@ struct ArticleListView: View {
         }
     }
 
+    // MARK: - Smart Feed Header
+
+    private var smartFeedSummaryHeader: some View {
+        Section {
+            HStack(alignment: .center, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.siftAccent.opacity(0.12))
+                        .frame(width: 32, height: 32)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.siftAccent)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("Smart Feed")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.primary)
+
+                        if !vipFeedIDs.isEmpty {
+                            Text("VIP Priority")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .foregroundStyle(Color.siftAccent)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1.5)
+                                .background(Color.siftAccent.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                    }
+
+                    let filteredOut = max(0, allArticles.count - sourceArticles.count)
+                    if filteredOut > 0 {
+                        Text("\(sourceArticles.count) high-signal stories • \(filteredOut) filtered")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(sourceArticles.count) curated stories")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                Button {
+                    withAnimation {
+                        viewModel.selectedSidebarItem = .all
+                    }
+                } label: {
+                    Text("All (\(allArticles.count))")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Color.siftAccent)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3.5)
+                        .background(Color.siftAccent.opacity(0.09))
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                }
+                .buttonStyle(.plain)
+                .help("View all unfiltered articles")
+            }
+            .padding(.vertical, 3)
+            .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
+            .listRowSeparator(.hidden)
+        }
+    }
+
     // MARK: - Article Row Link
 
     private func articleRowLink(_ article: FeedItem) -> some View {
-        NavigationLink(value: article) {
+        let isVIP = article.feed.map { vipFeedIDs.contains($0.id) } ?? false
+        return NavigationLink(value: article) {
             ArticleRow(
                 article: article,
                 density: density,
                 showFeedIcon: showFeedIcons,
                 showPreview: showArticlePreviews,
-                showSource: currentFeedTitle == nil
+                showSource: currentFeedTitle == nil,
+                isVIP: isVIP
             )
         }
         .tag(article)
@@ -1753,6 +1835,7 @@ struct ArticleRow: View {
     var showPreview: Bool = true
     /// False inside a single feed's list, where the feed name is already the screen's nav title.
     var showSource: Bool = true
+    var isVIP: Bool = false
 
     #if os(iOS)
     private var iconSize: CGFloat {
@@ -1858,6 +1941,10 @@ struct ArticleRow: View {
             Image(systemName: "star.fill")
                 .font(.system(size: 11))
                 .foregroundStyle(Color.siftStarred)
+        } else if isVIP {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.siftAccent)
         }
     }
     #endif
@@ -1898,6 +1985,10 @@ struct ArticleRow: View {
                             Image(systemName: "star.fill")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(Color.siftStarred)
+                        } else if isVIP {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.siftAccent)
                         }
                     }
                 }

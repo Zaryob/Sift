@@ -94,9 +94,15 @@ public final class FaviconManager: ObservableObject {
         let key = cacheKey(for: url)
         let urlString = url.absoluteString
 
-        // 1. Check local caches first
-        if let cached = cachedImage(for: url) {
+        // 1. Check memory synchronously, then move disk I/O off the main actor.
+        if let cached = memoryCache.object(forKey: key as NSString) {
             return cached
+        }
+        if let fileURL = diskFileURL(key: key),
+           let data = await Self.readData(from: fileURL),
+           let diskImage = PlatformImage(data: data) {
+            memoryCache.setObject(diskImage, forKey: key as NSString)
+            return diskImage
         }
 
         // 2. Check negative cache (skip known failures unless expired)
@@ -134,9 +140,11 @@ public final class FaviconManager: ObservableObject {
                 return nil
             }
 
-            // Save to disk & memory cache
-            _ = await MainActor.run {
-                self?.saveToDisk(data: data, key: key)
+            // Disk writes must not stall scrolling on the main actor.
+            if let fileURL = self?.diskFileURL(key: key) {
+                await Self.writeData(data, to: fileURL)
+            }
+            await MainActor.run {
                 self?.memoryCache.setObject(image, forKey: key as NSString)
                 self?.objectWillChange.send()
             }
@@ -152,8 +160,7 @@ public final class FaviconManager: ObservableObject {
     public func faviconData(for url: URL) async -> Data? {
         let key = cacheKey(for: url)
         if let fileURL = diskFileURL(key: key),
-           FileManager.default.fileExists(atPath: fileURL.path),
-           let data = try? Data(contentsOf: fileURL) {
+           let data = await Self.readData(from: fileURL) {
             return data
         }
 
@@ -161,7 +168,7 @@ public final class FaviconManager: ObservableObject {
         _ = await fetchFavicon(for: url)
 
         if let fileURL = diskFileURL(key: key),
-           let data = try? Data(contentsOf: fileURL) {
+           let data = await Self.readData(from: fileURL) {
             return data
         }
         return nil
@@ -205,8 +212,15 @@ public final class FaviconManager: ObservableObject {
         return PlatformImage(data: data)
     }
 
-    private func saveToDisk(data: Data, key: String) {
-        guard let fileURL = diskFileURL(key: key) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+    private nonisolated static func readData(from url: URL) async -> Data? {
+        await Task.detached(priority: .utility) {
+            try? Data(contentsOf: url)
+        }.value
+    }
+
+    private nonisolated static func writeData(_ data: Data, to url: URL) async {
+        await Task.detached(priority: .utility) {
+            try? data.write(to: url, options: .atomic)
+        }.value
     }
 }

@@ -121,4 +121,122 @@ final class SmartFeedFilterTests: XCTestCase {
         XCTAssertGreaterThan(goodACount, 0)
         XCTAssertGreaterThan(goodBCount, 0)
     }
+
+    // MARK: - Smart Feed Notification Quality Tests
+
+    func testHighQualityArticleQualifiesForNotification() {
+        let feed = Feed(title: "Tech News", url: "https://technews.com/rss")
+        let highQualityItem = FeedItem(
+            title: "Apple Announces Next-Gen M5 Architecture for High-Performance Workloads",
+            feed: feed
+        )
+        highQualityItem.link = "https://technews.com/apple-m5-announcement"
+
+        XCTAssertTrue(SmartFeedFilter.qualifiesForSmartFeedNotification(highQualityItem))
+        XCTAssertTrue(SmartFeedFilter.qualifiesForSmartFeedNotification(title: highQualityItem.title))
+    }
+
+    func testPromotionalAndNoiseArticlesDoNotQualifyForNotification() {
+        let feed = Feed(title: "Deals", url: "https://deals.com/rss")
+
+        let sponsoredItem = FeedItem(title: "Special Summer Gadget Sale [sponsored] Buy Now", feed: feed)
+        let promoCodeItem = FeedItem(title: "Exclusive 50% Coupon Code For All Subscribers", feed: feed)
+        let hiringItem = FeedItem(title: "We are hiring senior iOS software engineers today", feed: feed)
+        let turkishAdItem = FeedItem(title: "Yeni kampanyalı ürünler için sponsorlu içerik detayları", feed: feed)
+
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(sponsoredItem))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(promoCodeItem))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(hiringItem))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(turkishAdItem))
+
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(title: sponsoredItem.title))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(title: promoCodeItem.title))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(title: hiringItem.title))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(title: turkishAdItem.title))
+    }
+
+    func testClickbaitArticlesDoNotQualifyForNotification() {
+        let feed = Feed(title: "Gossip", url: "https://gossip.com/rss")
+
+        let clickbait1 = FeedItem(title: "You won't believe what happened when he opened this box", feed: feed)
+        let clickbait2 = FeedItem(title: "The internet is losing it over this shocking reason", feed: feed)
+        let turkishClickbait = FeedItem(title: "Gören herkes bunu konuşuyor şoke eden yeni açıklama", feed: feed)
+
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(clickbait1))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(clickbait2))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(turkishClickbait))
+
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(title: clickbait1.title))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(title: clickbait2.title))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(title: turkishClickbait.title))
+    }
+
+    func testShortStubTitleDoesNotQualifyForNotification() {
+        let feed = Feed(title: "Feed", url: "https://example.com/rss")
+        let stubItem = FeedItem(title: "Update v1.2", feed: feed) // 11 characters < 15
+
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(stubItem))
+        XCTAssertFalse(SmartFeedFilter.qualifiesForSmartFeedNotification(title: stubItem.title))
+    }
+
+    func testStarredArticleAlwaysQualifiesForNotification() {
+        let feed = Feed(title: "Feed", url: "https://example.com/rss")
+        let starredStub = FeedItem(title: "Quick note", feed: feed)
+        starredStub.isStarred = true
+
+        XCTAssertTrue(SmartFeedFilter.qualifiesForSmartFeedNotification(starredStub))
+    }
+
+    // MARK: - Smart Feed VIP & Velocity Tests
+
+    func testVIPFeedsReceivePriorityAndHigherQuota() {
+        let regularFeed = Feed(title: "Regular News", url: "https://regular.com/rss")
+        let vipFeed = Feed(title: "VIP Tech", url: "https://vip.com/rss")
+
+        let vipItem1 = FeedItem(title: "Important VIP Breakthrough in Physics", feed: vipFeed)
+        vipItem1.link = "https://vip.com/physics"
+        vipItem1.publicationDate = Date().addingTimeInterval(-3600)
+
+        let regularItem1 = FeedItem(title: "Standard Daily News Roundup for Today", feed: regularFeed)
+        regularItem1.link = "https://regular.com/roundup"
+        regularItem1.publicationDate = Date().addingTimeInterval(-3600)
+
+        let result = SmartFeedFilter.filteredArticles(from: [regularItem1, vipItem1], vipFeedIDs: [vipFeed.id])
+        XCTAssertEqual(result.count, 2)
+        // VIP feed notification qualification
+        XCTAssertTrue(SmartFeedFilter.qualifiesForSmartFeedNotification(vipItem1, vipFeedIDs: [vipFeed.id]))
+    }
+
+    func testMultiSourceCoverageBoostsRepresentativeStory() {
+        let feedA = Feed(title: "Source Alpha", url: "https://alpha.com/rss")
+        let feedB = Feed(title: "Source Beta", url: "https://beta.com/rss")
+
+        let itemA = FeedItem(title: "James Webb Space Telescope Discovers Ancient Galaxy Cluster", feed: feedA)
+        itemA.link = "https://alpha.com/jwst-cluster"
+        itemA.publicationDate = Date().addingTimeInterval(-3600)
+
+        let itemB = FeedItem(title: "James Webb Space Telescope Discovers Ancient Galaxy Cluster", feed: feedB)
+        itemB.link = "https://beta.com/jwst-galaxy-cluster"
+        itemB.publicationDate = Date().addingTimeInterval(-7200)
+
+        let curated = SmartFeedFilter.filteredArticles(from: [itemA, itemB])
+        // Deduplicated to 1 representative story
+        XCTAssertEqual(curated.count, 1)
+        XCTAssertEqual(curated.first?.title, itemA.title)
+    }
+
+    func testBreakingNewsBoostRanksRecentItemAboveStaleItem() {
+        let feed = Feed(title: "News", url: "https://news.com/rss")
+
+        let freshItem = FeedItem(title: "Breaking News: Major Solar Flare Observed Today", feed: feed)
+        freshItem.link = "https://news.com/fresh"
+        freshItem.publicationDate = Date().addingTimeInterval(-1800) // 30 minutes ago
+
+        let olderItem = FeedItem(title: "Standard Feature: Review of Solar Physics Concepts", feed: feed)
+        olderItem.link = "https://news.com/older"
+        olderItem.publicationDate = Date().addingTimeInterval(-100 * 3600) // 4+ days ago
+
+        let curated = SmartFeedFilter.filteredArticles(from: [olderItem, freshItem])
+        XCTAssertTrue(curated.contains(where: { $0.id == freshItem.id }))
+    }
 }

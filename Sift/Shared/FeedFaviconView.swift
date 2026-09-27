@@ -51,41 +51,32 @@ public struct FeedFaviconView: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .task(id: feed?.id.uuidString ?? customURL?.absoluteString ?? title) {
-            loadFavicon()
+            await loadFavicon()
         }
     }
 
-    private func loadFavicon() {
-        if let feed {
-            // 1. Instant Synchronous Fast Path from Cache (0ms latency, zero flicker)
-            if let cached = FaviconManager.shared.cachedImage(for: feed) {
-                self.image = cached
-                return
-            }
+    private func loadFavicon() async {
+        let fetched: PlatformImage?
 
-            // 2. Asynchronous Fetch with Deduplication (single request shared across all items)
-            Task {
-                let fetched = await FaviconManager.shared.fetchFavicon(for: feed)
-                if let fetched {
-                    withAnimation(.easeIn(duration: 0.15)) {
-                        self.image = fetched
-                    }
-                }
+        if let feed {
+            if let cached = FaviconManager.shared.memoryCachedImage(for: feed) {
+                fetched = cached
+            } else {
+                fetched = await FaviconManager.shared.fetchFavicon(for: feed)
             }
         } else if let customURL {
-            if let cached = FaviconManager.shared.cachedImage(for: customURL) {
-                self.image = cached
-                return
+            if let cached = FaviconManager.shared.memoryCachedImage(for: customURL) {
+                fetched = cached
+            } else {
+                fetched = await FaviconManager.shared.fetchFavicon(for: customURL)
             }
+        } else {
+            fetched = nil
+        }
 
-            Task {
-                let fetched = await FaviconManager.shared.fetchFavicon(for: customURL)
-                if let fetched {
-                    withAnimation(.easeIn(duration: 0.15)) {
-                        self.image = fetched
-                    }
-                }
-            }
+        guard !Task.isCancelled, let fetched else { return }
+        withAnimation(.easeIn(duration: 0.15)) {
+            image = fetched
         }
     }
 
