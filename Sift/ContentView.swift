@@ -70,7 +70,11 @@ struct ContentView: View {
             DailyBriefingSheet()
         }
         .sheet(isPresented: $isShowingOnboarding) {
-            OnboardingView(viewModel: viewModel)
+            OnboardingView(viewModel: viewModel) {
+                hasCompletedOnboarding = true
+                isShowingOnboarding = false
+                NotificationManager.shared.requestAuthorization()
+            }
         }
         .alert("Error", isPresented: $viewModel.showErrorAlert) {
             Button("OK", role: .cancel) {}
@@ -128,12 +132,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            if !hasCompletedOnboarding {
-                let feedCount = (try? modelContext.fetchCount(FetchDescriptor<Feed>())) ?? 0
-                if feedCount == 0 {
-                    isShowingOnboarding = true
-                }
-            }
+            isShowingOnboarding = !hasCompletedOnboarding
             Task {
                 await WidgetSnapshotManager.shared.updateSnapshot(context: modelContext)
                 WidgetCenter.shared.reloadAllTimelines()

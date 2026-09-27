@@ -6,6 +6,7 @@ struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     let viewModel: AppViewModel
+    let onComplete: () -> Void
 
     @State private var selectedPackTitles: Set<String> = Set(StarterPack.allPacks.map(\.title))
     @State private var isSubscribing: Bool = false
@@ -89,7 +90,7 @@ struct OnboardingView: View {
                     .disabled(isSubscribing)
 
                     Button("Skip for Now") {
-                        dismiss()
+                        finishOnboarding()
                     }
                     .buttonStyle(.plain)
                     .font(.footnote)
@@ -110,7 +111,7 @@ struct OnboardingView: View {
                 if case .success(let urls) = result, let url = urls.first {
                     Task {
                         await viewModel.importOPMLFile(at: url, context: modelContext)
-                        dismiss()
+                        finishOnboarding()
                     }
                 }
             }
@@ -143,6 +144,11 @@ struct OnboardingView: View {
         try? modelContext.save()
         viewModel.refreshAllFeeds(context: modelContext)
         isSubscribing = false
+        finishOnboarding()
+    }
+
+    private func finishOnboarding() {
+        onComplete()
         dismiss()
     }
 }

@@ -17,7 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         // Register notification delegate immediately at app startup
         _ = NotificationManager.shared
-        NotificationManager.shared.requestAuthorization()
+        if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            NotificationManager.shared.requestAuthorization()
+        }
 
         // Synchronize background feed scheduler
         BackgroundFeedScheduler.shared.syncOnLaunch()
@@ -76,7 +78,9 @@ struct SiftApp: App {
         }
         #else
         _ = NotificationManager.shared
-        NotificationManager.shared.requestAuthorization()
+        if UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") {
+            NotificationManager.shared.requestAuthorization()
+        }
         #endif
     }
 

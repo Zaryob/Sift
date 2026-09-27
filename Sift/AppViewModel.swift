@@ -321,6 +321,9 @@ public final class AppViewModel {
             return nil
         } catch {
             try? context.save()
+            if error is CancellationError || (error as? URLError)?.code == .cancelled {
+                return nil
+            }
             let reason = error.localizedDescription
             print("[ArticleExtractor] Failed to download \(url.absoluteString): \(reason)")
             return reason

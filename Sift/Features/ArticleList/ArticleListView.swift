@@ -503,9 +503,6 @@ struct ArticleListView: View {
             )
         }
         .tag(article)
-        .simultaneousGesture(TapGesture().onEnded {
-            viewModel.openArticle(article)
-        })
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {

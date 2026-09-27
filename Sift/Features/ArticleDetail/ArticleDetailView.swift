@@ -43,6 +43,7 @@ struct ArticleDetailView: View {
     @State private var viewMode: DetailViewMode = .reader
     @State private var isLoadingFullText = false
     @State private var fullTextLoadError: String?
+    @State private var fullTextLoadRequestID: UUID?
     @State private var isShowingAppearancePopover = false
     @State private var isShowingAISummary = false
     @State private var selectedLightboxImage: IdentifiableImageURL? = nil
@@ -114,6 +115,7 @@ struct ArticleDetailView: View {
                 .navigationTitle(article.feed?.title ?? "")
                 .task(id: "\(article.id.uuidString)-\(viewModel.articleOpenRequestID.uuidString)") {
                     isShowingAISummary = false
+                    fullTextLoadError = nil
                     await loadFullText(for: article)
                 }
                 .alert("Article Couldn’t Be Downloaded", isPresented: Binding(
@@ -200,18 +202,24 @@ struct ArticleDetailView: View {
 
     @MainActor
     private func loadFullText(for article: FeedItem, force: Bool = false) async {
-        guard !isLoadingFullText else { return }
+        fullTextLoadError = nil
         let shouldLoad = article.extractedArticleData == nil && (force || article.feedWordCount < 400)
         guard shouldLoad else { return }
 
-        fullTextLoadError = nil
+        let requestID = UUID()
+        fullTextLoadRequestID = requestID
         isLoadingFullText = true
-        fullTextLoadError = await viewModel.loadFullTextIfNeeded(
+        let error = await viewModel.loadFullTextIfNeeded(
             for: article,
             force: force,
             context: modelContext
         )
+
+        guard fullTextLoadRequestID == requestID else { return }
+        fullTextLoadRequestID = nil
         isLoadingFullText = false
+        guard !Task.isCancelled else { return }
+        fullTextLoadError = error
     }
 
     private func toggleSpeech(for article: FeedItem?) {
