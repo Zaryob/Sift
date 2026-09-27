@@ -1,11 +1,12 @@
 import Foundation
 import Combine
+import CryptoKit
 import SwiftData
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
 
-/// Service providing on-device Apple Intelligence summarization and spoken news briefings.
+/// Generates and persistently caches Apple Intelligence summaries and spoken briefings.
 @MainActor
 public final class ArticleIntelligenceService: ObservableObject {
     public static let shared = ArticleIntelligenceService()
@@ -13,85 +14,104 @@ public final class ArticleIntelligenceService: ObservableObject {
     @Published public private(set) var isGenerating: Bool = false
     @Published public private(set) var latestBriefing: String?
 
-    #if canImport(FoundationModels)
-    private var modelSession: LanguageModelSession?
-
-    private func getOrCreateSession() -> LanguageModelSession {
-        if let modelSession {
-            return modelSession
-        }
-        let session = LanguageModelSession(
-            instructions: """
-            You are the news editor and morning radio briefing host for Sift, an RSS news reader.
-            Rewrite RSS articles as a concise, engaging, spoken news briefing.
-            Preserve key facts, names, numbers, and dates.
-            Avoid repetition, promotional text, website boilerplate, and markdown formatting.
-            Write naturally for listening rather than reading.
-            Keep sentences rhythmic, clear, and easy to understand aloud.
-            """
-        )
-        self.modelSession = session
-        return session
-    }
-    #endif
+    private static let articlePromptVersion = 1
+    private static let briefingPromptVersion = 1
 
     private init() {}
 
-    /// Summarizes an individual article into 2-3 concise spoken sentences or key takeaways.
-    public func summarize(title: String, content: String) async -> String {
-        isGenerating = true
-        defer { isGenerating = false }
+    public func summarize(article: FeedItem, context: ModelContext) async -> IntelligenceOutput {
+        let content = preferredContent(for: article)
+        let contentHash = Self.contentHash(title: article.title, content: content)
 
-        let cleanContent = HTMLSanitizer.stripTags(from: content)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let sample = String(cleanContent.prefix(2500))
-
-        #if canImport(FoundationModels)
-        do {
-            let session = getOrCreateSession()
-            let prompt = """
-            Provide a 2 to 3 sentence spoken executive summary of this article for an audio listener:
-
-            Title: \(title)
-            Content: \(sample)
-            """
-            let response = try await session.respond(to: prompt)
-            let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !result.isEmpty {
-                return result
-            }
-        } catch {
-            print("[ArticleIntelligenceService] FoundationModels error: \(error). Falling back to extractive summary.")
+        // A persisted result is authoritative for this prompt version. Full-text extraction
+        // or feed refreshes must not trigger another model request for the same article.
+        if let cached = article.intelligenceResults
+            .filter({ $0.promptVersion == Self.articlePromptVersion })
+            .max(by: { $0.generatedAt < $1.generatedAt }) {
+            return IntelligenceOutput(
+                text: cached.summary,
+                modelKind: cached.modelKind,
+                isCached: true
+            )
         }
-        #endif
 
-        return fallbackSummary(title: title, content: sample)
+        let generated = await generateSummary(title: article.title, content: content)
+        let result = ArticleIntelligenceResult(
+            summary: generated.text,
+            modelKind: generated.modelKind,
+            sourceContentHash: contentHash,
+            promptVersion: Self.articlePromptVersion,
+            article: article
+        )
+        context.insert(result)
+        try? context.save()
+        return generated
     }
 
-    /// Compiles a spoken radio/podcast style briefing from a list of articles.
-    public func generateBriefing(from items: [FeedItem]) async -> String {
+    /// Compatibility path for callers that don't have a persisted article.
+    public func summarize(title: String, content: String) async -> String {
+        await generateSummary(title: title, content: content).text
+    }
+
+    public func generateBriefing(
+        from items: [FeedItem],
+        context: ModelContext,
+        forceRefresh: Bool = false
+    ) async -> IntelligenceOutput {
         guard !items.isEmpty else {
-            return String(localized: "You are all caught up. There are no unread articles in Sift.")
+            return IntelligenceOutput(
+                text: String(localized: "You are all caught up. There are no unread articles in Sift."),
+                modelKind: .extractiveFallback,
+                isCached: false
+            )
+        }
+
+        let topItems = Array(items.prefix(5))
+        let briefingHash = Self.briefingHash(for: topItems)
+        let promptVersion = Self.briefingPromptVersion
+        var descriptor = FetchDescriptor<SavedBriefing>(
+            predicate: #Predicate {
+                $0.sourceContentHash == briefingHash &&
+                $0.promptVersion == promptVersion
+            },
+            sortBy: [SortDescriptor(\.generatedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+
+        let cachedBriefing = (try? context.fetch(descriptor))?.first
+        if let cachedBriefing, !forceRefresh {
+            latestBriefing = cachedBriefing.text
+            return IntelligenceOutput(
+                text: cachedBriefing.text,
+                modelKind: cachedBriefing.modelKind,
+                isCached: true
+            )
         }
 
         isGenerating = true
         defer { isGenerating = false }
 
-        let topItems = Array(items.prefix(5))
         var contextText = ""
         for (index, item) in topItems.enumerated() {
             let feedTitle = item.feed?.title ?? "Unknown source"
-            let snippet = item.snippet ?? HTMLSanitizer.stripTags(from: item.content ?? item.summary ?? "")
-            contextText += "\nStory \(index + 1) from \(feedTitle):\nTitle: \(item.title)\nExcerpt: \(snippet.prefix(350))\n"
+            let source = preferredContent(for: item)
+            contextText += """
+            
+            Story \(index + 1) from \(feedTitle):
+            Title: \(item.title)
+            Excerpt: \(source.prefix(600))
+            """
         }
 
+        let generated: IntelligenceOutput
         #if canImport(FoundationModels)
         do {
-            let session = getOrCreateSession()
+            let session = makeSession()
             let prompt = """
             Create a 60-to-90 second spoken news briefing covering the following top stories.
             Begin with a warm greeting like "Here is your Sift briefing for today."
-            Smoothly transition between the stories like a professional NPR or BBC radio anchor.
+            Smoothly transition between stories like a professional radio anchor.
+            Use only facts present in the supplied stories and preserve source attribution.
             Conclude with a brief closing sentence.
 
             Stories:
@@ -99,23 +119,64 @@ public final class ArticleIntelligenceService: ObservableObject {
             """
             let response = try await session.respond(to: prompt)
             let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !result.isEmpty {
-                latestBriefing = result
-                return result
+            if result.isEmpty {
+                generated = IntelligenceOutput(
+                    text: fallbackBriefing(topItems: topItems),
+                    modelKind: .extractiveFallback,
+                    isCached: false
+                )
+            } else {
+                generated = IntelligenceOutput(
+                    text: result,
+                    modelKind: .onDevice,
+                    isCached: false
+                )
             }
         } catch {
             print("[ArticleIntelligenceService] FoundationModels briefing error: \(error). Falling back.")
+            generated = IntelligenceOutput(
+                text: fallbackBriefing(topItems: topItems),
+                modelKind: .extractiveFallback,
+                isCached: false
+            )
         }
+        #else
+        generated = IntelligenceOutput(
+            text: fallbackBriefing(topItems: topItems),
+            modelKind: .extractiveFallback,
+            isCached: false
+        )
         #endif
 
-        let fallback = fallbackBriefing(topItems: topItems)
-        latestBriefing = fallback
-        return fallback
+        if let cachedBriefing {
+            cachedBriefing.text = generated.text
+            cachedBriefing.articleIDs = topItems.map(\.id)
+            cachedBriefing.modelKindRawValue = generated.modelKind.rawValue
+            cachedBriefing.generatedAt = Date()
+        } else {
+            let saved = SavedBriefing(
+                text: generated.text,
+                articleIDs: topItems.map(\.id),
+                sourceContentHash: briefingHash,
+                modelKind: generated.modelKind,
+                promptVersion: Self.briefingPromptVersion
+            )
+            context.insert(saved)
+        }
+        try? context.save()
+        latestBriefing = generated.text
+        return generated
     }
 
-    /// Generates a briefing from unread articles stored in SwiftData.
-    public func generateBriefingForUnreadArticles() async -> String {
+    public func generateBriefing(from items: [FeedItem]) async -> String {
         let context = ModelContext(PersistenceController.shared.container)
+        return await generateBriefing(from: items, context: context).text
+    }
+
+    public func generateBriefingForUnreadArticles(
+        context: ModelContext,
+        forceRefresh: Bool = false
+    ) async -> IntelligenceOutput {
         var descriptor = FetchDescriptor<FeedItem>(
             predicate: #Predicate<FeedItem> { !$0.isRead },
             sortBy: [SortDescriptor(\.publicationDate, order: .reverse)]
@@ -124,13 +185,25 @@ public final class ArticleIntelligenceService: ObservableObject {
 
         do {
             let items = try context.fetch(descriptor)
-            return await generateBriefing(from: items)
+            return await generateBriefing(
+                from: items,
+                context: context,
+                forceRefresh: forceRefresh
+            )
         } catch {
-            return String(localized: "Unable to retrieve unread articles from your Sift library.")
+            return IntelligenceOutput(
+                text: String(localized: "Unable to retrieve unread articles from your Sift library."),
+                modelKind: .extractiveFallback,
+                isCached: false
+            )
         }
     }
 
-    /// Summarizes the single latest unread article.
+    public func generateBriefingForUnreadArticles() async -> String {
+        let context = ModelContext(PersistenceController.shared.container)
+        return await generateBriefingForUnreadArticles(context: context).text
+    }
+
     public func summarizeLatestUnreadArticle() async -> String {
         let context = ModelContext(PersistenceController.shared.container)
         var descriptor = FetchDescriptor<FeedItem>(
@@ -143,13 +216,88 @@ public final class ArticleIntelligenceService: ObservableObject {
             guard let item = try context.fetch(descriptor).first else {
                 return String(localized: "You have no unread articles in Sift.")
             }
-            return await summarize(title: item.title, content: item.content ?? item.summary ?? "")
+            return await summarize(article: item, context: context).text
         } catch {
             return String(localized: "Unable to load article.")
         }
     }
 
-    // MARK: - Fallbacks
+    private func generateSummary(title: String, content: String) async -> IntelligenceOutput {
+        isGenerating = true
+        defer { isGenerating = false }
+
+        let cleanContent = HTMLSanitizer.stripTags(from: content)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let sample = String(cleanContent.prefix(4_000))
+
+        #if canImport(FoundationModels)
+        do {
+            let session = makeSession()
+            let prompt = """
+            Provide a 2 to 3 sentence spoken executive summary of this article.
+            Use only the supplied article. Preserve key facts, names, numbers, and dates.
+
+            Title: \(title)
+            Content: \(sample)
+            """
+            let response = try await session.respond(to: prompt)
+            let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !result.isEmpty {
+                return IntelligenceOutput(text: result, modelKind: .onDevice, isCached: false)
+            }
+        } catch {
+            print("[ArticleIntelligenceService] FoundationModels error: \(error). Falling back to extractive summary.")
+        }
+        #endif
+
+        return IntelligenceOutput(
+            text: fallbackSummary(title: title, content: sample),
+            modelKind: .extractiveFallback,
+            isCached: false
+        )
+    }
+
+    #if canImport(FoundationModels)
+    private func makeSession() -> LanguageModelSession {
+        LanguageModelSession(
+            instructions: """
+            You are the news editor and morning radio briefing host for Sift, an RSS news reader.
+            Rewrite RSS articles as concise, engaging spoken news.
+            Preserve key facts, names, numbers, dates, and source attribution.
+            Never add facts that aren't in the supplied material.
+            Avoid repetition, promotional text, website boilerplate, and markdown formatting.
+            Write naturally for listening rather than reading.
+            """
+        )
+    }
+    #endif
+
+    private func preferredContent(for article: FeedItem) -> String {
+        if let extracted = article.extractedArticle {
+            let text = extracted.blocks.map(\.text).joined(separator: "\n")
+            if !text.isEmpty {
+                return text
+            }
+        }
+        return article.content ?? article.summary ?? article.snippet ?? ""
+    }
+
+    private static func contentHash(title: String, content: String) -> String {
+        let digest = SHA256.hash(data: Data("\(title)\n\(content)".utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func briefingHash(for items: [FeedItem]) -> String {
+        let material = items.map {
+            let content = $0.extractedArticle?.blocks.map(\.text).joined(separator: "\n")
+                ?? $0.content
+                ?? $0.summary
+                ?? $0.snippet
+                ?? ""
+            return "\($0.id.uuidString)\n\($0.title)\n\(content)"
+        }.joined(separator: "\n---\n")
+        return contentHash(title: "briefing", content: material)
+    }
 
     private func fallbackSummary(title: String, content: String) -> String {
         let sentences = content.components(separatedBy: CharacterSet(charactersIn: ".!?\n"))
@@ -164,13 +312,13 @@ public final class ArticleIntelligenceService: ObservableObject {
     }
 
     private func fallbackBriefing(topItems: [FeedItem]) -> String {
-        var parts: [String] = ["Here is your Sift briefing."]
+        var parts: [String] = [String(localized: "Here is your Sift briefing.")]
         for item in topItems {
-            let source = item.feed?.title ?? "your feeds"
+            let source = item.feed?.title ?? String(localized: "your feeds")
             let snippet = item.snippet ?? item.title
             parts.append("From \(source): \(item.title). \(snippet.prefix(140)).")
         }
-        parts.append("That concludes your latest updates.")
+        parts.append(String(localized: "That concludes your latest updates."))
         return parts.joined(separator: " ")
     }
 }

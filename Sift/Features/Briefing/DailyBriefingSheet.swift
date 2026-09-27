@@ -10,6 +10,8 @@ public struct DailyBriefingSheet: View {
 
     @State private var briefingText: String = ""
     @State private var isGenerating: Bool = false
+    @State private var modelKind: IntelligenceModelKind?
+    @State private var isCached: Bool = false
 
     private let briefingID = UUID()
 
@@ -45,9 +47,15 @@ public struct DailyBriefingSheet: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Spoken Briefing")
                                     .font(.headline)
-                                Text("Generated on-device with Apple Intelligence")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                if let modelKind {
+                                    Text(isCached ? "\(modelKind.displayName) · Saved" : modelKind.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("Apple Intelligence briefing")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
 
                             Spacer()
@@ -111,7 +119,7 @@ public struct DailyBriefingSheet: View {
 
                         Button {
                             Task {
-                                await loadBriefing()
+                                await loadBriefing(forceRefresh: true)
                             }
                         } label: {
                             Image(systemName: "arrow.clockwise")
@@ -144,9 +152,15 @@ public struct DailyBriefingSheet: View {
         }
     }
 
-    private func loadBriefing() async {
+    private func loadBriefing(forceRefresh: Bool = false) async {
         isGenerating = true
-        briefingText = await intelligence.generateBriefingForUnreadArticles()
+        let output = await intelligence.generateBriefingForUnreadArticles(
+            context: modelContext,
+            forceRefresh: forceRefresh
+        )
+        briefingText = output.text
+        modelKind = output.modelKind
+        isCached = output.isCached
         isGenerating = false
     }
 

@@ -11,7 +11,9 @@ nonisolated public final class PersistenceController: @unchecked Sendable {
     public init(inMemory: Bool = false) {
         let schema = Schema([
             Feed.self,
-            FeedItem.self
+            FeedItem.self,
+            ArticleIntelligenceResult.self,
+            SavedBriefing.self
         ])
         
         let modelConfiguration: ModelConfiguration

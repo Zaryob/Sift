@@ -24,6 +24,8 @@ public final class FeedItem {
     public var extractionAttemptedAt: Date?
 
     public var feed: Feed?
+    @Relationship(deleteRule: .cascade, inverse: \ArticleIntelligenceResult.article)
+    public var intelligenceResults: [ArticleIntelligenceResult] = []
 
     public init(
         id: UUID = UUID(),

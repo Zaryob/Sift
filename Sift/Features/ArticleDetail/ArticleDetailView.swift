@@ -451,13 +451,15 @@ struct ReadingProgressBar: View {
 }
 
 struct AISummaryCard: View {
-    let title: String
-    let content: String
+    let article: FeedItem
     let textColor: Color
     let secondaryColor: Color
     var onDismiss: () -> Void
 
-    @State private var summaryText: String? = nil
+    @Environment(\.modelContext) private var modelContext
+    @State private var summaryText: String?
+    @State private var modelKind: IntelligenceModelKind?
+    @State private var isCached: Bool = false
     @State private var isLoading: Bool = false
 
     var body: some View {
@@ -492,6 +494,12 @@ struct AISummaryCard: View {
                     .font(.system(size: 14))
                     .lineSpacing(4)
                     .foregroundStyle(textColor)
+
+                if let modelKind {
+                    Text(isCached ? "\(modelKind.displayName) · Saved" : modelKind.displayName)
+                        .font(.caption2)
+                        .foregroundStyle(secondaryColor)
+                }
             }
         }
         .padding(14)
@@ -506,7 +514,13 @@ struct AISummaryCard: View {
         .task {
             guard summaryText == nil else { return }
             isLoading = true
-            summaryText = await ArticleIntelligenceService.shared.summarize(title: title, content: content)
+            let output = await ArticleIntelligenceService.shared.summarize(
+                article: article,
+                context: modelContext
+            )
+            summaryText = output.text
+            modelKind = output.modelKind
+            isCached = output.isCached
             isLoading = false
         }
     }
@@ -563,8 +577,7 @@ struct ArticleReaderScrollView: View {
 
                     if isShowingAISummary {
                         AISummaryCard(
-                            title: article.title,
-                            content: article.content ?? article.summary ?? "",
+                            article: article,
                             textColor: textColor,
                             secondaryColor: secondaryColor,
                             onDismiss: {
