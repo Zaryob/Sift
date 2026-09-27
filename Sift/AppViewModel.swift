@@ -74,6 +74,7 @@ public enum FeedLookupError: LocalizedError {
 public final class AppViewModel {
     public var selectedSidebarItem: SidebarItem? = .all
     public var selectedArticle: FeedItem?
+    public var articleOpenRequestID = UUID()
     
     public var isAddingFeed: Bool = false
     public var isShowingSettings: Bool = false
@@ -110,6 +111,11 @@ public final class AppViewModel {
         if index + 1 < articles.count {
             selectedArticle = articles[index + 1]
         }
+    }
+
+    public func openArticle(_ article: FeedItem) {
+        selectedArticle = article
+        articleOpenRequestID = UUID()
     }
 
     public func selectPreviousArticle(in articles: [FeedItem]) {
@@ -291,26 +297,34 @@ public final class AppViewModel {
 
     /// Fetches and caches the article's full text on-demand whenever the article is opened.
     /// If the feed already contains the complete text, no external web request is made.
-    public func loadFullTextIfNeeded(for article: FeedItem, force: Bool = false, context: ModelContext) async {
+    @discardableResult
+    public func loadFullTextIfNeeded(for article: FeedItem, force: Bool = false, context: ModelContext) async -> String? {
         guard article.extractedArticleData == nil,
-              let link = article.link, let url = URL(string: link) else { return }
+              let link = article.link, let url = URL(string: link) else { return nil }
 
         // If the RSS feed itself already provided an extensive, complete article (>= 400 words),
         // no need to crawl the site unless forced
         if !force, article.feedWordCount >= 400 {
-            return
+            return nil
         }
 
-        let result = try? await ArticleExtractor.fetch(url: url, summary: article.summary ?? article.content)
         article.extractionAttemptedAt = Date()
-        if let result, let data = try? JSONEncoder().encode(result) {
+        do {
+            let result = try await ArticleExtractor.fetch(url: url, summary: article.summary ?? article.content)
+            let data = try JSONEncoder().encode(result)
             article.extractedArticleData = data
             article.readingMinutes = result.readingMinutes
             if article.imageURL == nil {
                 article.imageURL = result.leadImageURL
             }
+            try context.save()
+            return nil
+        } catch {
+            try? context.save()
+            let reason = error.localizedDescription
+            print("[ArticleExtractor] Failed to download \(url.absoluteString): \(reason)")
+            return reason
         }
-        try? context.save()
     }
 
     public func openArticleExternally(_ article: FeedItem) {

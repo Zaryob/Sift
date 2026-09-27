@@ -42,6 +42,7 @@ struct ArticleDetailView: View {
 
     @State private var viewMode: DetailViewMode = .reader
     @State private var isLoadingFullText = false
+    @State private var fullTextLoadError: String?
     @State private var isShowingAppearancePopover = false
     @State private var isShowingAISummary = false
     @State private var selectedLightboxImage: IdentifiableImageURL? = nil
@@ -111,11 +112,20 @@ struct ArticleDetailView: View {
                     }
                 }
                 .navigationTitle(article.feed?.title ?? "")
-                .task(id: article.id) {
+                .task(id: "\(article.id.uuidString)-\(viewModel.articleOpenRequestID.uuidString)") {
                     isShowingAISummary = false
-                    isLoadingFullText = article.extractedArticleData == nil && article.feedWordCount < 400
-                    await viewModel.loadFullTextIfNeeded(for: article, context: modelContext)
-                    isLoadingFullText = false
+                    await loadFullText(for: article)
+                }
+                .alert("Article Couldn’t Be Downloaded", isPresented: Binding(
+                    get: { fullTextLoadError != nil },
+                    set: { if !$0 { fullTextLoadError = nil } }
+                )) {
+                    Button("Try Again") {
+                        Task { await loadFullText(for: article, force: true) }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(fullTextLoadError ?? "An unknown error occurred.")
                 }
                 .popover(isPresented: $isShowingAppearancePopover) {
                     ReadingAppearancePopover()
@@ -186,6 +196,22 @@ struct ArticleDetailView: View {
             macOSToolbarItems(for: article)
         }
         #endif
+    }
+
+    @MainActor
+    private func loadFullText(for article: FeedItem, force: Bool = false) async {
+        guard !isLoadingFullText else { return }
+        let shouldLoad = article.extractedArticleData == nil && (force || article.feedWordCount < 400)
+        guard shouldLoad else { return }
+
+        fullTextLoadError = nil
+        isLoadingFullText = true
+        fullTextLoadError = await viewModel.loadFullTextIfNeeded(
+            for: article,
+            force: force,
+            context: modelContext
+        )
+        isLoadingFullText = false
     }
 
     private func toggleSpeech(for article: FeedItem?) {
@@ -458,6 +484,7 @@ struct AISummaryCard: View {
     var onDismiss: () -> Void
 
     @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var intelligence = ArticleIntelligenceService.shared
     @State private var summaryText: String?
     @State private var keyPoints: [String] = []
     @State private var topics: [String] = []
@@ -487,7 +514,7 @@ struct AISummaryCard: View {
             if isLoading {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("Summarizing with on-device model…")
+                    Text("Summarizing with \(intelligence.activeModelKind?.displayName ?? String(localized: "Apple Intelligence"))…")
                         .font(.system(size: 13))
                         .foregroundStyle(secondaryColor)
                 }
@@ -524,7 +551,7 @@ struct AISummaryCard: View {
         .task {
             guard summaryText == nil else { return }
             isLoading = true
-            let output = await ArticleIntelligenceService.shared.summarize(
+            let output = await intelligence.summarize(
                 article: article,
                 context: modelContext
             )
@@ -666,8 +693,12 @@ struct ArticleReaderScrollView: View {
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { minY in
                 let scrolled = max(0, -minY)
                 let estimatedTotal = max(600, CGFloat(article.readingMinutes ?? 3) * 450)
-                withAnimation(.linear(duration: 0.1)) {
-                    scrollProgress = min(1.0, Double(scrolled / estimatedTotal))
+                let newProgress = min(1.0, Double(scrolled / estimatedTotal))
+
+                // Preference changes are delivered as part of layout. Starting an
+                // animation here can ask AppKit to lay out the hierarchy recursively.
+                if abs(newProgress - scrollProgress) > 0.001 {
+                    scrollProgress = newProgress
                 }
             }
 

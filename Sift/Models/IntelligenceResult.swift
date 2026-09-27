@@ -22,8 +22,10 @@ public enum IntelligenceModelKind: String, Codable, Sendable {
 public final class ArticleIntelligenceResult {
     @Attribute(.unique) public var id: UUID
     public var summary: String
-    public var keyPoints: [String]
-    public var topics: [String]
+    // Optional at the persistence boundary so stores created before these
+    // attributes existed can be migrated without inventing mandatory values.
+    public var keyPoints: [String]?
+    public var topics: [String]?
     public var modelKindRawValue: String
     public var sourceContentHash: String
     public var promptVersion: Int

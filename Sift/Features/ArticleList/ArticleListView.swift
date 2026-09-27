@@ -503,6 +503,9 @@ struct ArticleListView: View {
             )
         }
         .tag(article)
+        .simultaneousGesture(TapGesture().onEnded {
+            viewModel.openArticle(article)
+        })
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -536,7 +539,7 @@ struct ArticleListView: View {
         }
         .contextMenu {
             Button {
-                viewModel.selectedArticle = article
+                viewModel.openArticle(article)
             } label: {
                 Label("Open", systemImage: "book")
             }

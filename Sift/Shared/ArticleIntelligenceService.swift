@@ -24,6 +24,7 @@ public final class ArticleIntelligenceService: ObservableObject {
     public static let shared = ArticleIntelligenceService()
 
     @Published public private(set) var isGenerating: Bool = false
+    @Published public private(set) var activeModelKind: IntelligenceModelKind?
     @Published public private(set) var latestBriefing: String?
 
     private static let articlePromptVersion = 2
@@ -42,8 +43,8 @@ public final class ArticleIntelligenceService: ObservableObject {
             .max(by: { $0.generatedAt < $1.generatedAt }) {
             return IntelligenceOutput(
                 text: cached.summary,
-                keyPoints: cached.keyPoints,
-                topics: cached.topics,
+                keyPoints: cached.keyPoints ?? [],
+                topics: cached.topics ?? [],
                 modelKind: cached.modelKind,
                 isCached: true
             )
@@ -311,6 +312,7 @@ public final class ArticleIntelligenceService: ObservableObject {
         if #available(iOS 27.0, macOS 27.0, *), Self.hasPrivateCloudComputeEntitlement {
             let cloudModel = PrivateCloudComputeLanguageModel()
             if case .available = cloudModel.availability {
+                activeModelKind = .privateCloudCompute
                 do {
                     let session = LanguageModelSession(
                         model: cloudModel,
@@ -334,6 +336,7 @@ public final class ArticleIntelligenceService: ObservableObject {
         }
 
         do {
+            activeModelKind = .onDevice
             let session = LanguageModelSession(instructions: modelInstructions)
             let response = try await session.respond(
                 to: prompt,
@@ -356,6 +359,7 @@ public final class ArticleIntelligenceService: ObservableObject {
         if #available(iOS 27.0, macOS 27.0, *), Self.hasPrivateCloudComputeEntitlement {
             let cloudModel = PrivateCloudComputeLanguageModel()
             if case .available = cloudModel.availability {
+                activeModelKind = .privateCloudCompute
                 do {
                     let cloudSession = LanguageModelSession(
                         model: cloudModel,
@@ -377,6 +381,7 @@ public final class ArticleIntelligenceService: ObservableObject {
         }
 
         do {
+            activeModelKind = .onDevice
             let onDeviceSession = LanguageModelSession(instructions: modelInstructions)
             let response = try await onDeviceSession.respond(to: prompt)
             let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)

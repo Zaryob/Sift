@@ -44,10 +44,13 @@ public actor FeedRefreshService {
         feed.lastRefreshAttempt = Date()
 
         do {
+            // If local items were removed, force a complete response so a previous 304
+            // doesn't leave the feed permanently empty.
+            let hasLocalItems = !feed.items.isEmpty
             let result = try await httpClient.fetchFeed(
                 from: feedURL,
-                etag: feed.etag,
-                lastModified: feed.lastModified
+                etag: hasLocalItems ? feed.etag : nil,
+                lastModified: hasLocalItems ? feed.lastModified : nil
             )
 
             switch result {

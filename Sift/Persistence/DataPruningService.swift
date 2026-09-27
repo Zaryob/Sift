@@ -26,10 +26,10 @@ public actor DataPruningService {
     ///
     /// - Parameters:
     ///   - readRetentionDays: Days after which read, unstarred articles are purged. Pass 0 or negative to keep indefinitely.
-    ///   - unreadCutoffDays: Days after which unread, unstarred articles from inactive feeds are purged (default 180 days). Pass 0 to disable.
+    ///   - unreadCutoffDays: Days after which unread, unstarred articles are purged. Disabled by default to preserve feed archives.
     /// - Returns: A `PruningResult` with counts of deleted articles.
     @discardableResult
-    public func prune(readRetentionDays: Int = 30, unreadCutoffDays: Int = 180) async throws -> PruningResult {
+    public func prune(readRetentionDays: Int = 30, unreadCutoffDays: Int = 0) async throws -> PruningResult {
         let context = ModelContext(modelContainer)
         let calendar = Calendar.current
         let now = Date()
@@ -42,9 +42,10 @@ public actor DataPruningService {
             let predicate = #Predicate<FeedItem> { item in
                 item.isRead && !item.isStarred && item.publicationDate < readCutoff
             }
-            readDeleted = (try? context.fetchCount(FetchDescriptor<FeedItem>(predicate: predicate))) ?? 0
-            if readDeleted > 0 {
-                try context.delete(model: FeedItem.self, where: predicate)
+            let expiredItems = try context.fetch(FetchDescriptor<FeedItem>(predicate: predicate))
+            readDeleted = expiredItems.count
+            for item in expiredItems {
+                context.delete(item)
             }
         }
 
@@ -53,9 +54,10 @@ public actor DataPruningService {
             let predicate = #Predicate<FeedItem> { item in
                 !item.isRead && !item.isStarred && item.publicationDate < unreadCutoff
             }
-            unreadDeleted = (try? context.fetchCount(FetchDescriptor<FeedItem>(predicate: predicate))) ?? 0
-            if unreadDeleted > 0 {
-                try context.delete(model: FeedItem.self, where: predicate)
+            let expiredItems = try context.fetch(FetchDescriptor<FeedItem>(predicate: predicate))
+            unreadDeleted = expiredItems.count
+            for item in expiredItems {
+                context.delete(item)
             }
         }
 

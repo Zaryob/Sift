@@ -1,5 +1,25 @@
 import Foundation
 
+nonisolated public enum ArticleExtractionError: LocalizedError, Sendable {
+    case invalidResponse
+    case httpStatus(Int)
+    case unsupportedTextEncoding
+    case noReadableContent
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            return String(localized: "The publisher returned an invalid response.")
+        case .httpStatus(let statusCode):
+            return String(localized: "The publisher returned HTTP status \(statusCode).")
+        case .unsupportedTextEncoding:
+            return String(localized: "The downloaded page could not be decoded as text.")
+        case .noReadableContent:
+            return String(localized: "The page was downloaded, but no readable article text was found.")
+        }
+    }
+}
+
 /// The readable body of an article, extracted from the publisher's page.
 nonisolated public struct ExtractedArticle: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
@@ -35,7 +55,9 @@ nonisolated public enum ArticleExtractor {
 
     /// Markup (outside skipped elements) between two blocks beyond which they belong to different regions.
     private static let regionGapThreshold = 2_000
-    private static let minimumWordCount = 60
+    // Some publishers legitimately post very short news updates. Keep a small
+    // floor to reject empty/chrome-only pages without discarding those articles.
+    private static let minimumWordCount = 20
 
     private static let voidElements: Set<String> = [
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr", "param"
@@ -68,21 +90,36 @@ nonisolated public enum ArticleExtractor {
         pattern: "<meta[^>]+(?:property|name)=[\"'](?:og:image|twitter:image)[\"'][^>]*content=[\"']([^\"']+)[\"']|<meta[^>]+content=[\"']([^\"']+)[\"'][^>]*(?:property|name)=[\"'](?:og:image|twitter:image)[\"']",
         options: .caseInsensitive
     )
+    private static let embeddedDescriptionRegex = try! NSRegularExpression(
+        pattern: #"<input[^>]*name=[\"']Description[\"'][^>]*value=\"([\s\S]*?)\"[^>]*>"#,
+        options: .caseInsensitive
+    )
 
-    nonisolated public static func fetch(url: URL, summary: String?) async throws -> ExtractedArticle? {
+    nonisolated public static func fetch(url: URL, summary: String?) async throws -> ExtractedArticle {
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let html = decode(data, response: http) else {
-            return nil
+        guard let http = response as? HTTPURLResponse else {
+            throw ArticleExtractionError.invalidResponse
         }
-        return extract(html: html, baseURL: http.url ?? url, summary: summary)
+        guard (200..<300).contains(http.statusCode) else {
+            throw ArticleExtractionError.httpStatus(http.statusCode)
+        }
+        guard let html = decode(data, response: http) else {
+            throw ArticleExtractionError.unsupportedTextEncoding
+        }
+        guard let article = extract(html: html, baseURL: http.url ?? url, summary: summary) else {
+            throw ArticleExtractionError.noReadableContent
+        }
+        return article
     }
 
     public static func extract(html rawHTML: String, baseURL: URL, summary: String?) -> ExtractedArticle? {
         let html = rawHTML.replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
-        let blocks = scanBlocks(in: html)
+        // Some publishers place the article body as entity-encoded HTML in a
+        // hidden Description field instead of rendering paragraph tags directly.
+        let articleHTML = embeddedArticleHTML(in: html) ?? html
+        let blocks = scanBlocks(in: articleHTML)
         guard !blocks.isEmpty else { return nil }
 
         let runs = splitIntoRuns(blocks)
@@ -312,6 +349,20 @@ nonisolated public enum ArticleExtractor {
         guard range.location != NSNotFound else { return nil }
         let value = HTMLSanitizer.decodeEntities(ns.substring(with: range))
         return URL(string: value, relativeTo: baseURL)?.absoluteString
+    }
+
+    private static func embeddedArticleHTML(in html: String) -> String? {
+        let ns = html as NSString
+        guard let match = embeddedDescriptionRegex.firstMatch(
+            in: html,
+            range: NSRange(location: 0, length: ns.length)
+        ), match.range(at: 1).location != NSNotFound else {
+            return nil
+        }
+
+        let encoded = ns.substring(with: match.range(at: 1))
+        let decoded = HTMLSanitizer.decodeEntities(encoded)
+        return decoded.contains("<p") ? decoded : nil
     }
 
     private static func decode(_ data: Data, response: HTTPURLResponse) -> String? {
