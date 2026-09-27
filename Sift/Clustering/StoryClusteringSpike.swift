@@ -64,7 +64,7 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-1"
+    public static let pipelineVersion = "m0-spike-2"
 
     public enum TranslationStrategy: String, Sendable {
         case lowLatency
@@ -201,11 +201,21 @@ public actor StoryClusteringSpike {
                 continue
             }
 
-            guard let vector = Self.meanPooledVector(
-                for: normalized.text,
-                language: targetNaturalLanguage,
-                model: model
-            ) else {
+            let vector: [Double]?
+            if detectedLanguage == analysisLocale {
+                vector = Self.articleVector(
+                    for: article,
+                    language: targetNaturalLanguage,
+                    model: model
+                )
+            } else {
+                vector = Self.meanPooledVector(
+                    for: normalized.text,
+                    language: targetNaturalLanguage,
+                    model: model
+                )
+            }
+            guard let vector else {
                 assignments.append(Self.assignment(
                     article: article,
                     clusterID: nil,
@@ -314,6 +324,42 @@ public actor StoryClusteringSpike {
         }
         guard tokenCount > 0 else { return nil }
         return sums.map { $0 / Double(tokenCount) }
+    }
+
+    private static func articleVector(
+        for article: StoryClusteringArticle,
+        language: NLLanguage,
+        model: NLContextualEmbedding
+    ) -> [Double]? {
+        guard let titleVector = meanPooledVector(
+            for: article.title,
+            language: language,
+            model: model
+        ) else { return nil }
+
+        let context = [article.summary, article.fullText]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let context,
+              let contextVector = meanPooledVector(
+                  for: String(context.prefix(2_000)),
+                  language: language,
+                  model: model
+              ),
+              let normalizedTitle = unitVector(titleVector),
+              let normalizedContext = unitVector(contextVector) else {
+            return titleVector
+        }
+
+        // Feed excerpts often contain generic background that drowns out the event
+        // named in the headline. Give the title the larger share of the article vector.
+        return zip(normalizedTitle, normalizedContext).map { ($0 * 0.7) + ($1 * 0.3) }
+    }
+
+    private static func unitVector(_ vector: [Double]) -> [Double]? {
+        let magnitude = sqrt(vector.reduce(0.0) { $0 + ($1 * $1) })
+        guard magnitude > 0 else { return nil }
+        return vector.map { $0 / magnitude }
     }
 
     public static func runningMean(

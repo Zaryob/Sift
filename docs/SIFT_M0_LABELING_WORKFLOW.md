@@ -84,22 +84,27 @@ independent developments, and add a short rationale to each record. Mark these r
 use them to claim the M0 accuracy gate, or tune a final threshold as if the set were
 an independent holdout.
 
-The current local seed is `tools/local/sift-m0-agent-labeled-seed.jsonl`; its
-exploratory threshold results are in `tools/local/sift-m0-seed-threshold-sweep.json`.
-Both files are intentionally excluded through the checkout-local `.git/info/exclude`
-and are not part of a commit. The seed has 30 Turkish records, 14 publishers, and
-11 provisional story IDs; four event copies were added from direct publisher pages
-as research candidates, beyond the RSS snapshot. Keep any future feed text and
-labels local as well.
+The current local seed is `tools/local/sift-m0-agent-labeled-seed.jsonl`; exploratory
+results for the original representation and title-weighted revision are in
+`tools/local/sift-m0-seed-threshold-sweep.json` and
+`tools/local/sift-m0-seed-threshold-sweep-v2.json`. These files are intentionally
+excluded through the checkout-local `.git/info/exclude` and are not part of a commit.
+The seed has 30 Turkish records, 14 publishers, and 11 provisional story IDs; four
+event copies were added from direct publisher pages as research candidates, beyond
+the RSS snapshot. Keep any future feed text and labels local as well.
 
 Use the silver seed to expose obvious pipeline failures and compare representation
-or candidate-generation variants. The first current spike run assigned all 30 seed
-records to one predicted cluster at threshold 0.82. A threshold sweep did not reach
-the proposed pairwise F1 gate; at 0.98 it reached F1 0.59 with substantial false
-splits. These are exploratory findings against agent labels, not a validated quality
-claim. Fix representation and cluster assignment before expanding the seed into a
-larger development corpus. Reserve a small set of ambiguous cases for human review;
-human review can focus on adjudication rather than labeling hundreds of articles.
+or candidate-generation variants. The original `m0-spike-1` representation assigned
+all 30 seed records to one predicted cluster at threshold 0.82. Revision
+`m0-spike-2` combines separate unit-normalized title and excerpt vectors at 0.7/0.3.
+For same-language rows, threshold 0.96 reached exploratory pairwise F1 0.83, with two
+contaminated predicted clusters, two split gold IDs, and 8.1% false-positive pairs.
+The threshold was swept on this same agent-labeled seed, so this is neither an
+independent holdout score nor an M0 pass. Cross-language rows still use the joined
+translated text path and need their own evaluation. Validate boundaries and threshold
+on human-reviewed calibration data before any quality claim. Reserve human review
+for ambiguous story boundaries and a holdout; do not require a person to label
+hundreds of articles before implementation work can proceed.
 
 ## Who supplies the labels
 
