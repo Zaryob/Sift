@@ -9,7 +9,7 @@ public enum IntelligenceModelKind: String, Codable, Sendable {
     public var displayName: String {
         switch self {
         case .privateCloudCompute:
-            return String(localized: "Apple Intelligence Private Cloud")
+            return String(localized: "Legacy Apple Intelligence result")
         case .onDevice:
             return String(localized: "On-device Apple Intelligence")
         case .extractiveFallback:

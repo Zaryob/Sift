@@ -1,6 +1,5 @@
 import Foundation
 import AppIntents
-import SwiftData
 
 /// App Intent enabling Siri to generate and speak a personalized Sift briefing using Apple Intelligence.
 public struct ReadSiftBriefingIntent: AppIntent {
@@ -10,10 +9,14 @@ public struct ReadSiftBriefingIntent: AppIntent {
 
     public init() {}
 
-    @MainActor
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        let briefing = await ArticleIntelligenceService.shared.generateBriefingForUnreadArticles()
-        return .result(dialog: IntentDialog(stringLiteral: briefing))
+        let output = await ArticleIntelligenceService.shared.generateBriefingForUnreadArticlesOutput()
+        return .result(dialog: IntentDialog(stringLiteral: Self.dialogText(for: output)))
+    }
+
+    private static func dialogText(for output: IntelligenceOutput) -> String {
+        guard output.modelKind == .extractiveFallback else { return output.text }
+        return String(localized: "Apple Intelligence was unavailable, so Sift used an offline briefing. \(output.text)")
     }
 }
 
@@ -25,10 +28,14 @@ public struct SummarizeLatestArticleIntent: AppIntent {
 
     public init() {}
 
-    @MainActor
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        let summary = await ArticleIntelligenceService.shared.summarizeLatestUnreadArticle()
-        return .result(dialog: IntentDialog(stringLiteral: summary))
+        let output = await ArticleIntelligenceService.shared.summarizeLatestUnreadArticleOutput()
+        return .result(dialog: IntentDialog(stringLiteral: Self.dialogText(for: output)))
+    }
+
+    private static func dialogText(for output: IntelligenceOutput) -> String {
+        guard output.modelKind == .extractiveFallback else { return output.text }
+        return String(localized: "Apple Intelligence was unavailable, so Sift used an offline summary. \(output.text)")
     }
 }
 
@@ -43,22 +50,14 @@ public struct SummarizeArticleIntent: AppIntent {
 
     public init() {}
 
-    @MainActor
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        let context = ModelContext(PersistenceController.shared.container)
-        let articleID = article.id
-        let descriptor = FetchDescriptor<FeedItem>(
-            predicate: #Predicate { $0.id == articleID }
-        )
-        guard let item = try context.fetch(descriptor).first else {
+        guard let output = await ArticleIntelligenceService.shared.summarizeArticle(id: article.id) else {
             return .result(dialog: "That article is no longer available in Sift.")
         }
-
-        let output = await ArticleIntelligenceService.shared.summarize(
-            article: item,
-            context: context
-        )
-        return .result(dialog: IntentDialog(stringLiteral: output.text))
+        let text = output.modelKind == .extractiveFallback
+            ? String(localized: "Apple Intelligence was unavailable, so Sift used an offline summary. \(output.text)")
+            : output.text
+        return .result(dialog: IntentDialog(stringLiteral: text))
     }
 }
 

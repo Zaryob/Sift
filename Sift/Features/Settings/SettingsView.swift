@@ -54,7 +54,7 @@ private struct AppleIntelligenceSettingsSection: View {
         } header: {
             Label("Apple Intelligence", systemImage: "sparkles")
         } footer: {
-            Text("Sift generates each article summary once and reuses the saved result. Apple Intelligence processing stays on this device; if it is unavailable, Sift uses an offline extractive summary.")
+            Text("Sift reuses saved results when the article text, prompt version, and output language still match. Apple Intelligence processing stays on this device; if it is unavailable, Sift uses an offline extractive summary.")
         }
     }
 }

@@ -374,11 +374,19 @@ public final class ArticleIntelligenceService: ObservableObject {
     }
 
     public func generateBriefingForUnreadArticles() async -> String {
+        await generateBriefingForUnreadArticlesOutput().text
+    }
+
+    public func generateBriefingForUnreadArticlesOutput() async -> IntelligenceOutput {
         let context = ModelContext(PersistenceController.shared.container)
-        return await generateBriefingForUnreadArticles(context: context).text
+        return await generateBriefingForUnreadArticles(context: context)
     }
 
     public func summarizeLatestUnreadArticle() async -> String {
+        await summarizeLatestUnreadArticleOutput().text
+    }
+
+    public func summarizeLatestUnreadArticleOutput() async -> IntelligenceOutput {
         let context = ModelContext(PersistenceController.shared.container)
         var descriptor = FetchDescriptor<FeedItem>(
             predicate: #Predicate<FeedItem> { !$0.isRead },
@@ -388,13 +396,28 @@ public final class ArticleIntelligenceService: ObservableObject {
 
         do {
             guard let item = try context.fetch(descriptor).first else {
-                return String(localized: "You have no unread articles in Sift.")
+                return IntelligenceOutput(
+                    text: String(localized: "You have no unread articles in Sift."),
+                    modelKind: .extractiveFallback,
+                    isCached: false
+                )
             }
             await downloadMissingContentIfNeeded(for: [item], context: context)
-            return await summarize(article: item, context: context).text
+            return await summarize(article: item, context: context)
         } catch {
-            return String(localized: "Unable to load article.")
+            return IntelligenceOutput(
+                text: String(localized: "Unable to load article."),
+                modelKind: .extractiveFallback,
+                isCached: false
+            )
         }
+    }
+
+    public func summarizeArticle(id: UUID) async -> IntelligenceOutput? {
+        let context = ModelContext(PersistenceController.shared.container)
+        let descriptor = FetchDescriptor<FeedItem>(predicate: #Predicate { $0.id == id })
+        guard let item = try? context.fetch(descriptor).first else { return nil }
+        return await summarize(article: item, context: context)
     }
 
     /// Concurrently downloads full article content from the web for unread posts that currently only have excerpts.
