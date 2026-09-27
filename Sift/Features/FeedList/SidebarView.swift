@@ -88,6 +88,24 @@ struct SidebarView: View {
                 libraryRow("Today", systemImage: "sun.max", item: .today, count: todayCount > 0 ? todayCount : nil)
                 libraryRow("Unread", systemImage: "circlebadge", item: .unread, count: unreadCount)
                 libraryRow("Starred", systemImage: "star", item: .starred, count: starredCount)
+
+                Button {
+                    viewModel.isShowingDailyBriefing = true
+                } label: {
+                    Label {
+                        HStack {
+                            Text("Daily Briefing")
+                            Spacer()
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.siftAccent)
+                        }
+                    } icon: {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(Color.purple)
+                    }
+                }
+                .buttonStyle(.plain)
             }
 
             Section("Feeds") {

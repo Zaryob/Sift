@@ -66,6 +66,9 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.isAddingFeed) {
             AddFeedSheet(viewModel: viewModel)
         }
+        .sheet(isPresented: $viewModel.isShowingDailyBriefing) {
+            DailyBriefingSheet()
+        }
         .sheet(isPresented: $isShowingOnboarding) {
             OnboardingView(viewModel: viewModel)
         }

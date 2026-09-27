@@ -42,6 +42,7 @@ struct ArticleDetailView: View {
     @State private var viewMode: DetailViewMode = .reader
     @State private var isLoadingFullText = false
     @State private var isShowingAppearancePopover = false
+    @State private var isShowingAISummary = false
     @State private var selectedLightboxImage: IdentifiableImageURL? = nil
 
     private var fontDesign: Font.Design {
@@ -101,6 +102,7 @@ struct ArticleDetailView: View {
                             readerLineSpacing: readerLineSpacing,
                             readerContentWidth: readerContentWidth,
                             isLoadingFullText: isLoadingFullText,
+                            isShowingAISummary: $isShowingAISummary,
                             onImageTap: { imageURL in
                                 selectedLightboxImage = IdentifiableImageURL(imageURL)
                             }
@@ -109,6 +111,7 @@ struct ArticleDetailView: View {
                 }
                 .navigationTitle(article.feed?.title ?? "")
                 .task(id: article.id) {
+                    isShowingAISummary = false
                     isLoadingFullText = article.extractedArticleData == nil
                     await viewModel.loadFullTextIfNeeded(for: article, context: modelContext)
                     isLoadingFullText = false
@@ -120,6 +123,16 @@ struct ArticleDetailView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                isShowingAISummary.toggle()
+                            }
+                        } label: {
+                            Image(systemName: isShowingAISummary ? "sparkles" : "sparkle")
+                                .foregroundStyle(isShowingAISummary ? Color.siftAccent : .primary)
+                        }
+                        .help("Apple Intelligence Summary")
+
                         Button {
                             toggleSpeech(for: article)
                         } label: {
@@ -142,6 +155,11 @@ struct ArticleDetailView: View {
                             isSpeaking: isCurrentArticleSpeaking,
                             speakerIcon: speakerIcon,
                             speakerLabel: speakerLabel,
+                            onToggleAISummary: {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                    isShowingAISummary.toggle()
+                                }
+                            },
                             onToggleSpeech: { toggleSpeech(for: article) },
                             onShowAppearance: { isShowingAppearancePopover = true },
                             onPrint: { printArticle(article) }
@@ -244,6 +262,20 @@ struct ArticleDetailView: View {
 
         ToolbarItem(placement: .primaryAction) {
             Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isShowingAISummary.toggle()
+                }
+            } label: {
+                Label("AI Summary", systemImage: isShowingAISummary ? "sparkles" : "sparkle")
+            }
+            .foregroundStyle(isShowingAISummary ? Color.siftAccent : .secondary)
+            .help("Summarize with Apple Intelligence")
+            .disabled(article == nil)
+        }
+        .visibilityPriority(.high)
+
+        ToolbarItem(placement: .primaryAction) {
+            Button {
                 toggleSpeech(for: article)
             } label: {
                 Label(speakerLabel, systemImage: speakerIcon)
@@ -256,6 +288,15 @@ struct ArticleDetailView: View {
 
         ToolbarItem(placement: .primaryAction) {
             Menu {
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isShowingAISummary.toggle()
+                    }
+                } label: {
+                    Label("Apple Intelligence Summary", systemImage: "sparkles")
+                }
+                .disabled(article == nil)
+
                 Button {
                     isShowingAppearancePopover = true
                 } label: {
@@ -409,6 +450,68 @@ struct ReadingProgressBar: View {
     }
 }
 
+struct AISummaryCard: View {
+    let title: String
+    let content: String
+    let textColor: Color
+    let secondaryColor: Color
+    var onDismiss: () -> Void
+
+    @State private var summaryText: String? = nil
+    @State private var isLoading: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label("Apple Intelligence Summary", systemImage: "sparkles")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundStyle(Color.siftAccent)
+                    .textCase(.uppercase)
+
+                Spacer()
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(secondaryColor)
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if isLoading {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Summarizing with on-device model…")
+                        .font(.system(size: 13))
+                        .foregroundStyle(secondaryColor)
+                }
+                .padding(.vertical, 6)
+            } else if let summaryText {
+                Text(summaryText)
+                    .font(.system(size: 14))
+                    .lineSpacing(4)
+                    .foregroundStyle(textColor)
+            }
+        }
+        .padding(14)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.siftAccent.opacity(0.08))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.siftAccent.opacity(0.25), lineWidth: 1)
+                }
+        }
+        .task {
+            guard summaryText == nil else { return }
+            isLoading = true
+            summaryText = await ArticleIntelligenceService.shared.summarize(title: title, content: content)
+            isLoading = false
+        }
+    }
+}
+
 struct ArticleReaderScrollView: View {
     let article: FeedItem
     let readerFontSize: Double
@@ -417,6 +520,7 @@ struct ArticleReaderScrollView: View {
     let readerLineSpacing: ReaderLineSpacing
     let readerContentWidth: ReaderContentWidth
     let isLoadingFullText: Bool
+    @Binding var isShowingAISummary: Bool
     var onImageTap: ((URL) -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
@@ -455,6 +559,20 @@ struct ArticleReaderScrollView: View {
                         ArticleHeroImageView(url: imageURL) {
                             onImageTap?(imageURL)
                         }
+                    }
+
+                    if isShowingAISummary {
+                        AISummaryCard(
+                            title: article.title,
+                            content: article.content ?? article.summary ?? "",
+                            textColor: textColor,
+                            secondaryColor: secondaryColor,
+                            onDismiss: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    isShowingAISummary = false
+                                }
+                            }
+                        )
                     }
 
                     ArticleBodyContentView(
@@ -790,6 +908,7 @@ struct ArticleMoreMenu: View {
     var isSpeaking: Bool = false
     var speakerIcon: String = "waveform"
     var speakerLabel: String = "Listen to Article"
+    var onToggleAISummary: () -> Void = {}
     let onToggleSpeech: () -> Void
     let onShowAppearance: () -> Void
     let onPrint: () -> Void
@@ -798,6 +917,10 @@ struct ArticleMoreMenu: View {
 
     var body: some View {
         Menu {
+            Button(action: onToggleAISummary) {
+                Label("Apple Intelligence Summary", systemImage: "sparkles")
+            }
+
             Button(action: onToggleSpeech) {
                 Label(speakerLabel, systemImage: speakerIcon)
             }
