@@ -354,13 +354,18 @@ public final class AppViewModel {
                 publisherCount: publishers.count
             )
         }
+        .filter { group in
+            // A story is useful only when it combines independent coverage.
+            // Single-article or single-publisher clusters remain in the regular list.
+            group.articleIDs.count >= 2 && group.publisherCount >= 2
+        }
         .sorted { lhs, rhs in
             let leftDate = lhs.articleIDs.first.flatMap { dateByArticleID[$0] } ?? .distantPast
             let rightDate = rhs.articleIDs.first.flatMap { dateByArticleID[$0] } ?? .distantPast
             return leftDate > rightDate
         }
 
-        let assignedIDs = Set(readyAssignments.map(\.id))
+        let assignedIDs = Set(storyPreviewGroups.flatMap(\.articleIDs))
         storyPreviewUnassignedIDs = recentItems.map(\.id).filter { !assignedIDs.contains($0) }
         storyPreviewCategories = Self.makeDailyCategories(
             groups: storyPreviewGroups,
@@ -462,7 +467,7 @@ public final class AppViewModel {
 
         guard !requests.isEmpty else { return }
         let requestByURL = Dictionary(uniqueKeysWithValues: requests.map { ($0.url, $0) })
-        storyPreviewProgress = String(localized: "Preparing article text…")
+        storyPreviewProgress = String(localized: "Preparing recent coverage…")
         var completedCount = 0
         let maximumConcurrentRequests = 4
 
@@ -478,7 +483,7 @@ public final class AppViewModel {
 
             while let (url, extractedArticle) = await group.next() {
                 completedCount += 1
-                storyPreviewProgress = String(localized: "Extracting article text \(completedCount) of \(requests.count)…")
+                storyPreviewProgress = String(localized: "Preparing coverage \(completedCount) of \(requests.count)…")
                 let request = requestByURL[url]
                 for itemID in request?.itemIDs ?? [] {
                     guard let item = itemByID[itemID] else { continue }

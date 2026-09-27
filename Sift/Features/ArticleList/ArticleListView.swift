@@ -323,7 +323,6 @@ struct ArticleListView: View {
                         categories: viewModel.storyPreviewCategories,
                         articlesByID: Dictionary(uniqueKeysWithValues: allArticles.map { ($0.id, $0) }),
                         unassignedIDs: viewModel.storyPreviewUnassignedIDs,
-                        metrics: viewModel.storyPreviewMetrics,
                         isBuilding: viewModel.isBuildingStoryPreview,
                         onEnrichmentPassComplete: {
                             Task { @MainActor in
@@ -470,7 +469,7 @@ struct ArticleListView: View {
 
     private var currentNavTitle: String {
         if isShowingStoryPreview {
-            return String(localized: "Stories Preview")
+            return String(localized: "Stories")
         }
         return currentFeedTitle ?? currentScopeTitle
     }
@@ -480,11 +479,14 @@ struct ArticleListView: View {
             return progress
         }
         if isShowingStoryPreview, viewModel.isBuildingStoryPreview {
-            return String(localized: "Analyzing recent coverage on this device…")
+            return String(localized: "Organizing recent coverage…")
         }
-        if isShowingStoryPreview,
-           viewModel.storyPreviewMetrics?.analysisState == .modelUnavailable {
-            return String(localized: "On-device analysis unavailable")
+        if isShowingStoryPreview {
+            let storyCount = viewModel.storyPreviewGroups.count
+            if storyCount > 0 {
+                return String(localized: "\(storyCount) stories across multiple sources")
+            }
+            return String(localized: "Recent articles from your feeds")
         }
         if viewModel.isRefreshing {
             return String(localized: "Updating feeds…")
@@ -1046,14 +1048,14 @@ struct ArticleListView: View {
                     Button {
                         buildStoryPreview()
                     } label: {
-                        Label("Rebuild Preview", systemImage: "arrow.clockwise")
+                        Label("Update Stories", systemImage: "arrow.clockwise")
                     }
                     .disabled(viewModel.isBuildingStoryPreview)
                 } else {
                     Button {
                         buildStoryPreview()
                     } label: {
-                        Label("Build Stories Preview", systemImage: "square.stack.3d.up")
+                        Label("Show Stories", systemImage: "square.stack.3d.up")
                     }
                     .disabled(viewModel.isBuildingStoryPreview || allArticles.isEmpty || !isAllArticlesScope)
                 }

@@ -6,7 +6,6 @@ struct StoryPreviewList: View {
     let categories: [StoryPreviewCategory]
     let articlesByID: [UUID: FeedItem]
     let unassignedIDs: [UUID]
-    let metrics: StoryPreviewMetrics?
     let isBuilding: Bool
     let onEnrichmentPassComplete: () -> Void
     @Binding var selectedArticle: FeedItem?
@@ -54,7 +53,7 @@ struct StoryPreviewList: View {
                 Section {
                     HStack(spacing: 12) {
                         ProgressView()
-                        Text("Comparing recent coverage on this device…")
+                        Text("Organizing recent coverage…")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -71,7 +70,7 @@ struct StoryPreviewList: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         } else {
-                            Text("Enriching recent articles on this device…")
+                            Text("Preparing recent articles…")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -80,14 +79,25 @@ struct StoryPreviewList: View {
                 }
             }
 
-            if let metrics, metrics.analysisState != .noRecentArticles {
+            if !recentGroups.isEmpty {
                 Section {
-                    StoryPreviewStatusCard(metrics: metrics)
+                    Label {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Same story, multiple sources")
+                                .font(.headline)
+                            Text("Related reporting is grouped so you can compare coverage without reading the same update twice.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .foregroundStyle(Color.siftAccent)
+                    }
                         .listRowSeparator(.hidden)
                 }
             }
 
-            if !recentCategories.isEmpty {
+            if !recentGroups.isEmpty, !recentCategories.isEmpty {
                 Section {
                     StoryPreviewCategoryFilter(
                         categories: recentCategories,
@@ -96,10 +106,8 @@ struct StoryPreviewList: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                 } header: {
-                    Text("Topics from recent coverage")
+                    Text("Topics")
                         .textCase(nil)
-                } footer: {
-                    Text("Topic labels come from on-device article digests and may change as more recent articles are enriched.")
                 }
             }
 
@@ -134,10 +142,8 @@ struct StoryPreviewList: View {
                         }
                     }
                 } header: {
-                    Text(metrics?.analysisState == .modelUnavailable ? "Not analyzed" : "Not grouped")
+                    Text(recentGroups.isEmpty ? "Recent Articles" : "More Recent Articles")
                         .textCase(nil)
-                } footer: {
-                    Text(unassignedFooter)
                 }
             }
 
@@ -209,69 +215,6 @@ private struct StoryPreviewCategoryChip: View {
             }
         }
         .buttonStyle(.plain)
-    }
-}
-
-private struct StoryPreviewStatusCard: View {
-    let metrics: StoryPreviewMetrics
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(
-                metrics.analysisState == .modelUnavailable
-                    ? "On-device analysis unavailable"
-                    : "Experimental on-device preview",
-                systemImage: metrics.analysisState == .modelUnavailable ? "exclamationmark.triangle" : "sparkles"
-            )
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.siftAccent)
-
-            Text(statusDescription)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Text("\(metrics.readyArticleCount) of \(metrics.analyzedArticleCount) articles analyzed · \(metrics.articleBodyCount) with substantial body text")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if metrics.enrichedArticleCount > 0 {
-                Text("\(metrics.enrichedArticleCount) article digests · \(metrics.dailyCategoryCount) daily topics")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Daily topics appear as Apple Intelligence prepares article digests on this device.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if metrics.waitingForTranslationCount > 0 || metrics.unsupportedLanguageCount > 0 || metrics.otherFailureCount > 0 {
-                Text("\(metrics.waitingForTranslationCount) waiting for language assets · \(metrics.unsupportedLanguageCount) unsupported languages · \(metrics.otherFailureCount) other analysis limits")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var statusDescription: LocalizedStringResource {
-        switch metrics.analysisState {
-        case .completed:
-            "M0 quality gate not passed. Article digests and topic labels are experimental; story-level summaries are not generated."
-        case .modelUnavailable:
-            "Apple's on-device embedding model did not load. This run did not evaluate whether these stories match."
-        case .noRecentArticles:
-            "There are no recent articles to analyze."
-        }
-    }
-}
-
-private extension StoryPreviewList {
-    var unassignedFooter: LocalizedStringResource {
-        if metrics?.analysisState == .modelUnavailable {
-            return "These articles were not analyzed because the on-device embedding model could not load. This is not a negative story match."
-        }
-        return "These articles stayed separate because there was too little text, an unavailable language pair, or no usable on-device embedding."
     }
 }
 
