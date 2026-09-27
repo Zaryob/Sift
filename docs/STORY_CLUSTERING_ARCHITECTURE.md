@@ -390,10 +390,10 @@ and shows some same-event misses just below the fixed centroid threshold. It is 
 small, provisional development sample, not an M0 result or threshold calibration set.
 
 All sample rows were assigned after Translation preflight, but the sample does not
-prove language-independent clustering: cross-language same-event pairs are sparse
-and missed in the current labels. M0 still needs deliberately assembled same-event
-coverage across language pairs, plus adjudicated labels, before this pipeline can
-pass its gate. The corpus and detailed assignments are local and excluded from Git.
+prove language-independent clustering: it contains cross-language same-event pairs,
+and many were missed. M0 still needs deliberately assembled and adjudicated same-event
+coverage across language pairs before this pipeline can pass its gate. The corpus and
+detailed assignments are local and excluded from Git.
 
 ## 7. Non-Goals and Accepted Risks for v0
 
