@@ -38,8 +38,10 @@ public final class ArticleIntelligenceService: ObservableObject {
 
     private static let articlePromptVersion = 4
     private static let briefingPromptVersion = 1
+    private static let cleanupPromptVersion = 1
     private var activeGenerationCount = 0
     private var inFlightSummaries: [String: Task<IntelligenceOutput, Never>] = [:]
+    private var inFlightCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     private init() {}
 
@@ -119,6 +121,9 @@ public final class ArticleIntelligenceService: ObservableObject {
                     )
             })
             .max(by: { $0.generatedAt < $1.generatedAt }) {
+            if classifyIrrelevantContent, cached.modelKind == .onDevice {
+                scheduleContentCleanup(for: cached, blocks: blocks, context: context)
+            }
             return IntelligenceOutput(
                 text: cached.summary,
                 keyPoints: cached.keyPoints ?? [],
@@ -178,18 +183,34 @@ public final class ArticleIntelligenceService: ObservableObject {
             article: article
         )
         context.insert(result)
-        try? context.save()
-        #if canImport(FoundationModels)
+        save(context, operation: "article digest")
         if classifyIrrelevantContent, generated.modelKind != .extractiveFallback {
-            Task { @MainActor in
-                let irrelevantIDs = await classifyIrrelevantBlocks(blocks)
-                guard !irrelevantIDs.isEmpty else { return }
-                result.irrelevantBlockIDs = irrelevantIDs
-                try? context.save()
-            }
+            scheduleContentCleanup(for: result, blocks: blocks, context: context)
         }
-        #endif
         return generated
+    }
+
+    private func scheduleContentCleanup(
+        for result: ArticleIntelligenceResult,
+        blocks: [String],
+        context: ModelContext
+    ) {
+        #if canImport(FoundationModels)
+        guard result.cleanupPromptVersion != Self.cleanupPromptVersion,
+              inFlightCleanupTasks[result.id] == nil else { return }
+
+        let resultID = result.id
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { inFlightCleanupTasks[resultID] = nil }
+            let irrelevantIDs = await classifyIrrelevantBlocks(blocks)
+            guard !Task.isCancelled else { return }
+            result.irrelevantBlockIDs = irrelevantIDs
+            result.cleanupPromptVersion = Self.cleanupPromptVersion
+            save(context, operation: "content cleanup")
+        }
+        inFlightCleanupTasks[resultID] = task
+        #endif
     }
 
     /// Compatibility path for callers that don't have a persisted article.
@@ -316,7 +337,7 @@ public final class ArticleIntelligenceService: ObservableObject {
             )
             context.insert(saved)
         }
-        try? context.save()
+        save(context, operation: "daily briefing")
         latestBriefing = generated.text
         return generated
     }
@@ -405,7 +426,7 @@ public final class ArticleIntelligenceService: ObservableObject {
                 }
             }
         }
-        try? context.save()
+        save(context, operation: "downloaded article content")
     }
 
     private func generateSummary(
@@ -539,6 +560,14 @@ public final class ArticleIntelligenceService: ObservableObject {
         isGenerating = activeGenerationCount > 0
         if !isGenerating {
             activeModelKind = nil
+        }
+    }
+
+    private func save(_ context: ModelContext, operation: String) {
+        do {
+            try context.save()
+        } catch {
+            print("[ArticleIntelligenceService] Failed to save \(operation): \(error)")
         }
     }
 

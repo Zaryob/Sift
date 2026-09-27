@@ -53,6 +53,7 @@ public final class ArticleIntelligenceResult {
     public var keyPoints: [String]?
     public var topics: [String]?
     public var irrelevantBlockIDs: [Int]?
+    public var cleanupPromptVersion: Int?
     public var modelKindRawValue: String
     public var sourceContentHash: String
     public var promptVersion: Int
@@ -66,6 +67,7 @@ public final class ArticleIntelligenceResult {
         keyPoints: [String] = [],
         topics: [String] = [],
         irrelevantBlockIDs: [Int] = [],
+        cleanupPromptVersion: Int? = nil,
         modelKind: IntelligenceModelKind,
         sourceContentHash: String,
         promptVersion: Int,
@@ -78,6 +80,7 @@ public final class ArticleIntelligenceResult {
         self.keyPoints = keyPoints
         self.topics = topics
         self.irrelevantBlockIDs = irrelevantBlockIDs
+        self.cleanupPromptVersion = cleanupPromptVersion
         self.modelKindRawValue = modelKind.rawValue
         self.sourceContentHash = sourceContentHash
         self.promptVersion = promptVersion
