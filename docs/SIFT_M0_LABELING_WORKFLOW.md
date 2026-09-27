@@ -49,6 +49,26 @@ gold JSONL. The page has no server connection and does not persist the article d
 in browser storage. It does not show clustering predictions, which makes it suitable
 for blind holdout labeling.
 
+Build a balanced recent snapshot with the native Swift collector. Its default output
+is stdout; the redirect below is an explicit local-only choice needed to give the
+review page a file. Keep the destination outside Git and share it only with approved
+reviewers:
+
+```sh
+swiftc -parse-as-library tools/CollectM0FeedSnapshot.swift \
+  -framework NaturalLanguage -o /tmp/CollectM0FeedSnapshot
+
+/tmp/CollectM0FeedSnapshot \
+  --manifest tools/local/sift-feed-sample.json \
+  --since-hours 168 --limit 30 --per-publisher 3 --per-feed 20 \
+  > /tmp/sift-m0-pilot.jsonl
+```
+
+The collector keeps feed text in memory and writes only JSONL to stdout. Its balanced
+selection caps repeated coverage from any one publisher; check the reported language
+and publisher mix before using the pilot. `--limit 300` or `--limit 500` builds a
+larger review set. Feed errors and counts are written to stderr, without headlines.
+
 This changes the workload from searching every item manually into checking a ranked
 set of article pairs and building groups from confirmed links. The 30-item pilot
 provides a measured effort estimate before expanding to the full corpus.
