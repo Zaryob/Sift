@@ -30,6 +30,7 @@ public final class ArticleIntelligenceResult {
     public var modelKindRawValue: String
     public var sourceContentHash: String
     public var promptVersion: Int
+    public var outputLanguageCode: String?
     public var generatedAt: Date
     public var article: FeedItem?
 
@@ -42,6 +43,7 @@ public final class ArticleIntelligenceResult {
         modelKind: IntelligenceModelKind,
         sourceContentHash: String,
         promptVersion: Int,
+        outputLanguageCode: String? = nil,
         generatedAt: Date = Date(),
         article: FeedItem? = nil
     ) {
@@ -53,6 +55,7 @@ public final class ArticleIntelligenceResult {
         self.modelKindRawValue = modelKind.rawValue
         self.sourceContentHash = sourceContentHash
         self.promptVersion = promptVersion
+        self.outputLanguageCode = outputLanguageCode
         self.generatedAt = generatedAt
         self.article = article
     }
