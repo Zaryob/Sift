@@ -88,23 +88,26 @@ The current local seed is `tools/local/sift-m0-agent-labeled-seed.jsonl`; explor
 reports are in `tools/local/sift-m0-seed-threshold-sweep*.json` and
 `tools/local/sift-m0-multilingual-*-report.json`. These files are intentionally
 excluded through the checkout-local `.git/info/exclude` and are not part of a commit.
-The seed now has 54 records from 29 publishers across Turkish (30), English (12),
-German (4), Spanish (4), and French (4), grouped into 17 provisional story IDs.
-The 24 added records cover three multilingual events and three separate Apple-topic
-hard negatives. Their labels and rationales remain local. The multilingual set
-contains no same-event Turkish/non-Turkish pair yet, so it does not measure
-Turkish-to-other-language clustering.
+The seed now has 66 records from 32 publishers across Turkish (42), English (12),
+German (4), Spanish (4), and French (4), grouped into 22 provisional event IDs. The
+added records include three multilingual events, three separate Apple-topic hard
+negatives, and a 21-article cross-source issue thread split across seven event
+clusters. That issue thread adds source/claim relation labels in a separate local
+case file; it does not merge related events into one `goldStoryID`. The labels and
+rationales remain local. The multilingual set contains no same-event Turkish/non-
+Turkish pair yet, so it does not measure Turkish-to-other-language clustering.
 
 Use the silver seed to expose obvious pipeline failures and compare representation
 or candidate-generation variants. The original `m0-spike-1` representation assigned
 all 30 seed records to one predicted cluster at threshold 0.82. Revision
 `m0-spike-2` combines separate unit-normalized title and excerpt vectors at 0.7/0.3.
 On the 30-row Turkish-only seed, threshold 0.96 reached exploratory pairwise F1 0.83.
-After adding the multilingual rows, the same threshold yielded F1 0.53, precision
-0.73, recall 0.42, a 12.5% contaminated-cluster rate, and a 27.1% false-positive-pair
-rate. Four gold IDs were split. Translation reported `installed` for 42 non-English
-rows; the 12 English rows needed no translation. The run took about 102 seconds for
-54 rows on the recorded Mac16,1 / macOS 27.0 machine (about 1.9 seconds per article).
+The 54-row multilingual set yielded F1 0.53. The expanded 66-row, source-diversity
+seed yielded F1 0.58, precision 0.64, recall 0.53, a 7.4% contaminated-cluster rate,
+and a 35.8% false-positive-pair rate; six event IDs were split. Translation reported
+`installed` for 54 non-English rows; the 12 English rows needed no translation. The
+66-row run took about 122 seconds on the recorded Mac16,1 / macOS 27.0 machine
+(about 1.85 seconds per article).
 These are silver-set diagnostics only: the threshold was not independently chosen,
 the labels were agent-created, and this is not an M0 pass. In particular, the seed
 shows that the current cross-language approach misses some clear matches. A follow-up
@@ -115,10 +118,21 @@ predicted assignments and the pairwise metrics were identical. Treat this as a
 maintainability/API-shape improvement, not a measured speedup. Both runs translated
 every eligible row from scratch, unlike the intended incremental app pipeline.
 
+The source-diversity case found no clean direct factual contradiction in the sampled
+coverage; it found framing/procedure differences, one alleged transaction versus a
+non-specific response, and a macro-level “systemic risk” assurance alongside a
+retail investor's liquidity/access account. Those latter claims have different scope
+and can both be true. Five outlets also repeated one official asset-freezing
+announcement; that is not five independent confirmations. Most importantly, the
+clusterer merged one asset-freezing article into a cluster containing the earlier
+allegation and later resignation events. This is a concrete same-issue/different-event
+false merge. Keep a broader `issueID` timeline separate from event-level `goldStoryID`
+and retain source-attributed claims.
+
 Next: cache derived analysis per article content hash and pipeline/model version,
-reprocess only new or changed items, and retain recent cluster centroids for candidate
-matching. Keep the failing multilingual cases as regression examples. The silver set
-can guide implementation, but M0's accuracy gate still needs an independently
+reprocess only new or changed items, and retain recent event centroids for candidate
+matching. Keep these same-issue hard negatives as regression examples. The silver
+set can guide implementation, but M0's accuracy gate still needs an independently
 reviewed calibration/holdout set; the product owner should not have to label hundreds
 of articles. Until then, run M1 in shadow mode and do not make story clustering the
 default reading experience.

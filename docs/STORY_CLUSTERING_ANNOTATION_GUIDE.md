@@ -2,6 +2,10 @@
 
 This guide supports the manually labeled 300–500 article M0 corpus described in [`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md). Human annotators assign `goldStoryID`; the benchmark compares those labels with `predictedClusterID`. A script can calculate agreement metrics, but **it does not create, review, or substitute for human labels**.
 
+Source-specific allegations and disagreements use a separate claim annotation layer:
+see [`SOURCE_CONFLICT_ANNOTATION.md`](SOURCE_CONFLICT_ANNOTATION.md). A shared topic
+or `issueID` does not make two separate developments the same `goldStoryID`.
+
 ## Unit and required fields
 
 Use one record per distinct article/feed item. Give each record a stable, unique `articleID`, a `goldStoryID` shared only by articles about the same underlying event, and the clusterer's `predictedClusterID`. Keep the article title, publisher, publication time, language, available excerpt/full text, and source URL in the corpus working sheet for annotation and adjudication; those context fields are not required by the evaluator.

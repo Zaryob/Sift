@@ -266,14 +266,36 @@ only ever sets `earliestBeginDate` as a floor, never a promise). The full schedu
 and notification contract for the downstream product is defined in
 [`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md).
 
-## 5. Milestones
+## 5. Claim disagreements and source diversity
+
+Story identity is separate from claim agreement. Articles can belong to the same
+event cluster while using different frames; related developments can share an
+`issueID` timeline while remaining separate event clusters. A cluster's `sourceCount`
+measures distinct publishers, not independent corroboration or truth.
+
+Briefing synthesis must preserve each material claim's speaker, article, timestamp,
+and source link. Compare claims only after checking that they address the same
+subject, proposition, time, and scope. Separate direct conflict candidates from
+different-scope but compatible claims, updates, allegation/response pairs,
+framing differences, syndicated repeats, and insufficient evidence. Foundation
+Models may identify and summarize these relationships locally; they do not decide
+which outlet or claim is true. When the relationship is unclear, show the source
+articles without declaring a conflict. If Apple Intelligence is unavailable, keep
+the cluster and source list usable and omit generated synthesis.
+
+The annotation taxonomy and product treatment are specified in
+[`SOURCE_CONFLICT_ANNOTATION.md`](SOURCE_CONFLICT_ANNOTATION.md). The active local
+silver example is intentionally ignored by Git; never commit its feed records or
+source text.
+
+## 6. Milestones
 
 | # | Milestone | Exit Criteria |
 |---|---|---|
 | **M0** | **Blocking evidence and feasibility gate** — blocks story-primary UI, synthesis, briefings, and urgent alerts. | The current native spike (`Sift/Clustering/StoryClusteringSpike.swift`) runs language detection → installed-asset Translation preflight → on-device embedding → sliding-window clustering without changing shipped data or UI. Run it against a hand-collected corpus of 300–500 real articles from ≥20 publishers and ≥3 languages, manually labeled under [`STORY_CLUSTERING_ANNOTATION_GUIDE.md`](STORY_CLUSTERING_ANNOTATION_GUIDE.md). Evaluate with [`tools/evaluate_story_clusters.py`](../tools/evaluate_story_clusters.py). **Metrics:** pairwise precision/recall/F1; false-merge rate = contaminated predicted clusters / all predicted clusters; false-positive pair rate and false splits reported separately. Record a numeric false-merge bound before scoring. **Go/no-go:** pairwise F1 ≥ 0.75, false-merge rate below that bound, acceptable per-item latency on representative devices, and required translation pairs actually `.installed`. Measure `lowLatency` and `highFidelity` separately. User sessions and a one-week diary are also required by the roadmap; repository code does not substitute for those evidence. If a gate fails, revise the on-device strategy and rerun M0 before moving forward. |
 | **M1–M4** | Product delivery milestones | Defined by [`SIFT_PRODUCT_ROADMAP.md`](SIFT_PRODUCT_ROADMAP.md), the product source of truth. M1 adds durable story pipeline after M0; M2 adds story/synthesis; M3 adds briefing and notification policy; M4 pilots and iterates. Keep technical schema and migration details in this architecture document. |
 
-## 6. Non-Goals and Accepted Risks for v0
+## 7. Non-Goals and Accepted Risks for v0
 
 - Cross-publisher fact-checking or claims that source count proves truth.
 - User-facing cluster correction before benchmark quality is established. When
