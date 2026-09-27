@@ -112,7 +112,7 @@ struct ArticleDetailView: View {
                 .navigationTitle(article.feed?.title ?? "")
                 .task(id: article.id) {
                     isShowingAISummary = false
-                    isLoadingFullText = article.extractedArticleData == nil
+                    isLoadingFullText = article.extractedArticleData == nil && article.isExcerpt
                     await viewModel.loadFullTextIfNeeded(for: article, context: modelContext)
                     isLoadingFullText = false
                 }
@@ -839,7 +839,7 @@ struct ArticleBodyContentView: View {
                     }
                     .font(.subheadline)
                     .foregroundStyle(secondaryTextColor)
-                } else if let url = article.originalURL {
+                } else if article.isExcerpt, let url = article.originalURL {
                     Link(destination: url) {
                         Label("Continue reading on \(url.host() ?? "the website")", systemImage: "arrow.up.right")
                             .labelStyle(TrailingIconLabelStyle())

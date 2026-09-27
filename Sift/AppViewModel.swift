@@ -289,12 +289,19 @@ public final class AppViewModel {
         }
     }
 
-    /// Fetches and caches the article's full text. Failures are remembered for a day so a page
-    /// that can't be extracted isn't re-downloaded every time it's opened.
-    public func loadFullTextIfNeeded(for article: FeedItem, context: ModelContext) async {
+    /// Fetches and caches the article's full text lazily on-demand when the user opens the article.
+    /// If the feed already contains the complete text, no external web request is made.
+    public func loadFullTextIfNeeded(for article: FeedItem, force: Bool = false, context: ModelContext) async {
         guard article.extractedArticleData == nil,
               let link = article.link, let url = URL(string: link) else { return }
-        if let attempted = article.extractionAttemptedAt, Date().timeIntervalSince(attempted) < 86_400 {
+
+        // If the RSS feed already provided the substantial full article, we don't need to crawl the site
+        if article.hasSubstantialFeedContent && !force {
+            return
+        }
+
+        // Avoid re-fetching immediately if already attempted recently, unless forced
+        if !force, let attempted = article.extractionAttemptedAt, Date().timeIntervalSince(attempted) < 3600 {
             return
         }
 

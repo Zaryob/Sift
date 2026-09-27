@@ -98,6 +98,24 @@ public final class FeedItem {
         return words >= 200 ? max(1, Int((Double(words) / 220).rounded(.up))) : nil
     }
 
+    /// Whether the RSS feed itself provided a full article body rather than a short summary/teaser.
+    public var hasSubstantialFeedContent: Bool {
+        guard let content = content?.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty else {
+            return false
+        }
+        let stripped = HTMLSanitizer.stripTags(from: content)
+        let wordCount = stripped.split(whereSeparator: \.isWhitespace).count
+        return wordCount >= 160
+    }
+
+    /// True if the article is only a brief snippet/excerpt and full text has not yet been extracted from the web.
+    public var isExcerpt: Bool {
+        if extractedArticleData != nil {
+            return false
+        }
+        return !hasSubstantialFeedContent
+    }
+
     public var deduplicationKey: String {
         if let guid = guid, !guid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "guid:\(guid)"
