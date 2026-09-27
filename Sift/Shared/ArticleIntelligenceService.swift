@@ -4,6 +4,18 @@ import CryptoKit
 import SwiftData
 #if canImport(FoundationModels)
 import FoundationModels
+
+@Generable
+private struct GeneratedArticleDigest {
+    @Guide(description: "A factual two-to-three sentence summary written for listening.")
+    let summary: String
+
+    @Guide(description: "The most important factual takeaways.", .maximumCount(3))
+    let keyPoints: [String]
+
+    @Guide(description: "Short topic labels for the article.", .maximumCount(4))
+    let topics: [String]
+}
 #endif
 
 /// Generates and persistently caches Apple Intelligence summaries and spoken briefings.
@@ -14,7 +26,7 @@ public final class ArticleIntelligenceService: ObservableObject {
     @Published public private(set) var isGenerating: Bool = false
     @Published public private(set) var latestBriefing: String?
 
-    private static let articlePromptVersion = 1
+    private static let articlePromptVersion = 2
     private static let briefingPromptVersion = 1
 
     private init() {}
@@ -30,6 +42,8 @@ public final class ArticleIntelligenceService: ObservableObject {
             .max(by: { $0.generatedAt < $1.generatedAt }) {
             return IntelligenceOutput(
                 text: cached.summary,
+                keyPoints: cached.keyPoints,
+                topics: cached.topics,
                 modelKind: cached.modelKind,
                 isCached: true
             )
@@ -38,6 +52,8 @@ public final class ArticleIntelligenceService: ObservableObject {
         let generated = await generateSummary(title: article.title, content: content)
         let result = ArticleIntelligenceResult(
             summary: generated.text,
+            keyPoints: generated.keyPoints,
+            topics: generated.topics,
             modelKind: generated.modelKind,
             sourceContentHash: contentHash,
             promptVersion: Self.articlePromptVersion,
@@ -107,37 +123,22 @@ public final class ArticleIntelligenceService: ObservableObject {
             """
         }
 
+        let prompt = """
+        Create a 60-to-90 second spoken news briefing covering the following top stories.
+        Begin with a warm greeting like "Here is your Sift briefing for today."
+        Smoothly transition between stories like a professional radio anchor.
+        Use only facts present in the supplied stories and preserve source attribution.
+        Conclude with a brief closing sentence.
+
+        Stories:
+        \(contextText)
+        """
+
         let generated: IntelligenceOutput
         #if canImport(FoundationModels)
-        do {
-            let session = makeSession()
-            let prompt = """
-            Create a 60-to-90 second spoken news briefing covering the following top stories.
-            Begin with a warm greeting like "Here is your Sift briefing for today."
-            Smoothly transition between stories like a professional radio anchor.
-            Use only facts present in the supplied stories and preserve source attribution.
-            Conclude with a brief closing sentence.
-
-            Stories:
-            \(contextText)
-            """
-            let response = try await session.respond(to: prompt)
-            let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if result.isEmpty {
-                generated = IntelligenceOutput(
-                    text: fallbackBriefing(topItems: topItems),
-                    modelKind: .extractiveFallback,
-                    isCached: false
-                )
-            } else {
-                generated = IntelligenceOutput(
-                    text: result,
-                    modelKind: .onDevice,
-                    isCached: false
-                )
-            }
-        } catch {
-            print("[ArticleIntelligenceService] FoundationModels briefing error: \(error). Falling back.")
+        if let modelOutput = await generateModelResponse(to: prompt) {
+            generated = modelOutput
+        } else {
             generated = IntelligenceOutput(
                 text: fallbackBriefing(topItems: topItems),
                 modelKind: .extractiveFallback,
@@ -267,23 +268,17 @@ public final class ArticleIntelligenceService: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let sample = String(cleanContent.prefix(4_000))
 
-        #if canImport(FoundationModels)
-        do {
-            let session = makeSession()
-            let prompt = """
-            Provide a 2 to 3 sentence spoken executive summary of this article.
-            Use only the supplied article. Preserve key facts, names, numbers, and dates.
+        let prompt = """
+        Provide a 2 to 3 sentence spoken executive summary of this article.
+        Use only the supplied article. Preserve key facts, names, numbers, and dates.
 
-            Title: \(title)
-            Content: \(sample)
-            """
-            let response = try await session.respond(to: prompt)
-            let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !result.isEmpty {
-                return IntelligenceOutput(text: result, modelKind: .onDevice, isCached: false)
-            }
-        } catch {
-            print("[ArticleIntelligenceService] FoundationModels error: \(error). Falling back to extractive summary.")
+        Title: \(title)
+        Content: \(sample)
+        """
+
+        #if canImport(FoundationModels)
+        if let modelOutput = await generateArticleDigest(to: prompt) {
+            return modelOutput
         }
         #endif
 
@@ -295,17 +290,106 @@ public final class ArticleIntelligenceService: ObservableObject {
     }
 
     #if canImport(FoundationModels)
-    private func makeSession() -> LanguageModelSession {
-        LanguageModelSession(
-            instructions: """
-            You are the news editor and morning radio briefing host for Sift, an RSS news reader.
-            Rewrite RSS articles as concise, engaging spoken news.
-            Preserve key facts, names, numbers, dates, and source attribution.
-            Never add facts that aren't in the supplied material.
-            Avoid repetition, promotional text, website boilerplate, and markdown formatting.
-            Write naturally for listening rather than reading.
-            """
-        )
+    #if ENABLE_PRIVATE_CLOUD_COMPUTE
+    private static let hasPrivateCloudComputeEntitlement = true
+    #else
+    private static let hasPrivateCloudComputeEntitlement = false
+    #endif
+
+    private var modelInstructions: String {
+        """
+        You are the news editor and morning radio briefing host for Sift, an RSS news reader.
+        Rewrite RSS articles as concise, engaging spoken news.
+        Preserve key facts, names, numbers, dates, and source attribution.
+        Never add facts that aren't in the supplied material.
+        Avoid repetition, promotional text, website boilerplate, and markdown formatting.
+        Write naturally for listening rather than reading.
+        """
+    }
+
+    private func generateArticleDigest(to prompt: String) async -> IntelligenceOutput? {
+        if #available(iOS 27.0, macOS 27.0, *), Self.hasPrivateCloudComputeEntitlement {
+            let cloudModel = PrivateCloudComputeLanguageModel()
+            if case .available = cloudModel.availability {
+                do {
+                    let session = LanguageModelSession(
+                        model: cloudModel,
+                        instructions: modelInstructions
+                    )
+                    let response = try await session.respond(
+                        to: prompt,
+                        generating: GeneratedArticleDigest.self
+                    )
+                    return IntelligenceOutput(
+                        text: response.content.summary,
+                        keyPoints: response.content.keyPoints,
+                        topics: response.content.topics,
+                        modelKind: .privateCloudCompute,
+                        isCached: false
+                    )
+                } catch {
+                    print("[ArticleIntelligenceService] PCC digest unavailable: \(error). Retrying on device.")
+                }
+            }
+        }
+
+        do {
+            let session = LanguageModelSession(instructions: modelInstructions)
+            let response = try await session.respond(
+                to: prompt,
+                generating: GeneratedArticleDigest.self
+            )
+            return IntelligenceOutput(
+                text: response.content.summary,
+                keyPoints: response.content.keyPoints,
+                topics: response.content.topics,
+                modelKind: .onDevice,
+                isCached: false
+            )
+        } catch {
+            print("[ArticleIntelligenceService] Structured digest unavailable: \(error). Using extractive fallback.")
+            return nil
+        }
+    }
+
+    private func generateModelResponse(to prompt: String) async -> IntelligenceOutput? {
+        if #available(iOS 27.0, macOS 27.0, *), Self.hasPrivateCloudComputeEntitlement {
+            let cloudModel = PrivateCloudComputeLanguageModel()
+            if case .available = cloudModel.availability {
+                do {
+                    let cloudSession = LanguageModelSession(
+                        model: cloudModel,
+                        instructions: modelInstructions
+                    )
+                    let response = try await cloudSession.respond(to: prompt)
+                    let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !result.isEmpty {
+                        return IntelligenceOutput(
+                            text: result,
+                            modelKind: .privateCloudCompute,
+                            isCached: false
+                        )
+                    }
+                } catch {
+                    print("[ArticleIntelligenceService] Private Cloud Compute unavailable: \(error). Retrying on device.")
+                }
+            }
+        }
+
+        do {
+            let onDeviceSession = LanguageModelSession(instructions: modelInstructions)
+            let response = try await onDeviceSession.respond(to: prompt)
+            let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !result.isEmpty else { return nil }
+            return IntelligenceOutput(
+                text: result,
+                modelKind: .onDevice,
+                isCached: false
+            )
+        } catch {
+            print("[ArticleIntelligenceService] On-device model unavailable: \(error). Using extractive fallback.")
+            return nil
+        }
     }
     #endif
 

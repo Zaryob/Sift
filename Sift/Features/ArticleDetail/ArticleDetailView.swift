@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import AppIntents
 #if os(macOS)
 import AppKit
 #elseif os(iOS)
@@ -458,6 +459,8 @@ struct AISummaryCard: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var summaryText: String?
+    @State private var keyPoints: [String] = []
+    @State private var topics: [String] = []
     @State private var modelKind: IntelligenceModelKind?
     @State private var isCached: Bool = false
     @State private var isLoading: Bool = false
@@ -495,6 +498,13 @@ struct AISummaryCard: View {
                     .lineSpacing(4)
                     .foregroundStyle(textColor)
 
+                AISummaryDetailsView(
+                    keyPoints: keyPoints,
+                    topics: topics,
+                    textColor: textColor,
+                    secondaryColor: secondaryColor
+                )
+
                 if let modelKind {
                     Text(isCached ? "\(modelKind.displayName) · Saved" : modelKind.displayName)
                         .font(.caption2)
@@ -519,9 +529,48 @@ struct AISummaryCard: View {
                 context: modelContext
             )
             summaryText = output.text
+            keyPoints = output.keyPoints
+            topics = output.topics
             modelKind = output.modelKind
             isCached = output.isCached
             isLoading = false
+        }
+    }
+}
+
+private struct AISummaryDetailsView: View {
+    let keyPoints: [String]
+    let topics: [String]
+    let textColor: Color
+    let secondaryColor: Color
+
+    var body: some View {
+        if !keyPoints.isEmpty || !topics.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                if !keyPoints.isEmpty {
+                    Text("Key Points")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(secondaryColor)
+
+                    ForEach(Array(keyPoints.enumerated()), id: \.offset) { _, point in
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Image(systemName: "circle.fill")
+                                .font(.system(size: 4))
+                                .foregroundStyle(Color.siftAccent)
+                            Text(point)
+                                .font(.system(size: 13))
+                                .foregroundStyle(textColor)
+                        }
+                    }
+                }
+
+                if !topics.isEmpty {
+                    Text("Topics: \(topics.formatted(.list(type: .and)))")
+                        .font(.caption)
+                        .foregroundStyle(secondaryColor)
+                }
+            }
+            .padding(.top, 2)
         }
     }
 }
@@ -628,6 +677,9 @@ struct ArticleReaderScrollView: View {
             }
         }
         .background(readerTheme.backgroundColor(colorScheme: colorScheme).ignoresSafeArea())
+        .appEntityIdentifier(
+            EntityIdentifier(for: ArticleEntity.self, identifier: article.id)
+        )
     }
 }
 

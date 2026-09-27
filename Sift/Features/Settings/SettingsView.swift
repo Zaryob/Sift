@@ -28,12 +28,32 @@ struct OPMLFileDocument: FileDocument {
     }
 }
 
+private struct AppleIntelligenceSettingsSection: View {
+    let savedResultCount: Int
+    let onClear: () -> Void
+
+    var body: some View {
+        Section {
+            LabeledContent("Saved Results", value: savedResultCount, format: .number)
+
+            Button("Clear Saved Results", role: .destructive, action: onClear)
+                .disabled(savedResultCount == 0)
+        } header: {
+            Label("Apple Intelligence", systemImage: "sparkles")
+        } footer: {
+            Text("Sift generates each article summary once and reuses the saved result. Processing stays on device unless Private Cloud Compute is explicitly enabled.")
+        }
+    }
+}
+
 struct SettingsView: View {
     @StateObject private var loginItemManager = LoginItemManager.shared
     @StateObject private var scheduler = BackgroundFeedScheduler.shared
     @StateObject private var launchAgentManager = LaunchAgentManager.shared
     @Query private var feeds: [Feed]
     @Query private var articles: [FeedItem]
+    @Query private var intelligenceResults: [ArticleIntelligenceResult]
+    @Query private var savedBriefings: [SavedBriefing]
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -59,6 +79,7 @@ struct SettingsView: View {
     @State private var isShowingFileImporter: Bool = false
     @State private var isShowingFileExporter: Bool = false
     @State private var exportDocument: OPMLFileDocument?
+    @State private var isConfirmingIntelligenceReset: Bool = false
 
     private var fontDesign: ReaderFontDesign {
         ReaderFontDesign(rawValue: fontDesignRaw) ?? .serif
@@ -78,6 +99,18 @@ struct SettingsView: View {
             .task(id: scenePhase) {
                 // Re-read on becoming active so returning from System Settings updates the switch.
                 await refreshNotificationStatus()
+            }
+            .confirmationDialog(
+                "Clear Apple Intelligence Results?",
+                isPresented: $isConfirmingIntelligenceReset,
+                titleVisibility: .visible
+            ) {
+                Button("Clear Saved Results", role: .destructive) {
+                    clearIntelligenceResults()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Summaries and briefings will be generated again when you request them.")
             }
             .fileImporter(
                 isPresented: $isShowingFileImporter,
@@ -108,6 +141,10 @@ struct SettingsView: View {
             Form {
                 refreshSection
                 notificationsSection
+                AppleIntelligenceSettingsSection(
+                    savedResultCount: intelligenceResults.count + savedBriefings.count,
+                    onClear: { isConfirmingIntelligenceReset = true }
+                )
             }
             .formStyle(.grouped)
             .tabItem { Label("General", systemImage: "gearshape") }
@@ -133,6 +170,10 @@ struct SettingsView: View {
             articleTextSection
             refreshSection
             notificationsSection
+            AppleIntelligenceSettingsSection(
+                savedResultCount: intelligenceResults.count + savedBriefings.count,
+                onClear: { isConfirmingIntelligenceReset = true }
+            )
             librarySection
             opmlSection
         }
@@ -452,6 +493,12 @@ struct SettingsView: View {
                 opmlStatusMessage = "Import failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    private func clearIntelligenceResults() {
+        intelligenceResults.forEach(modelContext.delete)
+        savedBriefings.forEach(modelContext.delete)
+        try? modelContext.save()
     }
 
     private func exportOPML() {

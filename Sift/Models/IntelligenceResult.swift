@@ -2,11 +2,14 @@ import Foundation
 import SwiftData
 
 public enum IntelligenceModelKind: String, Codable, Sendable {
+    case privateCloudCompute
     case onDevice
     case extractiveFallback
 
     public var displayName: String {
         switch self {
+        case .privateCloudCompute:
+            return String(localized: "Apple Intelligence Private Cloud")
         case .onDevice:
             return String(localized: "On-device Apple Intelligence")
         case .extractiveFallback:
@@ -19,6 +22,8 @@ public enum IntelligenceModelKind: String, Codable, Sendable {
 public final class ArticleIntelligenceResult {
     @Attribute(.unique) public var id: UUID
     public var summary: String
+    public var keyPoints: [String]
+    public var topics: [String]
     public var modelKindRawValue: String
     public var sourceContentHash: String
     public var promptVersion: Int
@@ -28,6 +33,8 @@ public final class ArticleIntelligenceResult {
     public init(
         id: UUID = UUID(),
         summary: String,
+        keyPoints: [String] = [],
+        topics: [String] = [],
         modelKind: IntelligenceModelKind,
         sourceContentHash: String,
         promptVersion: Int,
@@ -36,6 +43,8 @@ public final class ArticleIntelligenceResult {
     ) {
         self.id = id
         self.summary = summary
+        self.keyPoints = keyPoints
+        self.topics = topics
         self.modelKindRawValue = modelKind.rawValue
         self.sourceContentHash = sourceContentHash
         self.promptVersion = promptVersion
@@ -83,11 +92,21 @@ public final class SavedBriefing {
 
 public struct IntelligenceOutput: Sendable {
     public let text: String
+    public let keyPoints: [String]
+    public let topics: [String]
     public let modelKind: IntelligenceModelKind
     public let isCached: Bool
 
-    public init(text: String, modelKind: IntelligenceModelKind, isCached: Bool) {
+    public init(
+        text: String,
+        keyPoints: [String] = [],
+        topics: [String] = [],
+        modelKind: IntelligenceModelKind,
+        isCached: Bool
+    ) {
         self.text = text
+        self.keyPoints = keyPoints
+        self.topics = topics
         self.modelKind = modelKind
         self.isCached = isCached
     }
