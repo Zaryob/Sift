@@ -52,7 +52,7 @@ public struct DailyBriefingSheet: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 } else {
-                                    Text("Apple Intelligence briefing")
+                                    Text(intelligence.isOnDeviceModelAvailable ? "Apple Intelligence briefing" : "Offline briefing")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -63,6 +63,13 @@ public struct DailyBriefingSheet: View {
                         .padding(.vertical, 4)
 
                         Divider()
+
+                        if let availabilityMessage = intelligence.availability.message,
+                           modelKind != .onDevice {
+                            Label(availabilityMessage, systemImage: "info.circle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
                         if isGenerating {
                             VStack(spacing: 16) {
@@ -148,6 +155,11 @@ public struct DailyBriefingSheet: View {
             }
             .task {
                 await loadBriefing()
+            }
+            .onDisappear {
+                if isPlayingBriefing {
+                    speaker.stop()
+                }
             }
         }
     }

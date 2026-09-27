@@ -32,9 +32,21 @@ struct OPMLFileDocument: FileDocument {
 private struct AppleIntelligenceSettingsSection: View {
     let savedResultCount: Int
     let onClear: () -> Void
+    @ObservedObject private var intelligence = ArticleIntelligenceService.shared
 
     var body: some View {
         Section {
+            LabeledContent("Status") {
+                Text(intelligence.isOnDeviceModelAvailable ? "Available" : "Unavailable")
+                    .foregroundStyle(intelligence.isOnDeviceModelAvailable ? .primary : .secondary)
+            }
+
+            if let availabilityMessage = intelligence.availability.message {
+                Text(availabilityMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             LabeledContent("Saved Results", value: savedResultCount, format: .number)
 
             Button("Clear Saved Results", role: .destructive, action: onClear)

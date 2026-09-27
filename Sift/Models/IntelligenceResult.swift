@@ -18,6 +18,32 @@ public enum IntelligenceModelKind: String, Codable, Sendable {
     }
 }
 
+public enum IntelligenceAvailability: Equatable, Sendable {
+    case available
+    case deviceNotEligible
+    case appleIntelligenceNotEnabled
+    case modelNotReady
+    case unsupportedLocale
+    case unavailable
+
+    public var message: String? {
+        switch self {
+        case .available:
+            nil
+        case .deviceNotEligible:
+            String(localized: "Apple Intelligence is not supported on this device. Sift will use offline summaries.")
+        case .appleIntelligenceNotEnabled:
+            String(localized: "Apple Intelligence is turned off. Enable it in System Settings to generate on-device summaries.")
+        case .modelNotReady:
+            String(localized: "Apple Intelligence is still preparing its on-device models. Sift will retry after a future refresh.")
+        case .unsupportedLocale:
+            String(localized: "Apple Intelligence does not support the current language. Sift will use offline summaries.")
+        case .unavailable:
+            String(localized: "Apple Intelligence is currently unavailable. Sift will use offline summaries.")
+        }
+    }
+}
+
 @Model
 public final class ArticleIntelligenceResult {
     @Attribute(.unique) public var id: UUID
@@ -73,6 +99,7 @@ public final class SavedBriefing {
     public var sourceContentHash: String
     public var modelKindRawValue: String
     public var promptVersion: Int
+    public var outputLanguageCode: String?
     public var generatedAt: Date
 
     public init(
@@ -82,6 +109,7 @@ public final class SavedBriefing {
         sourceContentHash: String,
         modelKind: IntelligenceModelKind,
         promptVersion: Int,
+        outputLanguageCode: String? = nil,
         generatedAt: Date = Date()
     ) {
         self.id = id
@@ -90,6 +118,7 @@ public final class SavedBriefing {
         self.sourceContentHash = sourceContentHash
         self.modelKindRawValue = modelKind.rawValue
         self.promptVersion = promptVersion
+        self.outputLanguageCode = outputLanguageCode
         self.generatedAt = generatedAt
     }
 

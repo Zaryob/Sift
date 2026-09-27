@@ -550,6 +550,13 @@ struct AISummaryCard: View {
                 }
                 .padding(.vertical, 6)
             } else if let summaryText {
+                if let availabilityMessage = intelligence.availability.message,
+                   modelKind != .onDevice {
+                    Label(availabilityMessage, systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(secondaryColor)
+                }
+
                 Text(summaryText)
                     .font(.body)
                     .lineSpacing(5)
@@ -1257,8 +1264,8 @@ struct ArticleBodyContentView: View {
     }
 
     private var irrelevantBlockIDs: Set<Int> {
-        let latest = article.intelligenceResults.max { $0.generatedAt < $1.generatedAt }
-        return Set(latest?.irrelevantBlockIDs ?? [])
+        let matchingDigest = ArticleIntelligenceService.shared.currentDigest(for: article)
+        return Set(matchingDigest?.irrelevantBlockIDs ?? [])
     }
 
     var body: some View {

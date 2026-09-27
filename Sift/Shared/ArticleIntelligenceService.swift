@@ -38,28 +38,56 @@ public final class ArticleIntelligenceService: ObservableObject {
 
     private static let articlePromptVersion = 4
     private static let briefingPromptVersion = 1
+    private var activeGenerationCount = 0
+    private var inFlightSummaries: [String: Task<IntelligenceOutput, Never>] = [:]
 
     private init() {}
 
     /// True only when Apple's on-device Foundation Model is ready on this device.
     /// RSS reading and publisher extraction remain available when it is not.
     public var isOnDeviceModelAvailable: Bool {
+        availability == .available
+    }
+
+    public var availability: IntelligenceAvailability {
         #if canImport(FoundationModels)
-        SystemLanguageModel.default.availability == .available
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            if SystemLanguageModel.default.supportsLocale(Self.preferredLocale) {
+                .available
+            } else {
+                .unsupportedLocale
+            }
+        case .unavailable(.deviceNotEligible):
+            .deviceNotEligible
+        case .unavailable(.appleIntelligenceNotEnabled):
+            .appleIntelligenceNotEnabled
+        case .unavailable(.modelNotReady):
+            .modelNotReady
+        case .unavailable:
+            .unavailable
+        }
         #else
-        false
+        .unavailable
         #endif
     }
 
     /// Returns the current on-device digest for this exact source text and output
     /// language. Display translations and stale excerpt digests are never reused.
     public func currentOnDeviceDigest(for article: FeedItem) -> ArticleIntelligenceResult? {
+        currentDigest(for: article, modelKind: .onDevice)
+    }
+
+    public func currentDigest(
+        for article: FeedItem,
+        modelKind: IntelligenceModelKind? = nil
+    ) -> ArticleIntelligenceResult? {
         let content = preferredBlocks(for: article).joined(separator: "\n")
         let hash = Self.contentHash(title: article.title, content: content)
         let languageCode = Self.preferredLanguageCode
         return article.intelligenceResults
             .filter {
-                $0.modelKind == .onDevice
+                (modelKind == nil || $0.modelKind == modelKind)
                     && $0.promptVersion == Self.articlePromptVersion
                     && $0.outputLanguageCode == languageCode
                     && $0.sourceContentHash == hash
@@ -101,11 +129,43 @@ public final class ArticleIntelligenceService: ObservableObject {
             )
         }
 
-        let generated = await generateSummary(
-            title: article.title,
-            content: content,
-            indexedBlocks: blocks
-        )
+        let requestKey = "\(article.id.uuidString):\(contentHash):\(targetLanguageCode):\(Self.articlePromptVersion)"
+        if let inFlight = inFlightSummaries[requestKey] {
+            return await inFlight.value
+        }
+
+        let task = Task { @MainActor in
+            await self.generateAndPersistSummary(
+                article: article,
+                context: context,
+                blocks: blocks,
+                content: content,
+                contentHash: contentHash,
+                targetLanguageCode: targetLanguageCode,
+                classifyIrrelevantContent: classifyIrrelevantContent
+            )
+        }
+        inFlightSummaries[requestKey] = task
+        let output = await task.value
+        inFlightSummaries[requestKey] = nil
+        return output
+    }
+
+    private func generateAndPersistSummary(
+        article: FeedItem,
+        context: ModelContext,
+        blocks: [String],
+        content: String,
+        contentHash: String,
+        targetLanguageCode: String,
+        classifyIrrelevantContent: Bool
+    ) async -> IntelligenceOutput {
+        let generated = await generateSummary(title: article.title, content: content, indexedBlocks: blocks)
+        // A transient generation failure while the model is otherwise ready should
+        // not poison the persistent cache and suppress the next retry.
+        if generated.modelKind == .extractiveFallback, isOnDeviceModelAvailable {
+            return generated
+        }
         let result = ArticleIntelligenceResult(
             summary: generated.text,
             keyPoints: generated.keyPoints,
@@ -150,8 +210,8 @@ public final class ArticleIntelligenceService: ObservableObject {
             )
         }
 
-        isGenerating = true
-        defer { isGenerating = false }
+        beginGeneration()
+        defer { endGeneration() }
 
         let topItems = Array(items.prefix(5))
 
@@ -160,10 +220,12 @@ public final class ArticleIntelligenceService: ObservableObject {
 
         let briefingHash = Self.briefingHash(for: topItems)
         let promptVersion = Self.briefingPromptVersion
+        let targetLanguageCode = Self.preferredLanguageCode
         var descriptor = FetchDescriptor<SavedBriefing>(
             predicate: #Predicate {
                 $0.sourceContentHash == briefingHash &&
-                $0.promptVersion == promptVersion
+                $0.promptVersion == promptVersion &&
+                $0.outputLanguageCode == targetLanguageCode
             },
             sortBy: [SortDescriptor(\.generatedAt, order: .reverse)]
         )
@@ -193,6 +255,7 @@ public final class ArticleIntelligenceService: ObservableObject {
 
         let prompt = """
         Create a 60-to-90 second spoken news briefing covering the following top stories.
+        Write the entire briefing in \(Self.preferredLanguageName).
         Begin with a warm greeting like "Here is your Sift briefing for today."
         Smoothly transition between stories like a professional radio anchor.
         Use only facts present in the supplied stories and preserve source attribution.
@@ -221,6 +284,22 @@ public final class ArticleIntelligenceService: ObservableObject {
         )
         #endif
 
+        // Preserve a valid saved briefing when a forced regeneration encounters a
+        // transient model failure. With no prior result, show the fallback once but
+        // leave it uncached so the next presentation can retry.
+        if generated.modelKind == .extractiveFallback, isOnDeviceModelAvailable {
+            if let cachedBriefing {
+                latestBriefing = cachedBriefing.text
+                return IntelligenceOutput(
+                    text: cachedBriefing.text,
+                    modelKind: cachedBriefing.modelKind,
+                    isCached: true
+                )
+            }
+            latestBriefing = generated.text
+            return generated
+        }
+
         if let cachedBriefing {
             cachedBriefing.text = generated.text
             cachedBriefing.articleIDs = topItems.map(\.id)
@@ -232,7 +311,8 @@ public final class ArticleIntelligenceService: ObservableObject {
                 articleIDs: topItems.map(\.id),
                 sourceContentHash: briefingHash,
                 modelKind: generated.modelKind,
-                promptVersion: Self.briefingPromptVersion
+                promptVersion: Self.briefingPromptVersion,
+                outputLanguageCode: targetLanguageCode
             )
             context.insert(saved)
         }
@@ -333,8 +413,8 @@ public final class ArticleIntelligenceService: ObservableObject {
         content: String,
         indexedBlocks: [String]
     ) async -> IntelligenceOutput {
-        isGenerating = true
-        defer { isGenerating = false }
+        beginGeneration()
+        defer { endGeneration() }
 
         let cleanContent = HTMLSanitizer.stripTags(from: content)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -449,6 +529,19 @@ public final class ArticleIntelligenceService: ObservableObject {
     }
     #endif
 
+    private func beginGeneration() {
+        activeGenerationCount += 1
+        isGenerating = true
+    }
+
+    private func endGeneration() {
+        activeGenerationCount = max(0, activeGenerationCount - 1)
+        isGenerating = activeGenerationCount > 0
+        if !isGenerating {
+            activeModelKind = nil
+        }
+    }
+
     private func preferredContent(for article: FeedItem) -> String {
         if let extracted = article.extractedArticle {
             let text = extracted.blocks.map(\.text).joined(separator: "\n")
@@ -478,6 +571,10 @@ public final class ArticleIntelligenceService: ObservableObject {
             .flatMap { Locale(identifier: $0).language.languageCode?.identifier }
             ?? Locale.autoupdatingCurrent.language.languageCode?.identifier
             ?? "en"
+    }
+
+    private static var preferredLocale: Locale {
+        Locale(identifier: Locale.preferredLanguages.first ?? preferredLanguageCode)
     }
 
     private static var preferredLanguageName: String {
