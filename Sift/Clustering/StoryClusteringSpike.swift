@@ -50,6 +50,8 @@ public enum StoryClusteringCandidateDecision: String, Codable, Sendable {
 public struct StoryClusteringCandidateDiagnostic: Codable, Sendable {
     public let candidateClusterID: String
     public let centroidSimilarity: Double?
+    public let headlineSimilarity: Double?
+    public let articleBodySimilarity: Double?
     public let representativeSimilarity: Double?
     public let recentMemberSupport: Double?
     public let actionsCompatible: Bool
@@ -89,8 +91,8 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-7"
-    private static let assignmentPolicy = "60% article-body + 40% headline embedding; centroid threshold + representative/recent-vector support (0.055 slack) + headline-action boundary (0.985 near-identity override); top-ten candidate trace"
+    public static let pipelineVersion = "m0-spike-8"
+    private static let assignmentPolicy = "60% article-body + 40% headline embedding; centroid threshold + representative/recent-vector support (0.055 slack) + headline-action boundary (0.985 near-identity override); top-ten trace with separate channel similarities"
     private static let cohesionSlack = 0.055
     private static let actionMismatchOverrideSimilarity = 0.985
     private static let maximumRetainedMemberVectors = 12
@@ -107,12 +109,18 @@ public actor StoryClusteringSpike {
         }
     }
 
+    private struct ArticleVector {
+        let headline: [Double]
+        let body: [Double]?
+        let combined: [Double]
+    }
+
     private struct CandidateCluster {
         let id: String
-        var centroid: [Double]
-        var representativeVector: [Double]
+        var centroid: ArticleVector
+        var representativeVector: ArticleVector
         var representativeActionTerms: Set<String>
-        var recentMemberVectors: [[Double]]
+        var recentMemberVectors: [ArticleVector]
         var memberCount: Int
         var publisherKeys: Set<String>
         var lastUpdatedAt: Date
@@ -121,6 +129,8 @@ public actor StoryClusteringSpike {
     private struct CandidateEvaluation {
         let index: Int
         let centroidSimilarity: Double
+        let headlineSimilarity: Double?
+        let articleBodySimilarity: Double?
         let diagnostic: StoryClusteringCandidateDiagnostic
     }
 
@@ -444,16 +454,20 @@ public actor StoryClusteringSpike {
     /// The reported score is the centroid cosine; the configured threshold applies
     /// to it without slack.
     private static func evaluateCandidate(
-        _ vector: [Double],
+        _ vector: ArticleVector,
         cluster: CandidateCluster,
         threshold: Double,
         candidateActionTerms: Set<String>,
         index: Int
     ) -> CandidateEvaluation {
-        let centroid = cosineSimilarity(vector, cluster.centroid)
-        let representative = cosineSimilarity(vector, cluster.representativeVector)
+        let centroid = cosineSimilarity(vector.combined, cluster.centroid.combined)
+        let headlineSimilarity = cosineSimilarity(vector.headline, cluster.centroid.headline)
+        let articleBodySimilarity: Double? = vector.body.flatMap { body in
+            cluster.centroid.body.flatMap { cosineSimilarity(body, $0) }
+        }
+        let representative = cosineSimilarity(vector.combined, cluster.representativeVector.combined)
         let recent = cluster.recentMemberVectors.suffix(3).compactMap {
-            cosineSimilarity(vector, $0)
+            cosineSimilarity(vector.combined, $0.combined)
         }
         let recentSupport = recent.isEmpty ? nil : recent.reduce(0, +) / Double(recent.count)
         let actionMismatch = !candidateActionTerms.isEmpty
@@ -477,9 +491,13 @@ public actor StoryClusteringSpike {
         return CandidateEvaluation(
             index: index,
             centroidSimilarity: centroid ?? -1,
+            headlineSimilarity: headlineSimilarity,
+            articleBodySimilarity: articleBodySimilarity,
             diagnostic: StoryClusteringCandidateDiagnostic(
                 candidateClusterID: cluster.id,
                 centroidSimilarity: centroid,
+                headlineSimilarity: headlineSimilarity,
+                articleBodySimilarity: articleBodySimilarity,
                 representativeSimilarity: representative,
                 recentMemberSupport: recentSupport,
                 actionsCompatible: !actionMismatch || actionOverrideApplies,
@@ -502,6 +520,8 @@ public actor StoryClusteringSpike {
             StoryClusteringCandidateDiagnostic(
                 candidateClusterID: evaluation.diagnostic.candidateClusterID,
                 centroidSimilarity: evaluation.diagnostic.centroidSimilarity,
+                headlineSimilarity: evaluation.diagnostic.headlineSimilarity,
+                articleBodySimilarity: evaluation.diagnostic.articleBodySimilarity,
                 representativeSimilarity: evaluation.diagnostic.representativeSimilarity,
                 recentMemberSupport: evaluation.diagnostic.recentMemberSupport,
                 actionsCompatible: evaluation.diagnostic.actionsCompatible,
@@ -517,6 +537,8 @@ public actor StoryClusteringSpike {
             result.append(StoryClusteringCandidateDiagnostic(
                 candidateClusterID: selected.diagnostic.candidateClusterID,
                 centroidSimilarity: selected.diagnostic.centroidSimilarity,
+                headlineSimilarity: selected.diagnostic.headlineSimilarity,
+                articleBodySimilarity: selected.diagnostic.articleBodySimilarity,
                 representativeSimilarity: selected.diagnostic.representativeSimilarity,
                 recentMemberSupport: selected.diagnostic.recentMemberSupport,
                 actionsCompatible: selected.diagnostic.actionsCompatible,
@@ -563,13 +585,14 @@ public actor StoryClusteringSpike {
         context: String?,
         language: NLLanguage,
         model: NLContextualEmbedding
-    ) -> [Double]? {
+    ) -> ArticleVector? {
         guard let titleVector = meanPooledVector(
             for: title,
             language: language,
             model: model
         ) else { return nil }
 
+        guard let normalizedTitle = unitVector(titleVector) else { return nil }
         guard let context,
               !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let contextVector = meanPooledVector(
@@ -577,14 +600,14 @@ public actor StoryClusteringSpike {
                   language: language,
                   model: model
               ),
-              let normalizedTitle = unitVector(titleVector),
-              let normalizedContext = unitVector(contextVector) else {
-            return titleVector
+              let normalizedBody = unitVector(contextVector) else {
+            return ArticleVector(headline: normalizedTitle, body: nil, combined: normalizedTitle)
         }
 
         // The article body is the primary account; the headline is a useful event
         // cue, but must not drown out detail and context in the article itself.
-        return zip(normalizedTitle, normalizedContext).map { ($0 * 0.4) + ($1 * 0.6) }
+        let combined = zip(normalizedTitle, normalizedBody).map { ($0 * 0.4) + ($1 * 0.6) }
+        return ArticleVector(headline: normalizedTitle, body: normalizedBody, combined: combined)
     }
 
     private static func unitVector(_ vector: [Double]) -> [Double]? {
@@ -601,6 +624,25 @@ public actor StoryClusteringSpike {
         guard existing.count == next.count, existingCount > 0 else { return next }
         let denominator = Double(existingCount + 1)
         return zip(existing, next).map { ($0 * Double(existingCount) + $1) / denominator }
+    }
+
+    private static func runningMean(
+        _ existing: ArticleVector,
+        _ next: ArticleVector,
+        existingCount: Int
+    ) -> ArticleVector {
+        ArticleVector(
+            headline: runningMean(existing.headline, next.headline, existingCount: existingCount),
+            body: {
+                switch (existing.body, next.body) {
+                case let (left?, right?): runningMean(left, right, existingCount: existingCount)
+                case let (left?, nil): left
+                case let (nil, right?): right
+                case (nil, nil): nil
+                }
+            }(),
+            combined: runningMean(existing.combined, next.combined, existingCount: existingCount)
+        )
     }
 
     public static func isOutsideCandidateWindow(
