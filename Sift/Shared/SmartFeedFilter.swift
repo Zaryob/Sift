@@ -165,6 +165,45 @@ public enum SmartFeedFilter {
         return articles.filter { selectedIDs.contains($0.id) }
     }
 
+    /// Evaluates whether an incoming newly discovered article meets the quality bar
+    /// required to appear in the Smart Feed and warrant a system alert / notification.
+    public static func qualifiesForSmartFeedNotification(_ article: FeedItem) -> Bool {
+        if article.isStarred {
+            return true
+        }
+
+        let cleanTitle = article.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanTitle.count >= 15 else {
+            return false
+        }
+
+        guard !isHighConfidenceNoise(cleanTitle) else {
+            return false
+        }
+
+        guard !isClickbait(cleanTitle) else {
+            return false
+        }
+
+        let score = computeScore(for: article, ageHours: 0, isStarred: false)
+        return score >= 85
+    }
+
+    /// Evaluates whether an article title alone qualifies for a Smart Feed notification.
+    public static func qualifiesForSmartFeedNotification(title: String) -> Bool {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanTitle.count >= 15 else {
+            return false
+        }
+        guard !isHighConfidenceNoise(cleanTitle) else {
+            return false
+        }
+        guard !isClickbait(cleanTitle) else {
+            return false
+        }
+        return true
+    }
+
     private static func selectionBudget(for totalCount: Int, candidateCount: Int) -> Int {
         guard candidateCount > 0 else { return 0 }
         if candidateCount <= 30 {

@@ -96,8 +96,9 @@ public actor FeedRefreshService {
                     }
                 }
 
-                // Post an individual notification for each newly arrived article (up to 5 to avoid notification flood)
-                for newArticle in newlyInserted.prefix(5) {
+                // Post notifications only for new articles that qualify for Smart Feed quality
+                let qualifyingArticles = newlyInserted.filter { SmartFeedFilter.qualifiesForSmartFeedNotification($0) }
+                for newArticle in qualifyingArticles.prefix(5) {
                     NotificationManager.shared.sendArticleNotification(
                         articleTitle: newArticle.title,
                         feedTitle: feed.title,
@@ -186,8 +187,8 @@ public actor FeedRefreshService {
     }
 
     /// Merge parsed items into existing feed using deduplication logic
-    /// Returns array of newly inserted articles (title and id)
-    private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) -> [(title: String, id: UUID)] {
+    /// Returns array of newly inserted FeedItem instances
+    private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) -> [FeedItem] {
         let existingItems = feed.items
         
         let existingGuids = Set(existingItems.compactMap { $0.guid?.trimmingCharacters(in: .whitespacesAndNewlines) })
@@ -196,7 +197,7 @@ public actor FeedRefreshService {
             "\(item.title):\(item.publicationDate.timeIntervalSince1970)"
         })
 
-        var newlyInserted: [(title: String, id: UUID)] = []
+        var newlyInserted: [FeedItem] = []
 
         for parsed in parsedItems {
             let cleanGuid = parsed.guid?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -228,7 +229,7 @@ public actor FeedRefreshService {
                     feed: feed
                 )
                 context.insert(newItem)
-                newlyInserted.append((title: parsed.title, id: newItem.id))
+                newlyInserted.append(newItem)
             }
         }
         return newlyInserted
