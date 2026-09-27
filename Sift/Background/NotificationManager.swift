@@ -1,10 +1,7 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 @preconcurrency import UserNotifications
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
 
 nonisolated public final class NotificationManager: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
     public static let shared = NotificationManager()
@@ -158,63 +155,48 @@ nonisolated public final class NotificationManager: NSObject, UNUserNotification
         }
     }
 
-    /// Creates a notification attachment from a feed's favicon, or falls back to the Sift app icon.
+    /// Creates a notification attachment from a decoded feed favicon. ImageIO is
+    /// used directly because AppKit can raise an Objective-C exception when a
+    /// named or vector-backed NSImage has no bitmap image representation.
     private func createNotificationAttachment(from faviconURL: URL?) async -> UNNotificationAttachment? {
-        let tempDir = FileManager.default.temporaryDirectory
-
-        // 1. Try to load or download favicon via local FaviconManager cache
-        if let faviconURL = faviconURL,
+        guard let faviconURL,
            let data = await FaviconManager.shared.faviconData(for: faviconURL),
-           !data.isEmpty {
-            let fileURL = tempDir.appendingPathComponent("notif_\(UUID().uuidString).png")
-                #if os(macOS)
-                if let image = NSImage(data: data),
-                   let tiffData = image.tiffRepresentation,
-                   let bitmapRep = NSBitmapImageRep(data: tiffData),
-                   let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-                    try? pngData.write(to: fileURL)
-                    if let attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil) {
-                        return attachment
-                    }
-                }
-                #else
-                if let image = UIImage(data: data),
-                   let pngData = image.pngData() {
-                    try? pngData.write(to: fileURL)
-                    if let attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil) {
-                        return attachment
-                    }
-                }
-                #endif
+           !data.isEmpty,
+           let pngData = Self.validatedPNGData(from: data) else { return nil }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notif_\(UUID().uuidString).png")
+        do {
+            try pngData.write(to: fileURL, options: .atomic)
+            return try UNNotificationAttachment(
+                identifier: UUID().uuidString,
+                url: fileURL,
+                options: nil
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            print("Failed to create notification image attachment: \(error)")
+            return nil
+        }
+    }
+
+    private static func validatedPNGData(from data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
         }
 
-        // 2. Fallback to application brand icon as attachment if favicon is not available
-        #if os(macOS)
-        let appIcon = await MainActor.run {
-            NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName)
-        }
-        if let appIcon,
-           let tiffData = appIcon.tiffRepresentation,
-           let bitmapRep = NSBitmapImageRep(data: tiffData),
-           let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-            let fileURL = tempDir.appendingPathComponent("appicon_\(UUID().uuidString).png")
-            try? pngData.write(to: fileURL)
-            if let attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil) {
-                return attachment
-            }
-        }
-        #else
-        if let appIcon = UIImage(named: "AppIcon") ?? UIImage(systemName: "dot.radiowaves.up.forward"),
-           let pngData = appIcon.pngData() {
-            let fileURL = tempDir.appendingPathComponent("appicon_\(UUID().uuidString).png")
-            try? pngData.write(to: fileURL)
-            if let attachment = try? UNNotificationAttachment(identifier: UUID().uuidString, url: fileURL, options: nil) {
-                return attachment
-            }
-        }
-        #endif
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
 
-        return nil
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     private func scheduleRequest(content: UNMutableNotificationContent) {
