@@ -226,7 +226,7 @@ Key decisions:
 - **Centroid drift control.** Centroid is a running mean weighted toward recent
   members (or recomputed from the top-K freshest members) so a cluster doesn't
   ossify around its oldest items.
-- **Concrete-event boundary (M0 spike v4).** A centroid match alone is not enough.
+- **Concrete-event boundary (M0 spike v6).** A centroid match alone is not enough.
   Candidate assignments also need support from the event's fixed representative and
   recent member vectors. Natural Language lemmatizes action verbs in the normalized
   headline; clearly disjoint representative/candidate actions block an event merge,
@@ -238,6 +238,10 @@ Key decisions:
   The current shadow spike retains at most 12 recent vectors per candidate and
   requires the configured centroid threshold plus representative/recent support
   within 0.055 cosine slack. This setting is experimental, not a production default.
+  The benchmark export records the ten nearest candidate checks per article, including
+  each similarity component, normalized headline action terms, accept/reject reason,
+  and selected candidate. These traces are diagnostic and are not part of the saved
+  user data model.
 - **Publisher diversity is not corroboration.** Distinct publisher count remains a
   coverage measure only. `SourceClaim` records attribution and syndication origin so
   repeated copies of one statement are not presented as independent evidence.

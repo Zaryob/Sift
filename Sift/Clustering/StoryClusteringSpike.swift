@@ -38,6 +38,27 @@ public enum StoryClusteringReadiness: String, Codable, Sendable {
     case processingFailed
 }
 
+public enum StoryClusteringCandidateDecision: String, Codable, Sendable {
+    case accepted
+    case rejectedCentroidSimilarity
+    case rejectedActionMismatch
+    case rejectedRepresentativeSimilarity
+    case rejectedRecentMemberSupport
+}
+
+/// Compact, text-free evidence for why a nearby event cluster was accepted or rejected.
+public struct StoryClusteringCandidateDiagnostic: Codable, Sendable {
+    public let candidateClusterID: String
+    public let centroidSimilarity: Double?
+    public let representativeSimilarity: Double?
+    public let recentMemberSupport: Double?
+    public let actionsCompatible: Bool
+    public let candidateActionTerms: [String]
+    public let representativeActionTerms: [String]
+    public let decision: StoryClusteringCandidateDecision
+    public let selected: Bool
+}
+
 public struct StoryClusteringAssignment: Codable, Identifiable, Sendable {
     public let id: UUID
     public let predictedClusterID: String?
@@ -47,6 +68,8 @@ public struct StoryClusteringAssignment: Codable, Identifiable, Sendable {
     public let similarity: Double?
     public let publisherCount: Int
     public let processingMilliseconds: Double
+    /// Up to ten nearest candidate events, including the selected one when assigned.
+    public let candidateDiagnostics: [StoryClusteringCandidateDiagnostic]
 }
 
 public struct StoryClusteringSpikeResult: Codable, Sendable {
@@ -66,8 +89,8 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-4"
-    private static let assignmentPolicy = "centroid threshold + representative/recent-vector support (0.055 slack) + normalized-title action boundary (0.985 near-identity override); event-level clusters only"
+    public static let pipelineVersion = "m0-spike-6"
+    private static let assignmentPolicy = "centroid threshold + representative/recent-vector support (0.055 slack) + normalized-title action boundary (0.985 near-identity override); event-level clusters only; top-five candidate decision trace"
     private static let cohesionSlack = 0.055
     private static let actionMismatchOverrideSimilarity = 0.985
     private static let maximumRetainedMemberVectors = 12
@@ -95,12 +118,30 @@ public actor StoryClusteringSpike {
         var lastUpdatedAt: Date
     }
 
+    private struct CandidateEvaluation {
+        let index: Int
+        let centroidSimilarity: Double
+        let diagnostic: StoryClusteringCandidateDiagnostic
+    }
+
+    private enum TranslationField {
+        case text
+        case title
+    }
+
+    private struct TranslationWork {
+        let articleID: UUID
+        let field: TranslationField
+        let request: TranslationSession.Request
+    }
+
     private struct PreparedArticle {
         let article: StoryClusteringArticle
         let startedAt: ContinuousClock.Instant
         let sourceText: String
         let detectedLanguage: String?
         var normalizedText: String?
+        var normalizedTitle: String?
         var translationReadiness: String
         var failure: StoryClusteringReadiness?
     }
@@ -178,6 +219,7 @@ public actor StoryClusteringSpike {
                 sourceText: sourceText,
                 detectedLanguage: detectedLanguage,
                 normalizedText: needsTranslation || failure != nil ? nil : sourceText,
+                normalizedTitle: needsTranslation || failure != nil ? nil : article.title,
                 translationReadiness: needsTranslation ? "pending" : (failure == nil ? "notNeeded" : "unsupported"),
                 failure: failure
             )
@@ -214,18 +256,37 @@ public actor StoryClusteringSpike {
             // request while still amortizing session and framework overhead.
             for chunkStart in stride(from: 0, to: articleIDs.count, by: 12) {
                 let chunk = Array(articleIDs[chunkStart..<min(chunkStart + 12, articleIDs.count)])
-                let requests = chunk.compactMap { articleID -> TranslationSession.Request? in
-                    guard let prepared = preparedByID[articleID] else { return nil }
-                    return TranslationSession.Request(
-                        sourceText: prepared.sourceText,
-                        clientIdentifier: articleID.uuidString
-                    )
+                let work = chunk.flatMap { articleID -> [TranslationWork] in
+                    guard let prepared = preparedByID[articleID] else { return [] }
+                    return [
+                        TranslationWork(
+                            articleID: articleID,
+                            field: .text,
+                            request: TranslationSession.Request(
+                                sourceText: prepared.sourceText,
+                                clientIdentifier: "text:\(articleID.uuidString)"
+                            )
+                        ),
+                        TranslationWork(
+                            articleID: articleID,
+                            field: .title,
+                            request: TranslationSession.Request(
+                                sourceText: prepared.article.title,
+                                clientIdentifier: "title:\(articleID.uuidString)"
+                            )
+                        )
+                    ]
                 }
                 do {
-                    let responses = try await session.translations(from: requests)
-                    for (articleID, response) in zip(chunk, responses) {
-                        preparedByID[articleID]?.normalizedText = response.targetText
-                        preparedByID[articleID]?.translationReadiness = "installed"
+                    let responses = try await session.translations(from: work.map(\.request))
+                    for (request, response) in zip(work, responses) {
+                        switch request.field {
+                        case .text:
+                            preparedByID[request.articleID]?.normalizedText = response.targetText
+                        case .title:
+                            preparedByID[request.articleID]?.normalizedTitle = response.targetText
+                        }
+                        preparedByID[request.articleID]?.translationReadiness = "installed"
                     }
                 } catch {
                     for articleID in chunk {
@@ -250,13 +311,14 @@ public actor StoryClusteringSpike {
                     readiness: failure,
                     similarity: nil,
                     publisherCount: 0,
-                    startedAt: prepared.startedAt
+                    startedAt: prepared.startedAt,
+                    candidateDiagnostics: []
                 ))
                 continue
             }
             guard let normalizedText = prepared.normalizedText,
                   let detectedLanguage = prepared.detectedLanguage else { continue }
-            let normalizedTitle = Self.normalizedTitle(from: normalizedText)
+            let normalizedTitle = prepared.normalizedTitle ?? article.title
             let eventActionTerms = Self.eventActionTerms(in: normalizedTitle)
 
             let vector: [Double]?
@@ -282,7 +344,8 @@ public actor StoryClusteringSpike {
                     readiness: .embeddingUnavailable,
                     similarity: nil,
                     publisherCount: 0,
-                    startedAt: prepared.startedAt
+                    startedAt: prepared.startedAt,
+                    candidateDiagnostics: []
                 ))
                 continue
             }
@@ -296,23 +359,30 @@ public actor StoryClusteringSpike {
                     candidateWindow: candidateWindow
                 )
             }
-            let best = clusters.enumerated().compactMap { index, cluster -> (Int, Double)? in
-                guard let similarity = Self.clusterCohesionSimilarity(
+            let candidateEvaluations = clusters.enumerated().map { index, cluster in
+                Self.evaluateCandidate(
                     vector,
                     cluster: cluster,
                     threshold: similarityThreshold,
-                    candidateActionTerms: eventActionTerms
-                ) else { return nil }
-                return (index, similarity)
-            }.max { $0.1 < $1.1 }
+                    candidateActionTerms: eventActionTerms,
+                    index: index
+                )
+            }
+            let best = candidateEvaluations
+                .filter { $0.diagnostic.decision == .accepted }
+                .max { $0.centroidSimilarity < $1.centroidSimilarity }
+            let candidateDiagnostics = Self.nearestCandidateDiagnostics(
+                candidateEvaluations,
+                selectedIndex: best?.index
+            )
 
             let clusterID: String
             let similarity: Double?
             let clusterIndex: Int
             if let best {
-                clusterIndex = best.0
+                clusterIndex = best.index
                 clusterID = clusters[clusterIndex].id
-                similarity = best.1
+                similarity = best.centroidSimilarity
                 let old = clusters[clusterIndex]
                 let nextCount = old.memberCount + 1
                 clusters[clusterIndex].centroid = Self.runningMean(
@@ -332,7 +402,9 @@ public actor StoryClusteringSpike {
             } else {
                 clusterID = "story-\(article.id.uuidString.lowercased())"
                 clusterIndex = clusters.count
-                similarity = best?.1
+                similarity = candidateEvaluations
+                    .max { ($0.diagnostic.centroidSimilarity ?? -1) < ($1.diagnostic.centroidSimilarity ?? -1) }?
+                    .diagnostic.centroidSimilarity
                 clusters.append(CandidateCluster(
                     id: clusterID,
                     centroid: vector,
@@ -353,7 +425,8 @@ public actor StoryClusteringSpike {
                 readiness: .ready,
                 similarity: similarity,
                 publisherCount: clusters[clusterIndex].publisherKeys.count,
-                startedAt: prepared.startedAt
+                startedAt: prepared.startedAt,
+                candidateDiagnostics: candidateDiagnostics
             ))
         }
 
@@ -375,37 +448,90 @@ public actor StoryClusteringSpike {
     /// representative and the best recent members as well as the running centroid.
     /// The reported score is the centroid cosine; the configured threshold applies
     /// to it without slack.
-    private static func clusterCohesionSimilarity(
+    private static func evaluateCandidate(
         _ vector: [Double],
         cluster: CandidateCluster,
         threshold: Double,
-        candidateActionTerms: Set<String>
-    ) -> Double? {
-        guard let centroid = cosineSimilarity(vector, cluster.centroid),
-              let representative = cosineSimilarity(vector, cluster.representativeVector),
-              centroid >= threshold,
-              representative >= threshold - cohesionSlack else { return nil }
-
-        // Sharing the same people, organization, or broad subject is not enough to
-        // merge distinct developments. Disjoint headline actions block a normal
-        // semantic match; allow only near-identical representative matches so
-        // paraphrased reports of one event do not fragment unnecessarily.
-        if !candidateActionTerms.isEmpty,
-           !cluster.representativeActionTerms.isEmpty,
-           candidateActionTerms.isDisjoint(with: cluster.representativeActionTerms),
-           representative < actionMismatchOverrideSimilarity {
-            return nil
-        }
-
+        candidateActionTerms: Set<String>,
+        index: Int
+    ) -> CandidateEvaluation {
+        let centroid = cosineSimilarity(vector, cluster.centroid)
+        let representative = cosineSimilarity(vector, cluster.representativeVector)
         let recent = cluster.recentMemberVectors.suffix(3).compactMap {
             cosineSimilarity(vector, $0)
         }
-        guard !recent.isEmpty else { return nil }
-        let recentSupport = recent.reduce(0, +) / Double(recent.count)
-        guard recentSupport >= threshold - cohesionSlack else { return nil }
-        // Preserve the configured centroid threshold. The small cohesion tolerance
-        // only allows individual paraphrases to differ slightly from the threshold.
-        return centroid
+        let recentSupport = recent.isEmpty ? nil : recent.reduce(0, +) / Double(recent.count)
+        let actionMismatch = !candidateActionTerms.isEmpty
+            && !cluster.representativeActionTerms.isEmpty
+            && candidateActionTerms.isDisjoint(with: cluster.representativeActionTerms)
+        let actionOverrideApplies = (representative ?? -1) >= actionMismatchOverrideSimilarity
+
+        let decision: StoryClusteringCandidateDecision
+        if centroid == nil || centroid! < threshold {
+            decision = .rejectedCentroidSimilarity
+        } else if actionMismatch && !actionOverrideApplies {
+            decision = .rejectedActionMismatch
+        } else if representative == nil || representative! < threshold - cohesionSlack {
+            decision = .rejectedRepresentativeSimilarity
+        } else if recentSupport == nil || recentSupport! < threshold - cohesionSlack {
+            decision = .rejectedRecentMemberSupport
+        } else {
+            decision = .accepted
+        }
+
+        return CandidateEvaluation(
+            index: index,
+            centroidSimilarity: centroid ?? -1,
+            diagnostic: StoryClusteringCandidateDiagnostic(
+                candidateClusterID: cluster.id,
+                centroidSimilarity: centroid,
+                representativeSimilarity: representative,
+                recentMemberSupport: recentSupport,
+                actionsCompatible: !actionMismatch || actionOverrideApplies,
+                candidateActionTerms: candidateActionTerms.sorted(),
+                representativeActionTerms: cluster.representativeActionTerms.sorted(),
+                decision: decision,
+                selected: false
+            )
+        )
+    }
+
+    private static func nearestCandidateDiagnostics(
+        _ evaluations: [CandidateEvaluation],
+        selectedIndex: Int?
+    ) -> [StoryClusteringCandidateDiagnostic] {
+        let nearest = evaluations
+            .sorted { $0.centroidSimilarity > $1.centroidSimilarity }
+            .prefix(10)
+        var result = nearest.map { evaluation in
+            StoryClusteringCandidateDiagnostic(
+                candidateClusterID: evaluation.diagnostic.candidateClusterID,
+                centroidSimilarity: evaluation.diagnostic.centroidSimilarity,
+                representativeSimilarity: evaluation.diagnostic.representativeSimilarity,
+                recentMemberSupport: evaluation.diagnostic.recentMemberSupport,
+                actionsCompatible: evaluation.diagnostic.actionsCompatible,
+                candidateActionTerms: evaluation.diagnostic.candidateActionTerms,
+                representativeActionTerms: evaluation.diagnostic.representativeActionTerms,
+                decision: evaluation.diagnostic.decision,
+                selected: evaluation.index == selectedIndex
+            )
+        }
+        if let selectedIndex,
+           !nearest.contains(where: { $0.index == selectedIndex }),
+           let selected = evaluations.first(where: { $0.index == selectedIndex }) {
+            result.append(StoryClusteringCandidateDiagnostic(
+                candidateClusterID: selected.diagnostic.candidateClusterID,
+                centroidSimilarity: selected.diagnostic.centroidSimilarity,
+                representativeSimilarity: selected.diagnostic.representativeSimilarity,
+                recentMemberSupport: selected.diagnostic.recentMemberSupport,
+                actionsCompatible: selected.diagnostic.actionsCompatible,
+                candidateActionTerms: selected.diagnostic.candidateActionTerms,
+                representativeActionTerms: selected.diagnostic.representativeActionTerms,
+                decision: selected.diagnostic.decision,
+                selected: true
+            ))
+        }
+        return result
     }
 
     public static func cosineSimilarity(_ lhs: [Double], _ rhs: [Double]) -> Double? {
@@ -497,10 +623,6 @@ public actor StoryClusteringSpike {
         return recognizer.dominantLanguage?.rawValue
     }
 
-    private static func normalizedTitle(from normalizedText: String) -> String {
-        String(normalizedText.split(separator: "\n", maxSplits: 1).first ?? Substring(normalizedText))
-    }
-
     private static func eventActionTerms(in title: String) -> Set<String> {
         let tagger = NLTagger(tagSchemes: [.lexicalClass, .lemma])
         tagger.string = title
@@ -539,7 +661,8 @@ public actor StoryClusteringSpike {
         readiness: StoryClusteringReadiness,
         similarity: Double?,
         publisherCount: Int,
-        startedAt: ContinuousClock.Instant
+        startedAt: ContinuousClock.Instant,
+        candidateDiagnostics: [StoryClusteringCandidateDiagnostic] = []
     ) -> StoryClusteringAssignment {
         let elapsed = startedAt.duration(to: .now)
         let milliseconds = Double(elapsed.components.seconds) * 1_000
@@ -552,7 +675,8 @@ public actor StoryClusteringSpike {
             readiness: readiness,
             similarity: similarity,
             publisherCount: publisherCount,
-            processingMilliseconds: milliseconds
+            processingMilliseconds: milliseconds,
+            candidateDiagnostics: candidateDiagnostics
         )
     }
 
@@ -582,7 +706,8 @@ public actor StoryClusteringSpike {
                     readiness: .embeddingUnavailable,
                     similarity: nil,
                     publisherCount: 0,
-                    startedAt: .now
+                    startedAt: .now,
+                    candidateDiagnostics: []
                 )
             },
             assignmentPolicy: Self.assignmentPolicy
