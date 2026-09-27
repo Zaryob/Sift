@@ -69,7 +69,7 @@ nonisolated public enum ArticleExtractor {
         options: .caseInsensitive
     )
 
-    @concurrent public static func fetch(url: URL, summary: String?) async throws -> ExtractedArticle? {
+    nonisolated public static func fetch(url: URL, summary: String?) async throws -> ExtractedArticle? {
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)

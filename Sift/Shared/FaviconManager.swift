@@ -15,7 +15,8 @@ public final class FaviconManager: ObservableObject {
 
     private let memoryCache = NSCache<NSString, PlatformImage>()
     private var inFlightTasks: [String: Task<PlatformImage?, Never>] = [:]
-    private var failedURLs: Set<String> = []
+    private var failedURLs: [String: Date] = [:]
+    private let failureTTL: TimeInterval = 3600 // 1 hour
 
     private let cacheDirectory: URL? = {
         guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
@@ -83,9 +84,13 @@ public final class FaviconManager: ObservableObject {
             return cached
         }
 
-        // 2. Check negative cache (skip known failures)
-        if failedURLs.contains(urlString) {
-            return nil
+        // 2. Check negative cache (skip known failures unless expired)
+        if let failedAt = failedURLs[urlString] {
+            if Date().timeIntervalSince(failedAt) < failureTTL {
+                return nil
+            } else {
+                failedURLs.removeValue(forKey: urlString)
+            }
         }
 
         // 3. Deduplicate against in-flight network requests
@@ -109,7 +114,7 @@ public final class FaviconManager: ObservableObject {
                   (200...299).contains(httpResponse.statusCode),
                   let image = PlatformImage(data: data) else {
                 _ = await MainActor.run {
-                    self?.failedURLs.insert(urlString)
+                    self?.failedURLs[urlString] = Date()
                 }
                 return nil
             }

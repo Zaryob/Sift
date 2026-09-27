@@ -20,6 +20,19 @@ nonisolated public final class NotificationManager: NSObject, UNUserNotification
     override private init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
+        cleanUpTemporaryAttachments()
+    }
+
+    private func cleanUpTemporaryAttachments() {
+        let tempDir = FileManager.default.temporaryDirectory
+        if let files = try? FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil) {
+            for file in files {
+                let name = file.lastPathComponent
+                if (name.hasPrefix("notif_") || name.hasPrefix("appicon_")) && name.hasSuffix(".png") {
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
+        }
     }
 
     /// Updates the unread count badge shown on the app icon (iOS Home Screen / macOS Dock).

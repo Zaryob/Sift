@@ -44,7 +44,8 @@ public actor DataPruningService {
                     item.isRead && !item.isStarred && item.publicationDate < readCutoff
                 }
             )
-            if let itemsToPrune = try? context.fetch(descriptor), !itemsToPrune.isEmpty {
+            let itemsToPrune = try context.fetch(descriptor)
+            if !itemsToPrune.isEmpty {
                 readDeleted = itemsToPrune.count
                 for item in itemsToPrune {
                     context.delete(item)
@@ -59,7 +60,8 @@ public actor DataPruningService {
                     !item.isRead && !item.isStarred && item.publicationDate < unreadCutoff
                 }
             )
-            if let itemsToPrune = try? context.fetch(descriptor), !itemsToPrune.isEmpty {
+            let itemsToPrune = try context.fetch(descriptor)
+            if !itemsToPrune.isEmpty {
                 unreadDeleted = itemsToPrune.count
                 for item in itemsToPrune {
                     context.delete(item)

@@ -7,7 +7,7 @@ struct WebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         let request = URLRequest(url: url)
         webView.load(request)
         return webView
@@ -28,9 +28,7 @@ struct WebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        let defaultBounds = UIScreen.main.bounds
-        let initialFrame = defaultBounds.isEmpty ? CGRect(x: 0, y: 0, width: 393, height: 852) : defaultBounds
-        let webView = WKWebView(frame: initialFrame, configuration: configuration)
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         let request = URLRequest(url: url)
         webView.load(request)
         return webView

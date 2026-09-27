@@ -9,13 +9,13 @@ public struct FeedFaviconView: View {
 
     @State private var image: PlatformImage?
 
-    public init(feed: Feed, size: CGFloat = 16, cornerRadius: CGFloat? = nil) {
+    public init(feed: Feed?, size: CGFloat = 16, cornerRadius: CGFloat? = nil) {
         self.feed = feed
         self.customURL = nil
-        self.title = feed.title
+        self.title = feed?.title ?? ""
         self.size = size
         self.cornerRadius = cornerRadius ?? size * 0.22
-        let cached = FaviconManager.shared.cachedImage(for: feed)
+        let cached = feed.flatMap { FaviconManager.shared.cachedImage(for: $0) }
         self._image = State(initialValue: cached)
     }
 
