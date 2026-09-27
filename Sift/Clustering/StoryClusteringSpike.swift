@@ -58,13 +58,19 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
     public let candidateWindowHours: Double
     public let similarityThreshold: Double
     public let assignments: [StoryClusteringAssignment]
+    /// Versioned description of the event-boundary and cluster-cohesion policy.
+    public let assignmentPolicy: String
 }
 
 /// Runs a reproducible, on-device clustering experiment over caller-provided articles.
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-3"
+    public static let pipelineVersion = "m0-spike-4"
+    private static let assignmentPolicy = "centroid threshold + representative/recent-vector support (0.055 slack) + normalized-title action boundary (0.985 near-identity override); event-level clusters only"
+    private static let cohesionSlack = 0.055
+    private static let actionMismatchOverrideSimilarity = 0.985
+    private static let maximumRetainedMemberVectors = 12
 
     public enum TranslationStrategy: String, Sendable {
         case lowLatency
@@ -81,6 +87,9 @@ public actor StoryClusteringSpike {
     private struct CandidateCluster {
         let id: String
         var centroid: [Double]
+        var representativeVector: [Double]
+        var representativeActionTerms: Set<String>
+        var recentMemberVectors: [[Double]]
         var memberCount: Int
         var publisherKeys: Set<String>
         var lastUpdatedAt: Date
@@ -247,6 +256,8 @@ public actor StoryClusteringSpike {
             }
             guard let normalizedText = prepared.normalizedText,
                   let detectedLanguage = prepared.detectedLanguage else { continue }
+            let normalizedTitle = Self.normalizedTitle(from: normalizedText)
+            let eventActionTerms = Self.eventActionTerms(in: normalizedTitle)
 
             let vector: [Double]?
             if detectedLanguage == analysisLocale {
@@ -286,14 +297,19 @@ public actor StoryClusteringSpike {
                 )
             }
             let best = clusters.enumerated().compactMap { index, cluster -> (Int, Double)? in
-                guard let similarity = Self.cosineSimilarity(vector, cluster.centroid) else { return nil }
+                guard let similarity = Self.clusterCohesionSimilarity(
+                    vector,
+                    cluster: cluster,
+                    threshold: similarityThreshold,
+                    candidateActionTerms: eventActionTerms
+                ) else { return nil }
                 return (index, similarity)
             }.max { $0.1 < $1.1 }
 
             let clusterID: String
             let similarity: Double?
             let clusterIndex: Int
-            if let best, best.1 >= similarityThreshold {
+            if let best {
                 clusterIndex = best.0
                 clusterID = clusters[clusterIndex].id
                 similarity = best.1
@@ -304,6 +320,12 @@ public actor StoryClusteringSpike {
                     vector,
                     existingCount: old.memberCount
                 )
+                clusters[clusterIndex].recentMemberVectors.append(vector)
+                if clusters[clusterIndex].recentMemberVectors.count > Self.maximumRetainedMemberVectors {
+                    clusters[clusterIndex].recentMemberVectors.removeFirst(
+                        clusters[clusterIndex].recentMemberVectors.count - Self.maximumRetainedMemberVectors
+                    )
+                }
                 clusters[clusterIndex].memberCount = nextCount
                 clusters[clusterIndex].publisherKeys.insert(article.publisherKey)
                 clusters[clusterIndex].lastUpdatedAt = article.publishedAt
@@ -314,6 +336,9 @@ public actor StoryClusteringSpike {
                 clusters.append(CandidateCluster(
                     id: clusterID,
                     centroid: vector,
+                    representativeVector: vector,
+                    representativeActionTerms: eventActionTerms,
+                    recentMemberVectors: [vector],
                     memberCount: 1,
                     publisherKeys: [article.publisherKey],
                     lastUpdatedAt: article.publishedAt
@@ -340,8 +365,47 @@ public actor StoryClusteringSpike {
             translationStrategy: translationStrategy.rawValue,
             candidateWindowHours: candidateWindow / 3600,
             similarityThreshold: similarityThreshold,
-            assignments: assignments
+            assignments: assignments,
+            assignmentPolicy: Self.assignmentPolicy
         )
+    }
+
+    /// A single centroid match is insufficient: a broad issue centroid can drift
+    /// toward multiple distinct events. Require support from the original event
+    /// representative and the best recent members as well as the running centroid.
+    /// The reported score is the centroid cosine; the configured threshold applies
+    /// to it without slack.
+    private static func clusterCohesionSimilarity(
+        _ vector: [Double],
+        cluster: CandidateCluster,
+        threshold: Double,
+        candidateActionTerms: Set<String>
+    ) -> Double? {
+        guard let centroid = cosineSimilarity(vector, cluster.centroid),
+              let representative = cosineSimilarity(vector, cluster.representativeVector),
+              centroid >= threshold,
+              representative >= threshold - cohesionSlack else { return nil }
+
+        // Sharing the same people, organization, or broad subject is not enough to
+        // merge distinct developments. Disjoint headline actions block a normal
+        // semantic match; allow only near-identical representative matches so
+        // paraphrased reports of one event do not fragment unnecessarily.
+        if !candidateActionTerms.isEmpty,
+           !cluster.representativeActionTerms.isEmpty,
+           candidateActionTerms.isDisjoint(with: cluster.representativeActionTerms),
+           representative < actionMismatchOverrideSimilarity {
+            return nil
+        }
+
+        let recent = cluster.recentMemberVectors.suffix(3).compactMap {
+            cosineSimilarity(vector, $0)
+        }
+        guard !recent.isEmpty else { return nil }
+        let recentSupport = recent.reduce(0, +) / Double(recent.count)
+        guard recentSupport >= threshold - cohesionSlack else { return nil }
+        // Preserve the configured centroid threshold. The small cohesion tolerance
+        // only allows individual paraphrases to differ slightly from the threshold.
+        return centroid
     }
 
     public static func cosineSimilarity(_ lhs: [Double], _ rhs: [Double]) -> Double? {
@@ -433,6 +497,33 @@ public actor StoryClusteringSpike {
         return recognizer.dominantLanguage?.rawValue
     }
 
+    private static func normalizedTitle(from normalizedText: String) -> String {
+        String(normalizedText.split(separator: "\n", maxSplits: 1).first ?? Substring(normalizedText))
+    }
+
+    private static func eventActionTerms(in title: String) -> Set<String> {
+        let tagger = NLTagger(tagSchemes: [.lexicalClass, .lemma])
+        tagger.string = title
+        let options: NLTagger.Options = [.omitWhitespace, .omitPunctuation, .joinNames]
+        var terms = Set<String>()
+        tagger.enumerateTags(
+            in: title.startIndex..<title.endIndex,
+            unit: .word,
+            scheme: .lexicalClass,
+            options: options
+        ) { lexicalClass, range in
+            guard lexicalClass == .verb else { return true }
+            let token = String(title[range])
+            let lemma = tagger.tag(at: range.lowerBound, unit: .word, scheme: .lemma).0?.rawValue ?? token
+            terms.insert(lemma.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            ))
+            return true
+        }
+        return terms
+    }
+
     private static func analysisText(for article: StoryClusteringArticle) -> String {
         let parts = [article.title, article.summary, article.fullText]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -493,7 +584,8 @@ public actor StoryClusteringSpike {
                     publisherCount: 0,
                     startedAt: .now
                 )
-            }
+            },
+            assignmentPolicy: Self.assignmentPolicy
         )
     }
 }

@@ -30,8 +30,23 @@ reading and feed management stay available on devices without Apple Intelligence
 
 ## 1. Domain Model
 
-Two additions to the existing SwiftData schema (`Feed`, `FeedItem` in
-`Sift/Models/`), plus new fields on both.
+The data model separates three levels which must never be collapsed into one
+similarity cluster:
+
+1. `StoryCluster` is one concrete event, announcement, decision, or bounded update
+episode. Its members are source articles reporting that event.
+2. `Storyline` is a broader issue or causal thread linking distinct event clusters
+over time. Linking events to one storyline never makes their articles members of the
+same event cluster.
+3. `SourceClaim` is one attributed assertion from one article. `ClaimRelation` links
+two claims as potentially conflicting, compatible at different scope, an update,
+allegation/response, framing, syndicated repeat, or insufficient evidence. A relation
+is a description of coverage, never an outlet-based truth verdict.
+
+The following is the intended SwiftData schema (not yet applied to the live store;
+the story data path remains shadow-only until the M0 gate passes). It adds
+`StoryCluster`, `Storyline`, `SourceClaim`, and `ClaimRelation`, with links to the
+existing `FeedItem` model:
 
 ```swift
 @Model
@@ -45,16 +60,60 @@ public final class StoryCluster {
     public var languages: [String]           // BCP-47 tags observed among members
     public var centroid: [Float]             // running mean embedding, in analysis-locale space
     public var representativeItem: FeedItem?  // drives display title/artwork/primary link
+    public var storyline: Storyline?           // broader context; never merges events
 
     @Relationship(deleteRule: .nullify, inverse: \FeedItem.storyCluster)
     public var members: [FeedItem]
 }
+
+@Model
+public final class Storyline {
+    @Attribute(.unique) public var id: UUID
+    public var canonicalTitle: String
+    public var firstSeenDate: Date
+    public var lastUpdatedDate: Date
+    @Relationship(deleteRule: .nullify, inverse: \StoryCluster.storyline)
+    public var events: [StoryCluster]
+}
+
+@Model
+public final class SourceClaim {
+    @Attribute(.unique) public var id: UUID
+    public var feedItem: FeedItem               // exact source article
+    public var speakerOrDocument: String?
+    public var text: String                     // source-linked assertion/paraphrase
+    public var claimType: String                // allegation, official statement, etc.
+    public var subject: String?
+    public var action: String?
+    public var amount: String?
+    public var assertedAt: Date?
+    public var scope: String?
+    public var sourcingMode: String?            // direct, attributed, syndicated, unclear
+    public var syndicationOriginID: String?      // shared source/wire/statement identifier
+}
+
+@Model
+public final class ClaimRelation {
+    @Attribute(.unique) public var id: UUID
+    public var leftClaim: SourceClaim
+    public var rightClaim: SourceClaim
+    public var kind: String                     // enum-backed relation label
+    public var evidenceNote: String?
+    public var pipelineVersion: String
+}
 ```
+
+Persisted relation kinds correspond to the closed labels in
+[`SOURCE_CONFLICT_ANNOTATION.md`](SOURCE_CONFLICT_ANNOTATION.md). Unknown or
+unsupported claim fields stay empty. In particular, `direct_conflict_candidate` is
+not a decision that either claim is false.
 
 New `FeedItem` fields:
 
 ```swift
 public var storyCluster: StoryCluster?
+@Relationship(deleteRule: .cascade, inverse: \SourceClaim.feedItem)
+public var sourceClaims: [SourceClaim]
 public var detectedLanguage: String?           // BCP-47, from NLLanguageRecognizer
 public var analysisText: String?               // title+summary translated into the pivot locale — internal only, never rendered
 public var embedding: [Float]?
@@ -130,7 +189,7 @@ graph TD
     D1 --> F
     F["NLContextualEmbedding over analysisText; stamp analysisPipelineVersion + embeddingModelVersion"]
     F --> G["Candidate clusters: centroids updated in last 72h"]
-    G --> H{"cosine similarity >= threshold?"}
+    G --> H{"centroid passes AND representative/recent members support AND headline actions are compatible?"}
     H -->|"yes"| I["Assign to existing StoryCluster, update centroid + sourceCount"]
     H -->|"no"| J["Spawn new singleton StoryCluster"]
     W --> Z["Item stays unassigned until asset installs"]
@@ -167,6 +226,21 @@ Key decisions:
 - **Centroid drift control.** Centroid is a running mean weighted toward recent
   members (or recomputed from the top-K freshest members) so a cluster doesn't
   ossify around its oldest items.
+- **Concrete-event boundary (M0 spike v4).** A centroid match alone is not enough.
+  Candidate assignments also need support from the event's fixed representative and
+  recent member vectors. Natural Language lemmatizes action verbs in the normalized
+  headline; clearly disjoint representative/candidate actions block an event merge,
+  except for near-identical representative matches (≥0.985 cosine) that are likely
+  headline paraphrases of the same event.
+  This deliberately prefers a visible false split over quietly combining different
+  developments about the same person, organization, or issue. Related developments
+  belong on a `Storyline` timeline after a separately evaluated issue-linking step.
+  The current shadow spike retains at most 12 recent vectors per candidate and
+  requires the configured centroid threshold plus representative/recent support
+  within 0.055 cosine slack. This setting is experimental, not a production default.
+- **Publisher diversity is not corroboration.** Distinct publisher count remains a
+  coverage measure only. `SourceClaim` records attribution and syndication origin so
+  repeated copies of one statement are not presented as independent evidence.
 - **Distinct-publisher counting, not distinct-feed counting (fix 5b).** `sourceCount`
   counts distinct `Feed.publisherKey` values among current members, not distinct
   `Feed.id`s — three feeds from the same outlet (News/Technology/Breaking) must not
