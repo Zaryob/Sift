@@ -15,7 +15,9 @@ public final class ArticleEnrichmentQueue: ObservableObject {
     @Published public private(set) var completedPassCount = 0
 
     private var task: Task<Void, Never>?
+    private var modelRetryTask: Task<Void, Never>?
     private var needsAnotherPass = false
+    private let maximumArticlesPerPass = 25
 
     private init() {}
 
@@ -50,12 +52,13 @@ public final class ArticleEnrichmentQueue: ObservableObject {
         let startOfToday = calendar.startOfDay(for: now)
         let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday)
             ?? now.addingTimeInterval(-48 * 60 * 60)
-        let descriptor = FetchDescriptor<FeedItem>(
+        var descriptor = FetchDescriptor<FeedItem>(
             predicate: #Predicate {
                 $0.publicationDate >= startOfYesterday && $0.publicationDate <= now
             },
             sortBy: [SortDescriptor(\.publicationDate, order: .reverse)]
         )
+        descriptor.fetchLimit = maximumArticlesPerPass
         let context = ModelContext(container)
         guard let items = try? context.fetch(descriptor), !items.isEmpty else { return }
         await extractMissingBodies(from: items, context: context)
@@ -64,8 +67,14 @@ public final class ArticleEnrichmentQueue: ObservableObject {
         guard intelligence.isOnDeviceModelAvailable else {
             // The RSS reader remains fully usable. A later refresh will retry once
             // Apple Intelligence is ready, without persisting a fake AI digest.
+            if intelligence.availability == .modelNotReady {
+                scheduleModelReadinessRetry(in: container)
+            }
             return
         }
+
+        modelRetryTask?.cancel()
+        modelRetryTask = nil
 
         progressMessage = String(localized: "Enriching recent articles on this device…")
         for item in items {
@@ -79,7 +88,7 @@ public final class ArticleEnrichmentQueue: ObservableObject {
             }
             processedArticleCount += 1
         }
-        try? context.save()
+        save(context, operation: "article enrichment")
     }
 
     private func extractMissingBodies(from items: [FeedItem], context: ModelContext) async {
@@ -134,7 +143,29 @@ public final class ArticleEnrichmentQueue: ObservableObject {
             }
             // Persist each small batch so a background suspension resumes from the
             // remaining rows instead of repeating successful publisher downloads.
-            try? context.save()
+            save(context, operation: "article extraction batch")
+        }
+    }
+
+    private func scheduleModelReadinessRetry(in container: ModelContainer) {
+        guard modelRetryTask == nil else { return }
+        modelRetryTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(15 * 60))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            modelRetryTask = nil
+            scheduleRecentItems(in: container)
+        }
+    }
+
+    private func save(_ context: ModelContext, operation: String) {
+        do {
+            try context.save()
+        } catch {
+            print("[ArticleEnrichmentQueue] Failed to save \(operation): \(error)")
         }
     }
 }
