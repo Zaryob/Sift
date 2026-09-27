@@ -100,6 +100,8 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
     public let translationStrategy: String
     public let candidateWindowHours: Double
     public let similarityThreshold: Double
+    /// False means embedding setup failed before comparisons were attempted.
+    public let embeddingModelAvailable: Bool?
     public let assignments: [StoryClusteringAssignment]
     /// Versioned description of the event-boundary and cluster-cohesion policy.
     public let assignmentPolicy: String
@@ -112,7 +114,7 @@ public struct StoryClusteringSpikeResult: Codable, Sendable {
 /// Cross-language items are translated only when Apple's Translation framework reports
 /// the exact language pair as installed. Unsupported pairs remain unassigned.
 public actor StoryClusteringSpike {
-    public static let pipelineVersion = "m0-spike-15"
+    public static let pipelineVersion = "m0-spike-16"
     private static let assignmentPolicy = "60% article-body + 40% headline embedding; centroid threshold + representative/recent-member cohesion + Natural Language action boundary"
     private static let experimentalEventSignaturePolicy = "60% article-body + 40% headline embedding; embedding shortlist + experimental Foundation Models event-signature rejection"
     private static let cohesionSlack = 0.055
@@ -541,6 +543,7 @@ public actor StoryClusteringSpike {
             translationStrategy: translationStrategy.rawValue,
             candidateWindowHours: candidateWindow / 3600,
             similarityThreshold: similarityThreshold,
+            embeddingModelAvailable: true,
             assignments: assignments,
             assignmentPolicy: eventSignaturesEnabled
                 ? Self.experimentalEventSignaturePolicy
@@ -603,21 +606,15 @@ public actor StoryClusteringSpike {
             && !cluster.representativeActionTerms.isEmpty
             && candidateActionTerms.isDisjoint(with: cluster.representativeActionTerms)
         let actionOverrideApplies = (representative ?? -1) >= actionMismatchOverrideSimilarity
-
-        let decision: StoryClusteringCandidateDecision
-        if centroid == nil || centroid! < threshold {
-            decision = .rejectedCentroidSimilarity
-        } else if eventSignatureCompatible == false {
-            decision = .rejectedEventSignatureMismatch
-        } else if actionMismatch && !actionOverrideApplies {
-            decision = .rejectedActionMismatch
-        } else if representative == nil || representative! < threshold - cohesionSlack {
-            decision = .rejectedRepresentativeSimilarity
-        } else if recentSupport == nil || recentSupport! < threshold - cohesionSlack {
-            decision = .rejectedRecentMemberSupport
-        } else {
-            decision = .accepted
-        }
+        let decision = candidateDecision(
+            centroidSimilarity: centroid,
+            eventSignatureCompatible: eventSignatureCompatible,
+            representativeSimilarity: representative,
+            recentMemberSimilarities: recent,
+            candidateActionTerms: candidateActionTerms,
+            representativeActionTerms: cluster.representativeActionTerms,
+            threshold: threshold
+        )
 
         return CandidateEvaluation(
             index: index,
@@ -647,6 +644,44 @@ public actor StoryClusteringSpike {
                 selected: false
             )
         )
+    }
+
+    /// Pure assignment gate shared by production clustering and deterministic tests.
+    /// Similarity values are model outputs; this function only applies the product's
+    /// event-cohesion policy and never substitutes a test model into the app pipeline.
+    static func candidateDecision(
+        centroidSimilarity: Double?,
+        eventSignatureCompatible: Bool?,
+        representativeSimilarity: Double?,
+        recentMemberSimilarities: [Double],
+        candidateActionTerms: Set<String>,
+        representativeActionTerms: Set<String>,
+        threshold: Double
+    ) -> StoryClusteringCandidateDecision {
+        let recentSupport = recentMemberSimilarities.isEmpty
+            ? nil
+            : recentMemberSimilarities.reduce(0, +) / Double(recentMemberSimilarities.count)
+        let actionMismatch = !candidateActionTerms.isEmpty
+            && !representativeActionTerms.isEmpty
+            && candidateActionTerms.isDisjoint(with: representativeActionTerms)
+        let actionOverrideApplies = (representativeSimilarity ?? -1) >= actionMismatchOverrideSimilarity
+
+        if centroidSimilarity == nil || centroidSimilarity! < threshold {
+            return .rejectedCentroidSimilarity
+        }
+        if eventSignatureCompatible == false {
+            return .rejectedEventSignatureMismatch
+        }
+        if actionMismatch && !actionOverrideApplies {
+            return .rejectedActionMismatch
+        }
+        if representativeSimilarity == nil || representativeSimilarity! < threshold - cohesionSlack {
+            return .rejectedRepresentativeSimilarity
+        }
+        if recentSupport == nil || recentSupport! < threshold - cohesionSlack {
+            return .rejectedRecentMemberSupport
+        }
+        return .accepted
     }
 
     private static func couldPassEmbeddingCohesion(
@@ -968,6 +1003,7 @@ public actor StoryClusteringSpike {
             translationStrategy: translationStrategy.rawValue,
             candidateWindowHours: candidateWindow / 3600,
             similarityThreshold: threshold,
+            embeddingModelAvailable: false,
             assignments: articles.map {
                 Self.assignment(
                     article: $0,

@@ -23,7 +23,7 @@ struct StoryPreviewList: View {
                 }
             }
 
-            if let metrics {
+            if let metrics, metrics.analysisState != .noRecentArticles {
                 Section {
                     StoryPreviewStatusCard(metrics: metrics)
                         .listRowSeparator(.hidden)
@@ -61,10 +61,10 @@ struct StoryPreviewList: View {
                         }
                     }
                 } header: {
-                    Text("Not grouped")
+                    Text(metrics?.analysisState == .modelUnavailable ? "Not analyzed" : "Not grouped")
                         .textCase(nil)
                 } footer: {
-                    Text("These articles stayed separate because there was too little text, an unavailable language pair, or no usable on-device embedding.")
+                    Text(unassignedFooter)
                 }
             }
 
@@ -87,11 +87,16 @@ private struct StoryPreviewStatusCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Experimental on-device preview", systemImage: "sparkles")
+            Label(
+                metrics.analysisState == .modelUnavailable
+                    ? "On-device analysis unavailable"
+                    : "Experimental on-device preview",
+                systemImage: metrics.analysisState == .modelUnavailable ? "exclamationmark.triangle" : "sparkles"
+            )
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.siftAccent)
 
-            Text("M0 quality gate not passed. No summaries are generated; open a source article to inspect the reporting.")
+            Text(statusDescription)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -107,6 +112,26 @@ private struct StoryPreviewStatusCard: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
+    }
+
+    private var statusDescription: LocalizedStringResource {
+        switch metrics.analysisState {
+        case .completed:
+            "M0 quality gate not passed. No summaries are generated; open a source article to inspect the reporting."
+        case .modelUnavailable:
+            "Apple's on-device embedding model did not load. This run did not evaluate whether these stories match."
+        case .noRecentArticles:
+            "There are no recent articles to analyze."
+        }
+    }
+}
+
+private extension StoryPreviewList {
+    var unassignedFooter: LocalizedStringResource {
+        if metrics?.analysisState == .modelUnavailable {
+            return "These articles were not analyzed because the on-device embedding model could not load. This is not a negative story match."
+        }
+        return "These articles stayed separate because there was too little text, an unavailable language pair, or no usable on-device embedding."
     }
 }
 

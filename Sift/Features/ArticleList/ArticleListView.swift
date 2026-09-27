@@ -469,6 +469,10 @@ struct ArticleListView: View {
         if isShowingStoryPreview, viewModel.isBuildingStoryPreview {
             return String(localized: "Analyzing recent coverage on this device…")
         }
+        if isShowingStoryPreview,
+           viewModel.storyPreviewMetrics?.analysisState == .modelUnavailable {
+            return String(localized: "On-device analysis unavailable")
+        }
         if viewModel.isRefreshing {
             return String(localized: "Updating feeds…")
         }

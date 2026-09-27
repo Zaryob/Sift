@@ -37,6 +37,12 @@ public struct StoryPreviewGroup: Identifiable, Sendable {
     public let publisherCount: Int
 }
 
+public enum StoryPreviewAnalysisState: Equatable, Sendable {
+    case completed
+    case modelUnavailable
+    case noRecentArticles
+}
+
 public struct StoryPreviewMetrics: Sendable {
     public let analyzedArticleCount: Int
     public let readyArticleCount: Int
@@ -44,6 +50,7 @@ public struct StoryPreviewMetrics: Sendable {
     public let waitingForTranslationCount: Int
     public let unsupportedLanguageCount: Int
     public let otherFailureCount: Int
+    public let analysisState: StoryPreviewAnalysisState
 }
 
 private struct StoryPreviewExtractionRequest: Sendable {
@@ -231,7 +238,8 @@ public final class AppViewModel {
                 articleBodyCount: 0,
                 waitingForTranslationCount: 0,
                 unsupportedLanguageCount: 0,
-                otherFailureCount: 0
+                otherFailureCount: 0,
+                analysisState: .noRecentArticles
             )
             return
         }
@@ -306,7 +314,8 @@ public final class AppViewModel {
             unsupportedLanguageCount: result.assignments.filter { $0.readiness == .unsupportedLanguage }.count,
             otherFailureCount: result.assignments.filter {
                 $0.readiness != .ready && $0.readiness != .translationNotInstalled && $0.readiness != .unsupportedLanguage
-            }.count
+            }.count,
+            analysisState: result.embeddingModelAvailable == false ? .modelUnavailable : .completed
         )
     }
 
