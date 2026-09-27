@@ -677,8 +677,14 @@ struct ArticleReaderScrollView: View {
         progressiveTranslation ?? cachedTranslation
     }
 
+    private var hasTranslatedTitle: Bool {
+        article.translationTargetLanguage == targetLanguageCode
+            && article.translatedTitle?.isEmpty == false
+            && article.translatedTitle != article.title
+    }
+
     private var displayedTitle: String {
-        if isTranslationActive, let translatedTitle = article.translatedTitle {
+        if !isShowingOriginal, hasTranslatedTitle, let translatedTitle = article.translatedTitle {
             return translatedTitle
         }
         return article.title
@@ -707,11 +713,11 @@ struct ArticleReaderScrollView: View {
                     )
                     #endif
 
-                    if isTranslating || cachedTranslation != nil || translationError != nil {
+                    if isTranslating || cachedTranslation != nil || hasTranslatedTitle || translationError != nil {
                         ArticleTranslationStatusView(
                             isTranslating: isTranslating,
                             isShowingOriginal: isShowingOriginal,
-                            hasTranslation: displayedTranslation != nil,
+                            hasTranslation: displayedTranslation != nil || hasTranslatedTitle,
                             progress: translationProgress,
                             errorMessage: translationError,
                             onToggleOriginal: {

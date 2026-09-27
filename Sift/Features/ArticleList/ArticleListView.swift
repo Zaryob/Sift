@@ -1,6 +1,8 @@
 import Combine
 import SwiftUI
 import SwiftData
+import NaturalLanguage
+import Translation
 
 enum ArticleSortOrder: String, CaseIterable, Identifiable {
     case newestFirst = "Newest First"
@@ -220,6 +222,8 @@ struct ArticleListView: View {
             if hideRead && article.isRead { return false }
             if !isSearching { return true }
             if article.title.localizedCaseInsensitiveContains(trimmed) { return true }
+            if let translatedTitle = article.translatedTitle,
+               translatedTitle.localizedCaseInsensitiveContains(trimmed) { return true }
             if let author = article.author, author.localizedCaseInsensitiveContains(trimmed) { return true }
             if let snippet = article.snippet, snippet.localizedCaseInsensitiveContains(trimmed) { return true }
             if let summary = article.summary, summary.localizedCaseInsensitiveContains(trimmed) { return true }
@@ -1714,11 +1718,11 @@ struct ArticleRow: View {
 
                 // Article Title: Primary visual focal point
                 HStack(alignment: .firstTextBaseline) {
-                    Text(article.title.isEmpty ? "Untitled" : article.title)
-                        .font(.system(size: 16, weight: article.isRead ? .medium : .semibold))
-                        .foregroundStyle(article.isRead ? Color.primary.opacity(0.7) : Color.primary)
-                        .lineSpacing(2)
-                        .lineLimit(density == .compact ? 1 : 2)
+                    TranslatedArticleTitleView(
+                        article: article,
+                        density: density,
+                        platform: .iOS
+                    )
 
                     if !showSource {
                         Spacer(minLength: 6)
@@ -1794,10 +1798,11 @@ struct ArticleRow: View {
                 }
 
                 // Line 2: Article Title (Subject)
-                Text(article.title.isEmpty ? "Untitled" : article.title)
-                    .font(.system(size: 13, weight: article.isRead ? .regular : .medium))
-                    .foregroundStyle(article.isRead ? Color.primary.opacity(0.85) : Color.primary)
-                    .lineLimit(density == .compact ? 1 : 2)
+                TranslatedArticleTitleView(
+                    article: article,
+                    density: density,
+                    platform: .macOS
+                )
 
                 // Line 3: Snippet Preview
                 if showPreview, !snippet.isEmpty, density != .compact {
@@ -1832,6 +1837,127 @@ struct ArticleRow: View {
             return Self.shortTimeFormatter.string(from: date)
         } else {
             return Self.monthDayFormatter.string(from: date)
+        }
+    }
+}
+
+private enum ArticleTitlePlatform {
+    case iOS
+    case macOS
+}
+
+/// Translates only the lightweight feed title. Full article translation remains
+/// owned by the detail view and starts after the complete body is available.
+private struct TranslatedArticleTitleView: View {
+    let article: FeedItem
+    let density: ArticleDensity
+    let platform: ArticleTitlePlatform
+
+    @Environment(\.locale) private var locale
+    @Environment(\.modelContext) private var modelContext
+    @State private var translationConfiguration: TranslationSession.Configuration?
+
+    private var targetLanguageCode: String {
+        locale.language.languageCode?.identifier
+            ?? Locale.autoupdatingCurrent.language.languageCode?.identifier
+            ?? "en"
+    }
+
+    private var translatedTitle: String? {
+        guard article.translationTargetLanguage == targetLanguageCode,
+              let title = article.translatedTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty,
+              title != article.title else { return nil }
+        return title
+    }
+
+    private var titleFont: Font {
+        switch platform {
+        case .iOS:
+            return .system(size: 16, weight: article.isRead ? .medium : .semibold)
+        case .macOS:
+            return .system(size: 13, weight: article.isRead ? .regular : .medium)
+        }
+    }
+
+    private var titleColor: Color {
+        switch platform {
+        case .iOS:
+            return article.isRead ? Color.primary.opacity(0.7) : Color.primary
+        case .macOS:
+            return article.isRead ? Color.primary.opacity(0.85) : Color.primary
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(translatedTitle ?? (article.title.isEmpty ? String(localized: "Untitled") : article.title))
+                    .font(titleFont)
+                    .foregroundStyle(titleColor)
+                    .lineSpacing(2)
+                    .lineLimit(density == .compact ? 1 : 2)
+
+                if translatedTitle != nil {
+                    Image(systemName: "translate")
+                        .font(.caption2)
+                        .foregroundStyle(Color.siftAccent)
+                        .accessibilityLabel("Translated title")
+                }
+            }
+
+            if translatedTitle != nil {
+                Text(article.title)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .accessibilityLabel("Original title: \(article.title)")
+            }
+        }
+        .task(id: "\(article.id.uuidString)-\(article.title)-\(targetLanguageCode)") {
+            prepareTitleTranslation()
+        }
+        .translationTask(translationConfiguration) { session in
+            await translateTitle(using: session)
+        }
+    }
+
+    private func prepareTitleTranslation() {
+        guard translatedTitle == nil, !article.title.isEmpty else { return }
+
+        let recognizer = NLLanguageRecognizer()
+        let sample = [article.title, article.snippet ?? article.summary ?? ""]
+            .joined(separator: " ")
+            .prefix(1_000)
+        recognizer.processString(String(sample))
+        guard let language = recognizer.dominantLanguage else { return }
+
+        let sourceLanguageCode = language.rawValue
+        guard sourceLanguageCode != targetLanguageCode else { return }
+
+        article.translationSourceLanguage = sourceLanguageCode
+        translationConfiguration = TranslationSession.Configuration(
+            source: Locale.Language(identifier: sourceLanguageCode),
+            target: Locale.Language(identifier: targetLanguageCode),
+            preferredStrategy: .lowLatency
+        )
+    }
+
+    @MainActor
+    private func translateTitle(using session: TranslationSession) async {
+        let sourceTitle = article.title
+        do {
+            let response = try await session.translate(sourceTitle)
+            try Task.checkCancellation()
+            guard article.title == sourceTitle else { return }
+
+            article.translatedTitle = response.targetText
+            article.translationTargetLanguage = targetLanguageCode
+            try modelContext.save()
+        } catch is CancellationError {
+            return
+        } catch {
+            // Keep the original title visible. A later row appearance retries.
         }
     }
 }
