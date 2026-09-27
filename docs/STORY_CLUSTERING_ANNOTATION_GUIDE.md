@@ -64,7 +64,7 @@ Translation asset downloads for the benchmark:
 ```sh
 swiftc -parse-as-library Sift/Clustering/StoryClusteringSpike.swift \
   tools/StoryClusteringBenchmark.swift \
-  -framework NaturalLanguage -framework Translation \
+  -framework FoundationModels -framework NaturalLanguage -framework Translation \
   -o /tmp/StoryClusteringBenchmark
 
 /tmp/StoryClusteringBenchmark \

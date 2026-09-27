@@ -380,20 +380,34 @@ source text.
 ### Current development diagnostic (2026-09-27)
 
 The same 66-row, agent-provisional silver sample was run with analysis locale `en`,
-`highFidelity`, a 72-hour window, and threshold `0.96`. Moving from spike v6 to v7,
-which uses a separate translated headline and article-body vector weighted 40/60,
-changed pairwise F1 from 0.498 to 0.548 and recall from 0.338 to 0.426; precision
-fell from 0.943 to 0.768, and contaminated predicted clusters rose from 5% to 12.5%.
-This is a useful direction for recall, with an unresolved false-merge cost. The
-benchmark decision trace points to broad body/issue similarity as a source of merges
-and shows some same-event misses just below the fixed centroid threshold. It is a
-small, provisional development sample, not an M0 result or threshold calibration set.
+`highFidelity`, a 72-hour window, and threshold `0.96`. Spike v7 introduced separate
+translated headline and article-body vectors weighted 40/60; its F1 was 0.548, recall
+0.426, precision 0.768, and contaminated-cluster rate 12.5%. Spike v10 retains that
+body-first weighting and adds an on-device Foundation Models event signature as a
+boundary signal. It scored precision 0.704, recall 0.595, F1 0.645, false-merge rate
+20% (5/25 clusters), false-positive pair rate 29.6%, and 7/22 split gold stories.
+The signature was produced for 55/66 rows. The run took 246 seconds on the recorded
+Mac16,1 host. These results fail the M0 F1 gate and are a product-latency warning:
+do not request a Foundation Models signature for every ingested article in a
+production refresh pass.
 
-All sample rows were assigned after Translation preflight, but the sample does not
-prove language-independent clustering: it contains cross-language same-event pairs,
-and many were missed. M0 still needs deliberately assembled and adjudicated same-event
-coverage across language pairs before this pipeline can pass its gate. The corpus and
-detailed assignments are local and excluded from Git.
+The decision trace records body and headline similarity independently, plus overall
+signature similarity and actor/action/object compatibility evidence. Action/object
+word overlap did not separate accepted true-positive pairs from false-positive pairs
+(median overlap was zero for both), while actor overlap was populated for only two
+accepted pairs. On this sample the Foundation Models gate did not improve F1 over the
+preceding signature run. Keep the structured signature as an experiment, not a
+validated clustering rule. Next benchmark work should evaluate lazy signature
+generation only for embedding-shortlisted candidates, then compare quality and
+end-to-end latency with the signature-free Apple Natural Language baseline.
+
+All rows were assigned after Translation preflight, but this sample does not prove
+language-independent clustering: it contains cross-language same-event pairs, and
+many were missed. M0 still needs deliberately assembled and adjudicated same-event
+coverage across language pairs before this pipeline can pass its gate. The corpus
+and detailed assignments are local and excluded from Git. This agent-provisional
+sample is diagnostic only; do not use it to declare a quality gate passed or as the
+sole basis for a production threshold.
 
 ## 7. Non-Goals and Accepted Risks for v0
 
