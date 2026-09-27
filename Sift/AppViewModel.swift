@@ -44,6 +44,28 @@ public struct StoryPreviewCategory: Identifiable, Sendable {
     public let articleIDs: [UUID]
 }
 
+/// The preview's shared local-calendar date window, used at both analysis and
+/// rendering boundaries so stale preview state cannot reveal older articles.
+public struct StoryPreviewDateWindow: Sendable {
+    public let lowerBound: Date
+    public let upperBound: Date
+
+    public init(now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) {
+        let startOfToday = calendar.startOfDay(for: now)
+        lowerBound = calendar.date(byAdding: .day, value: -1, to: startOfToday)
+            ?? now.addingTimeInterval(-48 * 60 * 60)
+        upperBound = now
+    }
+
+    public func contains(_ date: Date) -> Bool {
+        date >= lowerBound && date <= upperBound
+    }
+
+    public var duration: TimeInterval {
+        upperBound.timeIntervalSince(lowerBound)
+    }
+}
+
 public enum StoryPreviewAnalysisState: Equatable, Sendable {
     case completed
     case modelUnavailable
@@ -235,18 +257,18 @@ public final class AppViewModel {
     public func buildStoryPreview(from feedItems: [FeedItem], context: ModelContext) async {
         guard !isBuildingStoryPreview else { return }
         isBuildingStoryPreview = true
+        storyPreviewGroups = []
+        storyPreviewCategories = []
+        storyPreviewUnassignedIDs = []
+        storyPreviewMetrics = nil
         defer {
             isBuildingStoryPreview = false
             storyPreviewProgress = nil
         }
 
-        let now = Date()
-        let calendar = Calendar.autoupdatingCurrent
-        let startOfToday = calendar.startOfDay(for: now)
-        let startOfYesterday = calendar.date(byAdding: .day, value: -1, to: startOfToday)
-            ?? now.addingTimeInterval(-48 * 60 * 60)
+        let dateWindow = StoryPreviewDateWindow()
         let recentItems = feedItems
-            .filter { $0.publicationDate >= startOfYesterday && $0.publicationDate <= now }
+            .filter { dateWindow.contains($0.publicationDate) }
             .sorted { $0.publicationDate < $1.publicationDate }
 
         guard !recentItems.isEmpty else {
@@ -308,7 +330,7 @@ public final class AppViewModel {
             articles,
             analysisLocale: "en",
             similarityThreshold: 0.82,
-            candidateWindow: now.timeIntervalSince(startOfYesterday),
+            candidateWindow: dateWindow.duration,
             translationStrategy: .lowLatency,
             eventSignaturesEnabled: false
         )

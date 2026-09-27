@@ -14,11 +14,40 @@ struct StoryPreviewList: View {
     @State private var selectedCategoryID: String?
 
     var body: some View {
-        let selectedCategory = categories.first { $0.id == selectedCategoryID }
+        let dateWindow = StoryPreviewDateWindow()
+        let recentArticleIDs = Set(
+            articlesByID.values.lazy
+                .filter { dateWindow.contains($0.publicationDate) }
+                .map(\.id)
+        )
+        let recentGroups = groups.compactMap { group -> StoryPreviewGroup? in
+            let articleIDs = group.articleIDs.filter { recentArticleIDs.contains($0) }
+            guard !articleIDs.isEmpty else { return nil }
+            return StoryPreviewGroup(
+                id: group.id,
+                articleIDs: articleIDs,
+                publisherCount: min(group.publisherCount, articleIDs.count)
+            )
+        }
+        let recentUnassignedIDs = unassignedIDs.filter { recentArticleIDs.contains($0) }
+        let recentCategories = categories.compactMap { category -> StoryPreviewCategory? in
+            let groupIDs = category.storyGroupIDs.filter { groupID in
+                recentGroups.contains { $0.id == groupID }
+            }
+            let articleIDs = category.articleIDs.filter { recentArticleIDs.contains($0) }
+            guard !groupIDs.isEmpty || !articleIDs.isEmpty else { return nil }
+            return StoryPreviewCategory(
+                id: category.id,
+                title: category.title,
+                storyGroupIDs: groupIDs,
+                articleIDs: articleIDs
+            )
+        }
+        let selectedCategory = recentCategories.first { $0.id == selectedCategoryID }
         let visibleGroups = selectedCategory.map { category in
-            groups.filter { category.storyGroupIDs.contains($0.id) }
-        } ?? groups
-        let visibleUnassignedIDs = selectedCategory?.articleIDs ?? unassignedIDs
+            recentGroups.filter { category.storyGroupIDs.contains($0.id) }
+        } ?? recentGroups
+        let visibleUnassignedIDs = selectedCategory?.articleIDs ?? recentUnassignedIDs
 
         List(selection: $selectedArticle) {
             if isBuilding {
@@ -58,10 +87,10 @@ struct StoryPreviewList: View {
                 }
             }
 
-            if !categories.isEmpty {
+            if !recentCategories.isEmpty {
                 Section {
                     StoryPreviewCategoryFilter(
-                        categories: categories,
+                        categories: recentCategories,
                         selection: $selectedCategoryID
                     )
                     .listRowSeparator(.hidden)
@@ -112,7 +141,7 @@ struct StoryPreviewList: View {
                 }
             }
 
-            if !isBuilding, groups.isEmpty, unassignedIDs.isEmpty {
+            if !isBuilding, recentGroups.isEmpty, recentUnassignedIDs.isEmpty {
                 ContentUnavailableView(
                     "No Recent Articles",
                     systemImage: "square.stack.3d.up",
