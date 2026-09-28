@@ -118,18 +118,19 @@ public enum SmartFeedFilter {
             return $0.score > $1.score
         }
 
-        // 4. Source diversity: cap maximum articles per feed so a single firehose feed cannot dominate
-        let uniqueSources = Set(candidates.map(\.sourceKey)).count
-        let maxPerSource: Int
-        if uniqueSources <= 2 {
-            maxPerSource = budget
-        } else {
-            maxPerSource = max(3, Int(ceil(Double(budget) / Double(uniqueSources) * 2.2)))
-        }
+        // 4. Diversity: selection is driven primarily by score. The per-source cap
+        // below is only an anti-monopoly guard against a single firehose feed —
+        // it no longer divides the budget evenly across sources. Real diversity
+        // comes from the per-topic cap, which clusters candidates by title-token
+        // overlap regardless of which feed published them.
+        let maxPerSource = max(6, Int(ceil(Double(budget) * 0.5)))
+        let maxPerTopic = max(4, Int(ceil(Double(budget) / 6.0)))
+        let topicSimilarityThreshold = 0.3
+        let duplicateSimilarityThreshold = 0.65
 
         var seenURLs = Set<String>()
         var seenNormalizedTitles = Set<String>()
-        var selectedBySource: [(sourceKey: String, date: Date, tokens: Set<String>, candidateIndex: Int)] = []
+        var selected: [(sourceKey: String, date: Date, tokens: Set<String>, candidateIndex: Int)] = []
         var sourceCounts: [String: Int] = [:]
         var selectedIDs = Set<UUID>()
 
@@ -152,28 +153,37 @@ public enum SmartFeedFilter {
                 }
             }
 
-            // Diversity limit per feed/source (VIP feeds get up to double the normal cap)
+            // Anti-monopoly limit per feed/source (VIP feeds get up to double the normal cap)
             let currentSourceCount = sourceCounts[candidate.sourceKey, default: 0]
             let effectiveMax = candidate.isVIP ? (maxPerSource * 2) : maxPerSource
             if currentSourceCount >= effectiveMax {
                 continue
             }
 
-            // Cross-source syndication / near-duplicate check & Story Velocity Boost
-            // If another outlet covered this exact story within 48h, boost the representative story!
-            if candidate.titleTokens.count >= 4 {
-                let candidateDate = candidate.item.publicationDate
-                var isCrossSourceDuplicate = false
+            // Title-token clustering: detects both exact cross-source syndication
+            // (same story, different outlet -> merge & boost the representative)
+            // and looser topical overlap (same subject, regardless of source ->
+            // counts toward the per-topic diversity cap).
+            var isDuplicateStory = false
+            var topicSaturationCount = 0
 
-                for existingIndex in 0..<selectedBySource.count {
-                    let existing = selectedBySource[existingIndex]
-                    guard existing.sourceKey != candidate.sourceKey else { continue }
-                    guard existing.tokens.count >= 4 else { continue }
+            if candidate.titleTokens.count >= 3 {
+                let candidateDate = candidate.item.publicationDate
+
+                for existingIndex in 0..<selected.count {
+                    let existing = selected[existingIndex]
+                    guard existing.tokens.count >= 3 else { continue }
                     guard abs(existing.date.timeIntervalSince(candidateDate)) <= 172_800 else { continue }
 
                     let similarity = titleSimilarity(candidate.titleTokens, existing.tokens)
-                    if similarity >= 0.65 {
-                        isCrossSourceDuplicate = true
+                    guard similarity >= topicSimilarityThreshold else { continue }
+
+                    topicSaturationCount += 1
+
+                    if existing.sourceKey != candidate.sourceKey,
+                       candidate.titleTokens.count >= 4, existing.tokens.count >= 4,
+                       similarity >= duplicateSimilarityThreshold {
+                        isDuplicateStory = true
                         // Boost representative story that was already selected
                         let representativeIndex = existing.candidateIndex
                         candidates[representativeIndex].coverageCount += 1
@@ -182,9 +192,15 @@ public enum SmartFeedFilter {
                     }
                 }
 
-                if isCrossSourceDuplicate {
+                if isDuplicateStory {
                     continue
                 }
+            }
+
+            // Per-topic diversity cap: keeps a single subject from crowding out the
+            // feed even when many different sources are covering it (VIP exempt).
+            if !candidate.isVIP, topicSaturationCount >= maxPerTopic {
+                continue
             }
 
             // Accepted candidate
@@ -195,7 +211,7 @@ public enum SmartFeedFilter {
                 seenNormalizedTitles.insert(candidate.normalizedTitle)
             }
             if !candidate.titleTokens.isEmpty {
-                selectedBySource.append((
+                selected.append((
                     sourceKey: candidate.sourceKey,
                     date: candidate.item.publicationDate,
                     tokens: candidate.titleTokens,

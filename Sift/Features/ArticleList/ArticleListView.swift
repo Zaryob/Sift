@@ -2083,7 +2083,6 @@ private struct TranslatedArticleTitleView: View {
     let platform: ArticleTitlePlatform
 
     @Environment(\.locale) private var locale
-    @Environment(\.modelContext) private var modelContext
     @State private var translationConfiguration: TranslationSession.Configuration?
 
     private var targetLanguageCode: String {
@@ -2144,6 +2143,15 @@ private struct TranslatedArticleTitleView: View {
             }
         }
         .task(id: "\(article.id.uuidString)-\(article.title)-\(targetLanguageCode)") {
+            // Rows that only flicker past during a fast scroll fling shouldn't pay
+            // the cost of language detection / translation session setup. Only
+            // rows that stay visible for a moment actually start the work.
+            do {
+                try await Task.sleep(for: .milliseconds(350))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             prepareTitleTranslation()
         }
         .translationTask(translationConfiguration) { session in
@@ -2154,17 +2162,24 @@ private struct TranslatedArticleTitleView: View {
     private func prepareTitleTranslation() {
         guard translatedTitle == nil, !article.title.isEmpty else { return }
 
-        let recognizer = NLLanguageRecognizer()
-        let sample = [article.title, article.snippet ?? article.summary ?? ""]
-            .joined(separator: " ")
-            .prefix(1_000)
-        recognizer.processString(String(sample))
-        guard let language = recognizer.dominantLanguage else { return }
+        let sourceLanguageCode: String
+        if let cached = article.translationSourceLanguage, !cached.isEmpty {
+            // Reuse the previously detected language instead of re-running the
+            // recognizer every time this row is recreated while scrolling.
+            sourceLanguageCode = cached
+        } else {
+            let recognizer = NLLanguageRecognizer()
+            let sample = [article.title, article.snippet ?? article.summary ?? ""]
+                .joined(separator: " ")
+                .prefix(1_000)
+            recognizer.processString(String(sample))
+            guard let language = recognizer.dominantLanguage else { return }
+            sourceLanguageCode = language.rawValue
+            article.translationSourceLanguage = sourceLanguageCode
+        }
 
-        let sourceLanguageCode = language.rawValue
         guard sourceLanguageCode != targetLanguageCode else { return }
 
-        article.translationSourceLanguage = sourceLanguageCode
         translationConfiguration = TranslationSession.Configuration(
             source: Locale.Language(identifier: sourceLanguageCode),
             target: Locale.Language(identifier: targetLanguageCode),
@@ -2182,7 +2197,11 @@ private struct TranslatedArticleTitleView: View {
 
             article.translatedTitle = response.targetText
             article.translationTargetLanguage = targetLanguageCode
-            try modelContext.save()
+            // Deliberately not calling modelContext.save() here: this runs once per
+            // row as it scrolls into view, and an immediate save forces the list's
+            // live @Query to refresh (re-running Smart Feed ranking) on every single
+            // completion, which is what caused scrolling to stutter. SwiftData's
+            // autosave persists this on its own timer/lifecycle events instead.
         } catch is CancellationError {
             return
         } catch {
