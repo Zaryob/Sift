@@ -431,7 +431,10 @@ public enum SmartFeedFilter {
         "indirim kuponu"
     ]
 
-    private static func isHighConfidenceNoise(_ title: String) -> Bool {
+    /// Detects unambiguous promotional/sponsored/ad boilerplate in a title. Used
+    /// both for SIFT Feed ranking and for deciding what's genuinely safe to
+    /// discard from storage entirely (see `PromotionalCleanupStats`).
+    public static func isHighConfidenceNoise(_ title: String) -> Bool {
         let lower = title.lowercased()
         return noiseMarkers.contains { lower.contains($0) }
     }

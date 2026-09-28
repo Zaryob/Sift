@@ -68,4 +68,38 @@ public actor DataPruningService {
 
         return PruningResult(readPrunedCount: readDeleted, unreadPrunedCount: unreadDeleted)
     }
+
+    private static let legacyNoiseSweepKey = "hasPerformedLegacyPromotionalNoiseSweep"
+
+    /// One-time sweep that removes promotional/sponsored articles stored before
+    /// this cleanup existed. New articles are already filtered out at ingestion
+    /// (see `FeedRefreshService.merge`), so this never needs to scan the whole
+    /// library again once it has run.
+    @discardableResult
+    public func pruneLegacyPromotionalNoiseIfNeeded() async throws -> Int {
+        guard !UserDefaults.standard.bool(forKey: Self.legacyNoiseSweepKey) else { return 0 }
+
+        let context = ModelContext(modelContainer)
+        let vipFeedIDs = SmartFeedFilter.loadStoredVIPFeedIDs()
+
+        let predicate = #Predicate<FeedItem> { !$0.isStarred }
+        let candidates = try context.fetch(FetchDescriptor<FeedItem>(predicate: predicate))
+
+        var deleted = 0
+        for item in candidates {
+            if let feedID = item.feed?.id, vipFeedIDs.contains(feedID) { continue }
+            guard SmartFeedFilter.isHighConfidenceNoise(item.title) else { continue }
+            context.delete(item)
+            deleted += 1
+        }
+
+        if deleted > 0 {
+            try context.save()
+            PromotionalCleanupStats.recordCleaned(deleted)
+            print("[DataPruningService] Removed \(deleted) legacy promotional/sponsored articles.")
+        }
+
+        UserDefaults.standard.set(true, forKey: Self.legacyNoiseSweepKey)
+        return deleted
+    }
 }

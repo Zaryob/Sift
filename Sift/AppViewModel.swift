@@ -146,6 +146,8 @@ public final class AppViewModel {
     public var isAddingFeed: Bool = false
     public var isShowingSettings: Bool = false
     public var isShowingDailyBriefing: Bool = false
+    public var isShowingCleanupCelebration: Bool = false
+    public var cleanupCelebrationCount: Int = 0
 
     public var lastRefreshedAt: Date? = Date()
     public var lastMarkedReadArticles: [FeedItem] = []
@@ -250,6 +252,11 @@ public final class AppViewModel {
         await refreshService.refreshAllFeeds()
         lastRefreshedAt = Date()
         isRefreshing = false
+
+        if let count = PromotionalCleanupStats.popupCountIfDue() {
+            cleanupCelebrationCount = count
+            isShowingCleanupCelebration = true
+        }
     }
 
     /// Runs the M0 clustering spike against recent RSS items without saving derived assignments.

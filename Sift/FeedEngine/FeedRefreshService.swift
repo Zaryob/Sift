@@ -177,6 +177,10 @@ public actor FeedRefreshService {
         let retentionDays = UserDefaults.standard.integer(forKey: "articleRetentionDays")
         let effectiveRetention = retentionDays > 0 ? retentionDays : 30
         _ = try? await pruningService.prune(readRetentionDays: effectiveRetention)
+
+        // One-time sweep for promotional/sponsored articles stored before this
+        // cleanup existed. No-ops on every call after the first.
+        _ = try? await pruningService.pruneLegacyPromotionalNoiseIfNeeded()
     }
 
     /// Recomputes the total unread count and updates the app icon / dock badge.
@@ -190,14 +194,19 @@ public actor FeedRefreshService {
     /// Returns array of newly inserted FeedItem instances
     private func merge(parsedItems: [ParsedItem], into feed: Feed, context: ModelContext) -> [FeedItem] {
         let existingItems = feed.items
-        
+
         let existingGuids = Set(existingItems.compactMap { $0.guid?.trimmingCharacters(in: .whitespacesAndNewlines) })
         let existingLinks = Set(existingItems.compactMap { $0.link?.trimmingCharacters(in: .whitespacesAndNewlines) })
         let existingFallbackKeys = Set(existingItems.map { item in
             "\(item.title):\(item.publicationDate.timeIntervalSince1970)"
         })
 
+        // VIP feeds are trusted: never discard their content, even if a title
+        // happens to match a generic promotional phrase.
+        let isVIPFeed = SmartFeedFilter.loadStoredVIPFeedIDs().contains(feed.id)
+
         var newlyInserted: [FeedItem] = []
+        var skippedNoiseCount = 0
 
         for parsed in parsedItems {
             let cleanGuid = parsed.guid?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -213,24 +222,36 @@ public actor FeedRefreshService {
                 isDuplicate = true
             }
 
-            if !isDuplicate {
-                let newItem = FeedItem(
-                    guid: cleanGuid,
-                    title: parsed.title,
-                    link: cleanLink,
-                    author: parsed.author,
-                    summary: parsed.summary,
-                    content: parsed.content,
-                    imageURL: parsed.imageURL,
-                    publicationDate: parsed.publicationDate,
-                    discoveredDate: Date(),
-                    isRead: false,
-                    isStarred: false,
-                    feed: feed
-                )
-                context.insert(newItem)
-                newlyInserted.append(newItem)
+            guard !isDuplicate else { continue }
+
+            // Genuinely promotional/sponsored content never gets stored at all —
+            // no point keeping data around just to filter it out of the SIFT
+            // Feed every time. VIP feeds are exempt, same as SIFT Feed ranking.
+            if !isVIPFeed, SmartFeedFilter.isHighConfidenceNoise(parsed.title) {
+                skippedNoiseCount += 1
+                continue
             }
+
+            let newItem = FeedItem(
+                guid: cleanGuid,
+                title: parsed.title,
+                link: cleanLink,
+                author: parsed.author,
+                summary: parsed.summary,
+                content: parsed.content,
+                imageURL: parsed.imageURL,
+                publicationDate: parsed.publicationDate,
+                discoveredDate: Date(),
+                isRead: false,
+                isStarred: false,
+                feed: feed
+            )
+            context.insert(newItem)
+            newlyInserted.append(newItem)
+        }
+
+        if skippedNoiseCount > 0 {
+            PromotionalCleanupStats.recordCleaned(skippedNoiseCount)
         }
         return newlyInserted
     }

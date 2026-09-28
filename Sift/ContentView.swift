@@ -69,6 +69,9 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.isShowingDailyBriefing) {
             DailyBriefingSheet()
         }
+        .sheet(isPresented: $viewModel.isShowingCleanupCelebration) {
+            CleanupCelebrationSheet(count: viewModel.cleanupCelebrationCount)
+        }
         .sheet(isPresented: $isShowingOnboarding) {
             OnboardingView(viewModel: viewModel) {
                 hasCompletedOnboarding = true
