@@ -96,7 +96,7 @@ public actor FeedRefreshService {
                     }
                 }
 
-                // Post notifications only for new articles that qualify for Smart Feed quality
+                // Post notifications only for new articles that qualify for SIFT Feed quality
                 let qualifyingArticles = newlyInserted.filter { SmartFeedFilter.qualifiesForSmartFeedNotification($0) }
                 for newArticle in qualifyingArticles.prefix(5) {
                     NotificationManager.shared.sendArticleNotification(

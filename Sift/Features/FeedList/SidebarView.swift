@@ -88,7 +88,7 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $viewModel.selectedSidebarItem) {
             Section("Library") {
-                libraryRow("Smart Feed", systemImage: "sparkles", item: .smart, count: smartUnreadCount > 0 ? smartUnreadCount : nil)
+                libraryRow("SIFT Feed", systemImage: "sparkles", item: .smart, count: smartUnreadCount > 0 ? smartUnreadCount : nil)
                 libraryRow("All Articles", systemImage: "tray.full", item: .all, count: unreadCount > 0 ? unreadCount : nil)
                 libraryRow("Today", systemImage: "sun.max", item: .today, count: todayCount > 0 ? todayCount : nil)
                 libraryRow("Unread", systemImage: "circlebadge", item: .unread, count: unreadCount)

@@ -100,7 +100,8 @@ public final class ArticleIntelligenceService: ObservableObject {
     public func summarize(
         article: FeedItem,
         context: ModelContext,
-        classifyIrrelevantContent: Bool = true
+        classifyIrrelevantContent: Bool = true,
+        persistImmediately: Bool = true
     ) async -> IntelligenceOutput {
         let blocks = preferredBlocks(for: article)
         let content = blocks.joined(separator: "\n")
@@ -147,7 +148,8 @@ public final class ArticleIntelligenceService: ObservableObject {
                 content: content,
                 contentHash: contentHash,
                 targetLanguageCode: targetLanguageCode,
-                classifyIrrelevantContent: classifyIrrelevantContent
+                classifyIrrelevantContent: classifyIrrelevantContent,
+                persistImmediately: persistImmediately
             )
         }
         inFlightSummaries[requestKey] = task
@@ -163,7 +165,8 @@ public final class ArticleIntelligenceService: ObservableObject {
         content: String,
         contentHash: String,
         targetLanguageCode: String,
-        classifyIrrelevantContent: Bool
+        classifyIrrelevantContent: Bool,
+        persistImmediately: Bool
     ) async -> IntelligenceOutput {
         let generated = await generateSummary(title: article.title, content: content, indexedBlocks: blocks)
         // A transient generation failure while the model is otherwise ready should
@@ -183,7 +186,15 @@ public final class ArticleIntelligenceService: ObservableObject {
             article: article
         )
         context.insert(result)
-        save(context, operation: "article digest")
+        // Background batch enrichment (persistImmediately: false) saves once after
+        // the whole pass instead of once per article: an immediate save here forces
+        // the article list's live @Query to refresh — re-running SIFT Feed ranking —
+        // on every single item, which is what caused stutter during automatic
+        // enrichment. The result is already attached to the article in memory via
+        // `context.insert`, so callers see it immediately regardless of persistence.
+        if persistImmediately {
+            save(context, operation: "article digest")
+        }
         if classifyIrrelevantContent, generated.modelKind != .extractiveFallback {
             scheduleContentCleanup(for: result, blocks: blocks, context: context)
         }
@@ -351,14 +362,17 @@ public final class ArticleIntelligenceService: ObservableObject {
         context: ModelContext,
         forceRefresh: Bool = false
     ) async -> IntelligenceOutput {
-        var descriptor = FetchDescriptor<FeedItem>(
-            predicate: #Predicate<FeedItem> { !$0.isRead },
+        let descriptor = FetchDescriptor<FeedItem>(
             sortBy: [SortDescriptor(\.publicationDate, order: .reverse)]
         )
-        descriptor.fetchLimit = 5
 
         do {
-            let items = try context.fetch(descriptor)
+            let allArticles = try context.fetch(descriptor)
+            // Reuse the SIFT Feed's own ranking, noise filtering, and topic-diversity
+            // curation so the briefing covers the same high-signal stories the app
+            // considers worth surfacing, rather than just whatever is newest.
+            let curated = SmartFeedFilter.filteredArticles(from: allArticles)
+            let items = Array(curated.filter { !$0.isRead }.prefix(5))
             return await generateBriefing(
                 from: items,
                 context: context,

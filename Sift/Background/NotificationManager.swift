@@ -100,7 +100,7 @@ nonisolated public final class NotificationManager: NSObject, UNUserNotification
         faviconURL: URL? = nil
     ) {
         guard areArticleAlertsEnabled else { return }
-        // Quality gate: Only send notifications for articles that meet Smart Feed quality standards
+        // Quality gate: Only send notifications for articles that meet SIFT Feed quality standards
         guard SmartFeedFilter.qualifiesForSmartFeedNotification(title: articleTitle) else {
             return
         }
@@ -132,7 +132,7 @@ nonisolated public final class NotificationManager: NSObject, UNUserNotification
         feedID: UUID? = nil
     ) {
         guard count > 0, areArticleAlertsEnabled else { return }
-        // Quality gate: Only send notifications if the latest story meets Smart Feed quality standards
+        // Quality gate: Only send notifications if the latest story meets SIFT Feed quality standards
         guard SmartFeedFilter.qualifiesForSmartFeedNotification(title: latestArticleTitle) else {
             return
         }

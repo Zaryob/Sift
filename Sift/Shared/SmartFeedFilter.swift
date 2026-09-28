@@ -1,6 +1,7 @@
 import Foundation
 
-/// A high-performance, deterministic ranking and diversity filter for the default Smart Feed.
+/// A high-performance, deterministic ranking and diversity filter for the SIFT Feed —
+/// Sift's flagship curated feed.
 /// Curates large article archives into a high-signal digest of fresh, relevant stories,
 /// while leaving all raw articles untouched in "All Articles".
 public enum SmartFeedFilter {
@@ -32,7 +33,7 @@ public enum SmartFeedFilter {
         feedIDs.map(\.uuidString).sorted().joined(separator: ",")
     }
 
-    /// Curates a list of articles into a high-signal Smart Feed digest.
+    /// Curates a list of articles into a high-signal SIFT Feed digest.
     /// - Parameters:
     ///   - articles: The complete list of feed items.
     ///   - vipFeedIDs: Optional set of VIP feed IDs. If nil, automatically loads from user settings.
@@ -80,7 +81,7 @@ public enum SmartFeedFilter {
             }
 
             // Stale threshold:
-            // - Read articles older than 48 hours (72h for VIP) do not belong in a fresh Smart Feed
+            // - Read articles older than 48 hours (72h for VIP) do not belong in a fresh SIFT Feed
             // - Unread articles older than 14 days (30 days for VIP) are considered backlog
             if article.isRead {
                 let maxReadHours: Double = isVIP ? 72 : 48
@@ -230,7 +231,7 @@ public enum SmartFeedFilter {
     }
 
     /// Evaluates whether an incoming newly discovered article meets the quality bar
-    /// required to appear in the Smart Feed and warrant a system alert / notification.
+    /// required to appear in the SIFT Feed and warrant a system alert / notification.
     public static func qualifiesForSmartFeedNotification(_ article: FeedItem, vipFeedIDs: Set<UUID>? = nil) -> Bool {
         if article.isStarred {
             return true
@@ -259,7 +260,7 @@ public enum SmartFeedFilter {
         return score >= 85
     }
 
-    /// Evaluates whether an article title alone qualifies for a Smart Feed notification.
+    /// Evaluates whether an article title alone qualifies for a SIFT Feed notification.
     public static func qualifiesForSmartFeedNotification(title: String) -> Bool {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard cleanTitle.count >= 15 else {

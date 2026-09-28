@@ -31,7 +31,10 @@ public final class ArticleEnrichmentQueue: ObservableObject {
 
         isProcessing = true
         processedArticleCount = 0
-        task = Task { [weak self] in
+        // Lower priority than user-interactive work: this enrichment pass runs
+        // automatically after every refresh and shouldn't contend with scrolling
+        // or other UI-driven work for CPU time.
+        task = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             await processRecentItems(in: container)
             task = nil
@@ -83,7 +86,8 @@ public final class ArticleEnrichmentQueue: ObservableObject {
                 _ = await intelligence.summarize(
                     article: item,
                     context: context,
-                    classifyIrrelevantContent: false
+                    classifyIrrelevantContent: false,
+                    persistImmediately: false
                 )
             }
             processedArticleCount += 1

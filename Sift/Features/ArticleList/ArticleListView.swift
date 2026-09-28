@@ -308,7 +308,7 @@ struct ArticleListView: View {
 
     private var currentScopeTitle: String {
         switch viewModel.selectedSidebarItem {
-        case .smart: return String(localized: "Smart Feed")
+        case .smart: return String(localized: "SIFT Feed")
         case .today: return String(localized: "Today")
         case .unread: return String(localized: "Unread")
         case .starred: return String(localized: "Starred")
@@ -583,7 +583,7 @@ struct ArticleListView: View {
         }
     }
 
-    // MARK: - Smart Feed Header
+    // MARK: - SIFT Feed Header
 
     private func smartFeedSummaryHeader(sourceCount: Int) -> some View {
         Section {
@@ -599,7 +599,7 @@ struct ArticleListView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text("Smart Feed")
+                        Text("SIFT Feed")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.primary)
 
@@ -1361,7 +1361,7 @@ struct ArticleListView: View {
                     .foregroundStyle(Color.siftAccent)
                     .padding(.bottom, 4)
 
-                Text("Smart Feed is clear")
+                Text("SIFT Feed is clear")
                     .font(.headline)
                     .foregroundStyle(.primary)
 
@@ -2199,7 +2199,7 @@ private struct TranslatedArticleTitleView: View {
             article.translationTargetLanguage = targetLanguageCode
             // Deliberately not calling modelContext.save() here: this runs once per
             // row as it scrolls into view, and an immediate save forces the list's
-            // live @Query to refresh (re-running Smart Feed ranking) on every single
+            // live @Query to refresh (re-running SIFT Feed ranking) on every single
             // completion, which is what caused scrolling to stutter. SwiftData's
             // autosave persists this on its own timer/lifecycle events instead.
         } catch is CancellationError {
