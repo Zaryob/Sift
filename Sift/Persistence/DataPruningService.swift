@@ -88,7 +88,7 @@ public actor DataPruningService {
         var deleted = 0
         for item in candidates {
             if let feedID = item.feed?.id, vipFeedIDs.contains(feedID) { continue }
-            guard SmartFeedFilter.isHighConfidenceNoise(item.title) else { continue }
+            guard SmartFeedFilter.isHighConfidenceNoise(item.title, link: item.link) else { continue }
             context.delete(item)
             deleted += 1
         }

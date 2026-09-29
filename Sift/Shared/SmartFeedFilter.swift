@@ -77,7 +77,7 @@ public enum SmartFeedFilter {
 
             // Exclude high-confidence advertising/promotional noise unless from a trusted VIP feed
             if !isVIP {
-                guard !isHighConfidenceNoise(article.title) else { continue }
+                guard !isHighConfidenceNoise(article.title, link: article.link) else { continue }
             }
 
             // Stale threshold:
@@ -247,7 +247,7 @@ public enum SmartFeedFilter {
 
         // VIP feeds bypass generic noise checks unless explicitly clickbait
         if !isVIP {
-            guard !isHighConfidenceNoise(cleanTitle) else {
+            guard !isHighConfidenceNoise(cleanTitle, link: article.link) else {
                 return false
             }
         }
@@ -399,6 +399,7 @@ public enum SmartFeedFilter {
     }
 
     private static let noiseMarkers: [String] = [
+        // English
         "[sponsored]",
         "sponsored post",
         "sponsored content",
@@ -419,6 +420,7 @@ public enum SmartFeedFilter {
         "we are hiring",
         "job opening",
         "career opportunity",
+        // Turkish
         "sponsorlu içerik",
         "sponsorlu icerik",
         "reklam içeriği",
@@ -428,15 +430,68 @@ public enum SmartFeedFilter {
         "çekiliş",
         "cekilis",
         "fırsat ürünü",
-        "indirim kuponu"
+        "indirim kuponu",
+        // German
+        "gesponserter beitrag",
+        "gesponserte inhalte",
+        "anzeige:",
+        "partnerinhalt",
+        "werbung:",
+        "rabattcode",
+        "gutscheincode",
+        "gewinnspiel",
+        "wir suchen mitarbeiter",
+        "stellenangebot",
+        // French
+        "contenu sponsorisé",
+        "contenu sponsorise",
+        "article sponsorisé",
+        "article sponsorise",
+        "publicité :",
+        "publicite :",
+        "contenu partenaire",
+        "code promo",
+        "code de réduction",
+        "code de reduction",
+        "jeu concours",
+        "tentez de gagner",
+        "offre d'emploi",
+        "nous recrutons"
     ]
 
-    /// Detects unambiguous promotional/sponsored/ad boilerplate in a title. Used
-    /// both for SIFT Feed ranking and for deciding what's genuinely safe to
-    /// discard from storage entirely (see `PromotionalCleanupStats`).
-    public static func isHighConfidenceNoise(_ title: String) -> Bool {
+    /// Structural, language-independent signal: many CMSs route sponsored posts
+    /// through a consistent URL path regardless of the site's language, since
+    /// the taxonomy is set by the publishing platform rather than the author.
+    private static let promotionalURLPathMarkers: [String] = [
+        "/sponsored/",
+        "/sponsored-post/",
+        "/sponsored-content/",
+        "/advertorial/",
+        "/partner-content/",
+        "/paid-content/",
+        "/promoted/",
+        "/brandvoice/",
+        "/branded-content/"
+    ]
+
+    private static func isPromotionalLink(_ link: String?) -> Bool {
+        guard let link, let url = URL(string: link) else { return false }
+        let path = url.path.lowercased()
+        return promotionalURLPathMarkers.contains { path.contains($0) }
+    }
+
+    /// Detects unambiguous promotional/sponsored/ad boilerplate. Used both for
+    /// SIFT Feed ranking and for deciding what's genuinely safe to discard from
+    /// storage entirely (see `PromotionalCleanupStats`). Title-keyword coverage
+    /// only extends to the app's supported languages (English, Turkish, German,
+    /// French); passing `link` adds a language-independent structural check on
+    /// top, so callers with a URL on hand should always supply it.
+    public static func isHighConfidenceNoise(_ title: String, link: String? = nil) -> Bool {
         let lower = title.lowercased()
-        return noiseMarkers.contains { lower.contains($0) }
+        if noiseMarkers.contains(where: lower.contains) {
+            return true
+        }
+        return isPromotionalLink(link)
     }
 
     private static let clickbaitMarkers: [String] = [

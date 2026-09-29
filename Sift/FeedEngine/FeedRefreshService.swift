@@ -227,7 +227,7 @@ public actor FeedRefreshService {
             // Genuinely promotional/sponsored content never gets stored at all —
             // no point keeping data around just to filter it out of the SIFT
             // Feed every time. VIP feeds are exempt, same as SIFT Feed ranking.
-            if !isVIPFeed, SmartFeedFilter.isHighConfidenceNoise(parsed.title) {
+            if !isVIPFeed, SmartFeedFilter.isHighConfidenceNoise(parsed.title, link: cleanLink) {
                 skippedNoiseCount += 1
                 continue
             }
