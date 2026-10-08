@@ -71,6 +71,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		D96B9C001234567890ABCDEF /* SiftTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SiftTests;
+			sourceTree = "<group>";
+		};
 		000000000000000000000010 /* Sift */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -114,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000010 /* Sift */,
+				D96B9C001234567890ABCDEF /* SiftTests */,
 				B3DC3C753065BE390089C49D /* LICENSE */,
 				B3DC3C773065BEB70089C49D /* .gitignore */,
 				B3DC3CC13065C8870089C49D /* SiftWidget */,
@@ -180,6 +186,9 @@
 				B3DC3C9F3065C8380089C49D /* PBXTargetDependency */,
 			);
 			name = SiftTests;
+			fileSystemSynchronizedGroups = (
+				D96B9C001234567890ABCDEF /* SiftTests */,
+			);
 			productName = SiftTests;
 			productReference = B3DC3C9D3065C8380089C49D /* SiftTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";

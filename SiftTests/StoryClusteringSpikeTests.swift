@@ -20,15 +20,15 @@ final class StoryClusteringSpikeTests: XCTestCase {
         XCTAssertEqual(StoryClusteringSpike.runningMean([], [0.2, 0.8], existingCount: 0), [0.2, 0.8])
     }
 
-    func testEquivalentEnglishPivotRepresentationsCanJoinAcrossSourceLanguages() {
+    func testEquivalentEnglishPivotRepresentationsCanJoinAcrossSourceLanguages() throws {
         // These vectors stand in for two Apple Translation + Natural Language
         // outputs after the Turkish and English reports are normalized to English.
         let turkishReportVector = [0.8, 0.6]
         let englishReportVector = [0.8, 0.6]
-        let similarity = StoryClusteringSpike.cosineSimilarity(
+        let similarity = try XCTUnwrap(StoryClusteringSpike.cosineSimilarity(
             turkishReportVector,
             englishReportVector
-        )
+        ))
 
         let decision = StoryClusteringSpike.candidateDecision(
             centroidSimilarity: similarity,
