@@ -1,0 +1,145 @@
+Test Suite 'All tests' started at 2026-10-09 01:54:12.460.
+Test Suite 'SiftTests.xctest' started at 2026-10-09 01:54:12.471.
+Test Suite 'ArticleFilterConfigTests' started at 2026-10-09 01:54:12.471.
+Test Case '-[SiftTests.ArticleFilterConfigTests testFilterExcludesFeeds]' started.
+Test Case '-[SiftTests.ArticleFilterConfigTests testFilterExcludesFeeds]' passed (0.014 seconds).
+Test Case '-[SiftTests.ArticleFilterConfigTests testFilterMatchesOnlyWithMedia]' started.
+Test Case '-[SiftTests.ArticleFilterConfigTests testFilterMatchesOnlyWithMedia]' passed (0.006 seconds).
+Test Case '-[SiftTests.ArticleFilterConfigTests testFilterMatchesUnreadAndStarred]' started.
+Test Case '-[SiftTests.ArticleFilterConfigTests testFilterMatchesUnreadAndStarred]' passed (0.000 seconds).
+Test Case '-[SiftTests.ArticleFilterConfigTests testFilterVIPFeeds]' started.
+Test Case '-[SiftTests.ArticleFilterConfigTests testFilterVIPFeeds]' passed (0.000 seconds).
+Test Suite 'ArticleFilterConfigTests' passed at 2026-10-09 01:54:12.494.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.021 (0.023) seconds
+Test Suite 'DataPruningServiceTests' started at 2026-10-09 01:54:12.496.
+Test Case '-[SiftTests.DataPruningServiceTests testPruneDeletesOldReadUnstarredArticles]' started.
+2026-10-09 01:54:12.552209+0300 Sift[73503:37262381] [API] cannot add handler to 0 from 0 - dropping
+2026-10-09 01:54:12.560403+0300 Sift[73503:37262381] [API] cannot add handler to 0 from 0 - dropping
+[DataPruningService] Pruned 1 read articles and 0 stale unread articles.
+Test Case '-[SiftTests.DataPruningServiceTests testPruneDeletesOldReadUnstarredArticles]' passed (0.199 seconds).
+Test Case '-[SiftTests.DataPruningServiceTests testPruneWithRetentionDisabledKeepsAll]' started.
+Test Case '-[SiftTests.DataPruningServiceTests testPruneWithRetentionDisabledKeepsAll]' passed (0.006 seconds).
+Test Suite 'DataPruningServiceTests' passed at 2026-10-09 01:54:12.701.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.204 (0.205) seconds
+Test Suite 'DeepLinkRouterTests' started at 2026-10-09 01:54:12.701.
+Test Case '-[SiftTests.DeepLinkRouterTests testInvalidScheme]' started.
+Test Case '-[SiftTests.DeepLinkRouterTests testInvalidScheme]' passed (0.002 seconds).
+Test Case '-[SiftTests.DeepLinkRouterTests testParseAllArticlesURL]' started.
+Test Case '-[SiftTests.DeepLinkRouterTests testParseAllArticlesURL]' passed (0.000 seconds).
+Test Case '-[SiftTests.DeepLinkRouterTests testParseArticleURL]' started.
+Test Case '-[SiftTests.DeepLinkRouterTests testParseArticleURL]' passed (0.000 seconds).
+Test Case '-[SiftTests.DeepLinkRouterTests testParseFeedURL]' started.
+Test Case '-[SiftTests.DeepLinkRouterTests testParseFeedURL]' passed (0.000 seconds).
+Test Suite 'DeepLinkRouterTests' passed at 2026-10-09 01:54:12.705.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.003 (0.004) seconds
+Test Suite 'FaviconManagerTests' started at 2026-10-09 01:54:12.705.
+Test Case '-[SiftTests.FaviconManagerTests testCachedImageReturnsNilInitially]' started.
+Test Case '-[SiftTests.FaviconManagerTests testCachedImageReturnsNilInitially]' passed (0.006 seconds).
+Test Case '-[SiftTests.FaviconManagerTests testClearCache]' started.
+Test Case '-[SiftTests.FaviconManagerTests testClearCache]' passed (0.001 seconds).
+Test Case '-[SiftTests.FaviconManagerTests testFaviconURLGeneration]' started.
+Test Case '-[SiftTests.FaviconManagerTests testFaviconURLGeneration]' passed (0.002 seconds).
+Test Suite 'FaviconManagerTests' passed at 2026-10-09 01:54:12.715.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.009 (0.009) seconds
+Test Suite 'FeedDiscoveryServiceTests' started at 2026-10-09 01:54:12.715.
+Test Case '-[SiftTests.FeedDiscoveryServiceTests testDiscoverFeedFromHTML]' started.
+Test Case '-[SiftTests.FeedDiscoveryServiceTests testDiscoverFeedFromHTML]' passed (0.010 seconds).
+Test Suite 'FeedDiscoveryServiceTests' passed at 2026-10-09 01:54:12.725.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.010 (0.010) seconds
+Test Suite 'FeedParserTests' started at 2026-10-09 01:54:12.725.
+Test Case '-[SiftTests.FeedParserTests testCDATAWithHTMLEntities]' started.
+Test Case '-[SiftTests.FeedParserTests testCDATAWithHTMLEntities]' passed (0.002 seconds).
+Test Case '-[SiftTests.FeedParserTests testHTMLReturnedInsteadOfXML]' started.
+Test Case '-[SiftTests.FeedParserTests testHTMLReturnedInsteadOfXML]' passed (0.000 seconds).
+Test Case '-[SiftTests.FeedParserTests testMalformedItemHandling]' started.
+Test Case '-[SiftTests.FeedParserTests testMalformedItemHandling]' passed (0.000 seconds).
+Test Case '-[SiftTests.FeedParserTests testMissingOptionalFields]' started.
+Test Case '-[SiftTests.FeedParserTests testMissingOptionalFields]' passed (0.000 seconds).
+Test Case '-[SiftTests.FeedParserTests testParseAtom]' started.
+Test Case '-[SiftTests.FeedParserTests testParseAtom]' passed (0.006 seconds).
+Test Case '-[SiftTests.FeedParserTests testParseRSS20]' started.
+Test Case '-[SiftTests.FeedParserTests testParseRSS20]' passed (0.001 seconds).
+Test Suite 'FeedParserTests' passed at 2026-10-09 01:54:12.736.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.010 (0.011) seconds
+Test Suite 'FeedRefreshServiceTests' started at 2026-10-09 01:54:12.736.
+Test Case '-[SiftTests.FeedRefreshServiceTests testDeduplicationByGUIDAndLink]' started.
+2026-10-09 01:54:12.769414+0300 Sift[73503:37262798] [unspecified] container_create_or_lookup_app_group_path_by_app_group_identifier: client is not entitled
+Test Case '-[SiftTests.FeedRefreshServiceTests testDeduplicationByGUIDAndLink]' passed (0.038 seconds).
+Test Case '-[SiftTests.FeedRefreshServiceTests testETagAndLastModifiedSentAndSaved]' started.
+2026-10-09 01:54:12.783174+0300 Sift[73503:37262787] [unspecified] container_create_or_lookup_app_group_path_by_app_group_identifier: client is not entitled
+<workspace>/work/repos/Zaryob--Sift/SiftTests/FeedRefreshServiceTests.swift:75: error: -[SiftTests.FeedRefreshServiceTests testETagAndLastModifiedSentAndSaved] : XCTAssertEqual failed: ("nil") is not equal to ("Optional("\"v1\"")")
+<workspace>/work/repos/Zaryob--Sift/SiftTests/FeedRefreshServiceTests.swift:76: error: -[SiftTests.FeedRefreshServiceTests testETagAndLastModifiedSentAndSaved] : XCTAssertEqual failed: ("nil") is not equal to ("Optional("Mon, 23 Sep 2026 10:00:00 GMT")")
+Test Case '-[SiftTests.FeedRefreshServiceTests testETagAndLastModifiedSentAndSaved]' failed (0.266 seconds).
+Test Case '-[SiftTests.FeedRefreshServiceTests testFailureIsolation]' started.
+Feed refresh failed for CA77EB1F-6B4E-4793-8A8B-EF1D3A290346: Error Domain=NSURLErrorDomain Code=-1000 "(null)"
+Feed refresh failed for 6784E665-ABBB-427C-AE67-CE7B29641AEF: Error Domain=NSURLErrorDomain Code=-1000 "(null)"
+Test Case '-[SiftTests.FeedRefreshServiceTests testFailureIsolation]' passed (0.103 seconds).
+Test Case '-[SiftTests.FeedRefreshServiceTests testHTTP304NotModified]' started.
+Test Case '-[SiftTests.FeedRefreshServiceTests testHTTP304NotModified]' passed (0.010 seconds).
+Test Suite 'FeedRefreshServiceTests' failed at 2026-10-09 01:54:13.154.
+	 Executed 4 tests, with 2 failures (0 unexpected) in 0.417 (0.418) seconds
+Test Suite 'OPMLServiceTests' started at 2026-10-09 01:54:13.154.
+Test Case '-[SiftTests.OPMLServiceTests testOPMLParsingAndGeneration]' started.
+Test Case '-[SiftTests.OPMLServiceTests testOPMLParsingAndGeneration]' passed (0.002 seconds).
+Test Suite 'OPMLServiceTests' passed at 2026-10-09 01:54:13.157.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'SmartFeedFilterTests' started at 2026-10-09 01:54:13.157.
+Test Case '-[SiftTests.SmartFeedFilterTests testBreakingNewsBoostRanksRecentItemAboveStaleItem]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testBreakingNewsBoostRanksRecentItemAboveStaleItem]' passed (0.006 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testClickbaitArticlesDoNotQualifyForNotification]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testClickbaitArticlesDoNotQualifyForNotification]' passed (0.002 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testEmptyListReturnsEmpty]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testEmptyListReturnsEmpty]' passed (0.000 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testExactAndNearDuplicateArticlesAreDeduplicated]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testExactAndNearDuplicateArticlesAreDeduplicated]' passed (0.001 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testFeedDiversityPreventsSingleSourceDomination]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testFeedDiversityPreventsSingleSourceDomination]' passed (0.019 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testHighConfidenceNoiseIsFiltered]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testHighConfidenceNoiseIsFiltered]' passed (0.001 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testHighQualityArticleQualifiesForNotification]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testHighQualityArticleQualifiesForNotification]' passed (0.001 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testMultiSourceCoverageBoostsRepresentativeStory]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testMultiSourceCoverageBoostsRepresentativeStory]' passed (0.001 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testPromotionalAndNoiseArticlesDoNotQualifyForNotification]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testPromotionalAndNoiseArticlesDoNotQualifyForNotification]' passed (0.001 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testScalesBudgetAndDoesNotPassAll976Articles]' started.
+<workspace>/work/repos/Zaryob--Sift/SiftTests/SmartFeedFilterTests.swift:86: error: -[SiftTests.SmartFeedFilterTests testScalesBudgetAndDoesNotPassAll976Articles] : XCTAssertGreaterThanOrEqual failed: ("13") is less than ("25")
+Test Case '-[SiftTests.SmartFeedFilterTests testScalesBudgetAndDoesNotPassAll976Articles]' failed (0.096 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testShortStubTitleDoesNotQualifyForNotification]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testShortStubTitleDoesNotQualifyForNotification]' passed (0.001 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testStaleReadArticlesAreFilteredOut]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testStaleReadArticlesAreFilteredOut]' passed (0.001 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testStarredArticleAlwaysQualifiesForNotification]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testStarredArticleAlwaysQualifiesForNotification]' passed (0.000 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testStarredNoiseIsRetainedDueToExplicitUserIntent]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testStarredNoiseIsRetainedDueToExplicitUserIntent]' passed (0.000 seconds).
+Test Case '-[SiftTests.SmartFeedFilterTests testVIPFeedsReceivePriorityAndHigherQuota]' started.
+Test Case '-[SiftTests.SmartFeedFilterTests testVIPFeedsReceivePriorityAndHigherQuota]' passed (0.001 seconds).
+Test Suite 'SmartFeedFilterTests' failed at 2026-10-09 01:54:13.290.
+	 Executed 15 tests, with 1 failure (0 unexpected) in 0.130 (0.133) seconds
+Test Suite 'StoryClusteringSpikeTests' started at 2026-10-09 01:54:13.290.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testBroadTopicCentroidCannotMergeDistinctEventsWithoutRepresentativeSupport]' started.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testBroadTopicCentroidCannotMergeDistinctEventsWithoutRepresentativeSupport]' passed (0.000 seconds).
+Test Case '-[SiftTests.StoryClusteringSpikeTests testCandidateWindowUsesCorpusTimelineAndKeepsExactBoundary]' started.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testCandidateWindowUsesCorpusTimelineAndKeepsExactBoundary]' passed (0.000 seconds).
+Test Case '-[SiftTests.StoryClusteringSpikeTests testCosineSimilarityHandlesEqualOrthogonalAndInvalidVectors]' started.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testCosineSimilarityHandlesEqualOrthogonalAndInvalidVectors]' passed (0.001 seconds).
+Test Case '-[SiftTests.StoryClusteringSpikeTests testDifferentReportedActionsDoNotMergeJustBecauseTopicCentroidIsClose]' started.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testDifferentReportedActionsDoNotMergeJustBecauseTopicCentroidIsClose]' passed (0.000 seconds).
+Test Case '-[SiftTests.StoryClusteringSpikeTests testEquivalentEnglishPivotRepresentationsCanJoinAcrossSourceLanguages]' started.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testEquivalentEnglishPivotRepresentationsCanJoinAcrossSourceLanguages]' passed (0.000 seconds).
+Test Case '-[SiftTests.StoryClusteringSpikeTests testNearDuplicateCanOverrideDifferentActionWords]' started.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testNearDuplicateCanOverrideDifferentActionWords]' passed (0.000 seconds).
+Test Case '-[SiftTests.StoryClusteringSpikeTests testRecentMemberSupportPreventsCentroidDrift]' started.
+<workspace>/work/repos/Zaryob--Sift/SiftTests/StoryClusteringSpikeTests.swift:99: error: -[SiftTests.StoryClusteringSpikeTests testRecentMemberSupportPreventsCentroidDrift] : XCTAssertEqual failed: ("accepted") is not equal to ("rejectedRecentMemberSupport")
+Test Case '-[SiftTests.StoryClusteringSpikeTests testRecentMemberSupportPreventsCentroidDrift]' failed (0.007 seconds).
+Test Case '-[SiftTests.StoryClusteringSpikeTests testRunningMeanStartsNewCentroidWhenExistingCountIsZero]' started.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testRunningMeanStartsNewCentroidWhenExistingCountIsZero]' passed (0.000 seconds).
+Test Case '-[SiftTests.StoryClusteringSpikeTests testRunningMeanWeightsEachArticleEqually]' started.
+Test Case '-[SiftTests.StoryClusteringSpikeTests testRunningMeanWeightsEachArticleEqually]' passed (0.000 seconds).
+Test Suite 'StoryClusteringSpikeTests' failed at 2026-10-09 01:54:13.302.
+	 Executed 9 tests, with 1 failure (0 unexpected) in 0.010 (0.011) seconds
+Test Suite 'SiftTests.xctest' failed at 2026-10-09 01:54:13.302.
+	 Executed 49 tests, with 4 failures (0 unexpected) in 0.815 (0.831) seconds
+Test Suite 'All tests' failed at 2026-10-09 01:54:13.302.
+	 Executed 49 tests, with 4 failures (0 unexpected) in 0.815 (0.842) seconds

@@ -30,14 +30,14 @@ final class FaviconManagerTests: XCTestCase {
 
     func testCachedImageReturnsNilInitially() {
         let feed = Feed(title: "Test Feed", url: "https://example.org/feed.xml")
-        let cached = FaviconManager.shared.cachedImage(for: feed)
+        let cached = FaviconManager.shared.memoryCachedImage(for: feed)
         XCTAssertNil(cached, "Favicon should not be cached before any fetch occurred.")
     }
 
     func testClearCache() {
         let feed = Feed(title: "Test Feed", url: "https://example.org/feed.xml")
         FaviconManager.shared.clearCache()
-        let cached = FaviconManager.shared.cachedImage(for: feed)
+        let cached = FaviconManager.shared.memoryCachedImage(for: feed)
         XCTAssertNil(cached)
     }
 }

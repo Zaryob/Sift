@@ -16,7 +16,8 @@ final class FeedDiscoveryServiceTests: XCTestCase {
 
         let mockData = htmlContent.data(using: .utf8)!
         let mockURL = URL(string: "https://example.com")!
-        let mockClient = MockHTTPClient(result: .success(data: mockData, etag: nil, lastModified: nil, responseURL: mockURL))
+        let mockClient = MockFeedHTTPClient()
+        mockClient.resultToReturn = .success(.success(data: mockData, etag: nil, lastModified: nil, responseURL: mockURL))
 
         let discovery = FeedDiscoveryService(httpClient: mockClient)
         let feeds = try await discovery.discoverFeeds(from: mockURL)

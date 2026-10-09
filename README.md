@@ -140,7 +140,7 @@ Most RSS readers hand you an unread counter that only grows. Sift takes the oppo
 |---|---|
 | macOS | 26.6 |
 | iOS / iPadOS | 26.6 |
-| Xcode | 26 |
+| Xcode | 27 used for local verification; the project uses object version 90. Older Xcode compatibility has not been verified. |
 | Apple Intelligence | Optional — needed for generated summaries and briefings; Sift falls back to extractive summaries without it |
 
 ### Build & run
@@ -155,25 +155,23 @@ open Sift.xcodeproj
 2. In *Signing & Capabilities*, choose your own development team for both the **Sift** and **SiftWidgetExtension** targets. The app and widget share data through the App Group `group.io.github.zaryob.sift`; change the bundle identifiers and group if you sign with a different team.
 3. Press <kbd>⌘</kbd><kbd>R</kbd>.
 
-> [!NOTE]
-> The `*.entitlements` files are currently excluded by `.gitignore`. Until they are committed, a fresh clone needs the App Group and network-client capabilities added manually in Xcode. See [`docs/CRITIQUE.md`](docs/CRITIQUE.md) (P0-9).
+The app and widget App Group entitlements are versioned. Xcode's target settings enable the macOS app sandbox and outgoing network connections. Provisioning and App Group registration still require your development team; an unsigned build does not verify them.
 
 From the command line:
 
 ```bash
-xcodebuild -project Sift.xcodeproj -scheme Sift -destination 'platform=macOS' -allowProvisioningUpdates build
+xcodebuild -project Sift.xcodeproj -scheme Sift -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
 ### Running the tests
 
 ```bash
-xcodebuild -project Sift.xcodeproj -scheme Sift -destination 'platform=macOS' -allowProvisioningUpdates test
+xcodebuild -project Sift.xcodeproj -scheme Sift -destination 'platform=macOS' test
 ```
 
-The `SiftTests` target covers the feed parser, OPML service, feed discovery, refresh service, SmartFeedFilter ranking, data pruning, deep-link routing, favicons and story clustering, using in-memory SwiftData stores and a mocked HTTP client — no test touches the network.
+The `SiftTests` target covers the feed parser, OPML service, feed discovery, refresh service, SmartFeedFilter ranking, data pruning, deep-link routing, favicons and story clustering, Several suites use in-memory SwiftData stores and a mocked HTTP client. Run hosted tests in an isolated simulator; this is not a guarantee that the entire app host performs no network or persistence work.
 
-> [!WARNING]
-> The test sources are not yet attached to the `SiftTests` target, so the command above currently runs zero tests. Wiring them up is the first item on the [roadmap](#roadmap).
+The `SiftTests` folder is attached to the test target. Use a development signature to run hosted macOS tests; the unsigned build above is only a compilation check. [Local verification](docs/VALIDATION.md) records actual test results, remaining failures and release limitations.
 
 ---
 
@@ -249,7 +247,7 @@ Contributions to translations are very welcome — edit `Sift/Localizable.xcstri
 The project is under active development. A detailed engineering review with prioritized fixes lives in [`docs/CRITIQUE.md`](docs/CRITIQUE.md); product direction is in [`docs/SIFT_PRODUCT_ROADMAP.md`](docs/SIFT_PRODUCT_ROADMAP.md).
 
 **Next up**
-- [ ] Attach the test suite to the test target and run it in CI
+- [x] Attach the test suite to the test target (local results in `docs/VALIDATION.md`; CI is optional)
 - [ ] Parser: namespaced elements (`content:encoded`, `dc:*`, `media:*`), HTML entities, relative URLs
 - [ ] Non-destructive promotional filtering and a typed settings store
 - [ ] Unique constraints, tombstones and a single refresh coordinator to prevent duplicates

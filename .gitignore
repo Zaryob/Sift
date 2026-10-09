@@ -41,8 +41,7 @@ playground.xcworkspace/
 # SwiftPM
 *.xcodeproj/project.xcworkspace/xcshareddata/IDETemplateMacros.plist
 
-# App entitlements
-*.entitlements
+# Entitlements are project inputs; keep them versioned for fresh checkouts.
 
 # Other
 .omc/
