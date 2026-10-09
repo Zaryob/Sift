@@ -12,7 +12,7 @@ A serial simulator XCTest run reported **49 executed tests and four assertion fa
 | `SmartFeedFilterTests.testScalesBudgetAndDoesNotPassAll976Articles` | 13 selected items versus the asserted minimum 25 |
 | `StoryClusteringSpikeTests.testRecentMemberSupportPreventsCentroidDrift` | Accepted where the test expected rejection by recent-member support |
 
-This is a **failed test run**, not a CI-passing or release-ready claim. Relevant XCTest output is retained in [test-output.txt](test-output.txt). The first parallel attempt also exposed failures and did not finish cleanly; it was interrupted. The serial test assertions completed, but the hosted test session's shutdown/result export must be assessed separately. No passing aggregate is inferred from build success.
+This is a **failed test run**, not a CI-passing or release-ready claim. Relevant XCTest output is retained in [test-output.txt](test-output.txt). The first parallel attempt also exposed failures and did not finish cleanly; it was interrupted. The serial test assertions completed, but the hosted session did not exit; it was interrupted at a 240-second limit and then terminated after an additional shutdown wait. An Xcode cancellation exception was logged, so no completed `.xcresult` aggregate is published. No passing aggregate is inferred from build success.
 
 ```sh
 xcodebuild -project Sift.xcodeproj -scheme Sift \
